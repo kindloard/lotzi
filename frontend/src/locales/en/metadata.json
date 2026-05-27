@@ -1,0 +1,42 @@
+{
+  "root": {
+    "title": "Namastore",
+    "description": "Premium local marketplace for nearby shops and customers."
+  },
+  "auth": {
+    "login": {
+      "title": "Log in | Namastore",
+      "description": "Log in to your Namastore account."
+    },
+    "signup": {
+      "title": "Sign up | Namastore",
+      "description": "Create a Namastore customer account."
+    },
+    "merchantSignup": {
+      "title": "Merchant signup | Namastore",
+      "description": "Create a merchant account and start selling locally."
+    },
+    "otp": {
+      "title": "Verify account | Namastore",
+      "description": "Verify your Namastore account with a one-time code."
+    },
+    "resetPassword": {
+      "title": "Reset password | Namastore",
+      "description": "Reset your Namastore account password."
+    }
+  },
+  "dashboard": {
+    "title": "Merchant dashboard | Namastore",
+    "description": "Manage orders, products, inventory, customers, analytics, and payouts."
+  },
+  "cart": {
+    "title": "Cart | Namastore",
+    "description": "Review your cart before checkout."
+  },
+  "admin": {
+    "merchantApprovals": {
+      "title": "Merchant approvals | Namastore",
+      "description": "Review and approve merchant onboarding submissions."
+    }
+  }
+}

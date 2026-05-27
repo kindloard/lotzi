@@ -1,0 +1,70 @@
+.backdrop {
+  animation: productCreateBackdropIn 180ms ease-out both;
+}
+
+.drawer {
+  animation: productCreateDrawerIn 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.hiddenScrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hiddenScrollbar::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.pricingGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr));
+  max-width: 100%;
+  min-width: 0;
+}
+
+.variantGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 104px), 1fr));
+  max-width: 100%;
+  min-width: 0;
+}
+
+.variantNameField,
+.variantSkuField {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.variantDeleteButton {
+  align-self: end;
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .variantNameField,
+  .variantSkuField {
+    grid-column: 1 / -1;
+  }
+}
+
+@keyframes productCreateBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes productCreateDrawerIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

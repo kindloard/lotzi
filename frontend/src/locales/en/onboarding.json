@@ -1,0 +1,91 @@
+{
+  "title": "Merchant onboarding",
+  "description": "Finish the required steps to launch your Namastore merchant profile.",
+  "resume": "Resume onboarding",
+  "steps": {
+    "BUSINESS": "Business details",
+    "BRANDING": "Branding",
+    "LEGAL": "Legal and verification",
+    "LOCATION": "Location",
+    "PREFERENCES": "Preferences",
+    "REVIEW": "Review and launch"
+  },
+  "stepDescriptions": {
+    "BUSINESS": "Tell customers what you sell and how to reach you.",
+    "BRANDING": "Add a logo, banner, and store voice.",
+    "LEGAL": "Provide documents required for approval.",
+    "LOCATION": "Set your service address and delivery area.",
+    "PREFERENCES": "Choose order, payout, and notification preferences.",
+    "REVIEW": "Check everything before you submit for launch."
+  },
+  "fields": {
+    "businessName": "Business name",
+    "businessType": "Business type",
+    "category": "Primary category",
+    "phone": "Phone number",
+    "email": "Business email",
+    "description": "Store description",
+    "logo": "Store logo",
+    "banner": "Store banner",
+    "gstin": "GSTIN",
+    "pan": "PAN",
+    "fssai": "FSSAI license",
+    "addressLine1": "Address line 1",
+    "addressLine2": "Address line 2",
+    "city": "City",
+    "state": "State",
+    "postalCode": "PIN code",
+    "deliveryRadius": "Delivery radius",
+    "payoutMethod": "Payout method",
+    "orderMode": "Order mode",
+    "openDays": "Open days",
+    "supportPhone": "Support phone"
+  },
+  "placeholders": {
+    "businessName": "Example: Saravana Fresh",
+    "description": "Write a short, clear description for local customers.",
+    "phone": "10-digit mobile number",
+    "email": "store@example.com",
+    "addressLine1": "Shop number, street, building",
+    "city": "Chennai",
+    "postalCode": "600001",
+    "deliveryRadius": "Example: 5"
+  },
+  "helper": {
+    "logo": "Use a square PNG or JPG under 2 MB.",
+    "banner": "Use a wide banner image for your storefront.",
+    "gstin": "GSTIN is optional for businesses that do not need it.",
+    "deliveryRadius": "Customers inside this distance can place delivery orders.",
+    "snapshotRestored": "Your form progress was restored after changing language."
+  },
+  "actions": {
+    "saveDraft": "Save draft",
+    "savingDraft": "Saving draft...",
+    "continue": "Save and continue",
+    "submitReview": "Submit for review",
+    "launchStore": "Launch store",
+    "discardDraft": "Discard draft"
+  },
+  "validation": {
+    "required": "{field} is required.",
+    "email": "Enter a valid email address.",
+    "phone": "Enter a valid Indian mobile number.",
+    "postalCode": "Enter a valid 6-digit PIN code.",
+    "descriptionMin": "Description must be at least {min} characters.",
+    "documentRequired": "Upload the required document.",
+    "openDaysRequired": "Select at least one open day."
+  },
+  "toasts": {
+    "draftSaved": "Onboarding draft saved.",
+    "draftSaveFailed": "Could not save draft.",
+    "submitted": "Your store has been submitted for review.",
+    "launched": "Your store is ready to launch.",
+    "discarded": "Onboarding draft discarded.",
+    "snapshotExpired": "Saved language-switch progress expired. Please review the step again."
+  },
+  "counts": {
+    "openDays": "{count, plural, =0 {No open days selected} =1 {1 open day selected} other {# open days selected}}",
+    "uploadedFiles": "{count, plural, =0 {No files uploaded} =1 {1 file uploaded} other {# files uploaded}}",
+    "pendingFiles": "{count, plural, =0 {No pending files} =1 {1 pending file} other {# pending files}}"
+  }
+}

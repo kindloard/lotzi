@@ -1,0 +1,39 @@
+{
+  "merchantApprovals": {
+    "title": "Merchant approvals",
+    "subtitle": "Review submitted merchant profiles, documents, and launch readiness.",
+    "searchPlaceholder": "Search merchant, city, or application ID",
+    "emptyTitle": "No applications to review",
+    "emptyDescription": "New merchant submissions will appear here.",
+    "columns": {
+      "merchant": "Merchant",
+      "status": "Status",
+      "city": "City",
+      "submitted": "Submitted",
+      "risk": "Risk",
+      "actions": "Actions"
+    },
+    "details": {
+      "business": "Business",
+      "documents": "Documents",
+      "verification": "Verification",
+      "notes": "Review notes",
+      "submitted": "Submitted",
+      "owner": "Owner",
+      "phone": "Phone",
+      "email": "Email"
+    },
+    "actions": {
+      "approve": "Approve merchant",
+      "reject": "Reject merchant",
+      "requestChanges": "Request changes",
+      "assignReviewer": "Assign reviewer"
+    },
+    "toasts": {
+      "approved": "Merchant approved.",
+      "rejected": "Merchant rejected.",
+      "changesRequested": "Changes requested from merchant.",
+      "failed": "Could not update merchant review."
+    }
+  }
+}

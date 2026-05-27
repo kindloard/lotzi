@@ -1,0 +1,29 @@
+{
+  "title": "Cart",
+  "subtitle": "Review your items before checkout.",
+  "emptyTitle": "Your cart is empty",
+  "emptyDescription": "Add products from nearby stores to get started.",
+  "continueShopping": "Continue shopping",
+  "item": {
+    "remove": "Remove item",
+    "increase": "Increase quantity",
+    "decrease": "Decrease quantity",
+    "quantity": "Quantity"
+  },
+  "summary": {
+    "title": "Order summary",
+    "subtotal": "Subtotal",
+    "delivery": "Delivery",
+    "discount": "Discount",
+    "taxes": "Taxes",
+    "total": "Total",
+    "checkout": "Checkout"
+  },
+  "counts": {
+    "items": "{count, plural, =0 {No cart items} =1 {1 cart item} other {# cart items}}"
+  },
+  "toasts": {
+    "updated": "Cart updated.",
+    "checkoutUnavailable": "Checkout is not available yet."
+  }
+}

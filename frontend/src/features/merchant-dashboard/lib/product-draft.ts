@@ -1,0 +1,186 @@
+import { defaultDraft } from "../data/mock-dashboard-data";
+import {
+  coerceMeasurementForProduct,
+  defaultMeasurementForProduct,
+  normalizeMeasurement
+} from "../data/product-measurement";
+import {
+  defaultSubcategoryForCategory,
+  defaultTypeForSubcategory,
+  typesForSubcategory
+} from "../data/subcategories";
+import type { Product, ProductDraft, ProductImage, ProductMeasurement, VariantDraft } from "../types/dashboard";
+import { PRODUCT_DESCRIPTION_MAX_LENGTH } from "./dashboard-utils";
+
+export function productToDraft(product: Product): ProductDraft {
+  const category = product.category || defaultDraft.category;
+  const subCategory = product.subCategory || defaultSubcategoryForCategory(category);
+  const productType = typesForSubcategory(category, subCategory).includes(product.productType)
+    ? product.productType
+    : defaultTypeForSubcategory(category, subCategory);
+  const context = { category, subCategory, productType };
+  const measurement = coerceMeasurementForProduct(
+    product.measurement ?? defaultMeasurementForProduct(context),
+    context
+  );
+  const variants = productVariantsToDraft(product, measurement);
+  const baseVariant = findBaseVariant(product, variants, measurement) ?? productVariantFromProduct(product, measurement);
+  const draftVariants = variants
+    .filter((variant) => variant.id !== baseVariant.id && !variant.isDefault)
+    .map((variant) => normalizeVariantFlags(variant, product, measurement, true));
+  const images = product.images
+    .slice()
+    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+    .map((image, index) => productImageToDraft(image, index));
+  const hasVariantImages = images.some((image) => image.imageScope === "VARIANT");
+
+  return {
+    ...defaultDraft,
+    name: product.name,
+    sku: product.sku,
+    category,
+    subCategory,
+    productType,
+    price: product.price,
+    compareAtPrice: product.compareAtPrice ?? 0,
+    costPrice: product.costPrice ?? baseVariant.costPrice ?? 0,
+    stock: baseVariant.stock,
+    reorderPoint: product.reorderPoint,
+    measurement,
+    status: product.status,
+    seoTitle: product.seoTitle ?? "",
+    seoDescription: (product.seoDescription ?? "").slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH),
+    mediaScope: hasVariantImages ? "VARIANT" : "PRODUCT",
+    sameImageAsProduct: !hasVariantImages,
+    images,
+    variants: draftVariants,
+    baseVariant: normalizeVariantFlags(baseVariant, product, measurement, false),
+    catalogVersion: product.catalogVersion
+  };
+}
+
+function productVariantsToDraft(product: Product, productMeasurement: ProductMeasurement): VariantDraft[] {
+  if (!product.variants?.length) {
+    return [productVariantFromProduct(product, productMeasurement)];
+  }
+
+  return product.variants.map((variant) => {
+    const measurement = variant.measurement ?? productMeasurement;
+    const normalized = normalizeMeasurement(measurement, variant.price || product.price);
+    return {
+      id: variant.id,
+      name: variant.name || product.name,
+      sku: variant.sku || product.sku,
+      price: variant.price || product.price,
+      mrp: variant.mrp ?? product.compareAtPrice ?? 0,
+      costPrice: variant.costPrice ?? product.costPrice ?? 0,
+      stock: variant.stock,
+      stockOnHand: variant.stockOnHand,
+      stockReserved: variant.stockReserved,
+      stockVersion: variant.stockVersion,
+      isDefault: variant.isDefault,
+      position: variant.position,
+      measurement,
+      unitDisplay: normalized.unitDisplay,
+      pricePerBaseUnit: normalized.pricePerBaseUnit,
+      pricePerBaseUnitDisplay: normalized.pricePerBaseUnitDisplay
+    };
+  });
+}
+
+function productVariantFromProduct(product: Product, productMeasurement: ProductMeasurement): VariantDraft {
+  const normalized = normalizeMeasurement(productMeasurement, product.price);
+  return {
+    id: `${product.id}-base`,
+    name: product.name || "Default",
+    sku: product.sku,
+    price: product.price,
+    mrp: product.compareAtPrice ?? 0,
+    costPrice: product.costPrice ?? 0,
+    stock: product.stock,
+    stockOnHand: product.stockOnHand,
+    stockReserved: product.stockReserved,
+    stockVersion: 1,
+    isDefault: true,
+    position: 0,
+    measurement: productMeasurement,
+    unitDisplay: normalized.unitDisplay,
+    pricePerBaseUnit: normalized.pricePerBaseUnit,
+    pricePerBaseUnitDisplay: normalized.pricePerBaseUnitDisplay
+  };
+}
+
+function findBaseVariant(
+  product: Product,
+  variants: VariantDraft[],
+  productMeasurement: ProductMeasurement
+) {
+  const defaultVariant = variants.find((variant) => variant.isDefault);
+  if (defaultVariant) {
+    return defaultVariant;
+  }
+
+  const matchingVariant = variants.find((variant) =>
+    sameSku(variant.sku, product.sku) &&
+    sameNumber(variant.price, product.price) &&
+    sameNumber(variant.mrp ?? 0, product.compareAtPrice ?? 0) &&
+    sameMeasurement(variant.measurement, productMeasurement) &&
+    (sameText(variant.name, product.name) || variants.length === 1)
+  );
+  return matchingVariant
+    ?? variants.find((variant) =>
+      sameSku(variant.sku, product.sku) &&
+      sameNumber(variant.price, product.price) &&
+      sameMeasurement(variant.measurement, productMeasurement)
+    )
+    ?? variants[0];
+}
+
+function normalizeVariantFlags(
+  variant: VariantDraft,
+  product: Product,
+  productMeasurement: ProductMeasurement,
+  visibleVariant: boolean
+): VariantDraft {
+  return {
+    ...variant,
+    manualPrice: visibleVariant && variant.price !== product.price,
+    manualPackSize: visibleVariant && variant.measurement.quantityValue !== productMeasurement.quantityValue,
+    manualUnit: visibleVariant && variant.measurement.quantityUnit !== productMeasurement.quantityUnit,
+    manualPackType: visibleVariant && variant.measurement.packType !== productMeasurement.packType
+  };
+}
+
+function productImageToDraft(image: ProductImage, index: number): ProductImage {
+  const hasVariantAssignment = Boolean(image.variantIds?.length || image.variantSkuIds?.length);
+  return {
+    ...image,
+    imageScope: hasVariantAssignment ? "VARIANT" : "PRODUCT",
+    sortOrder: index,
+    isPrimary: image.isPrimary ?? index === 0,
+    variantIds: image.variantIds ?? [],
+    variantSkuIds: image.variantSkuIds ?? [],
+    upload: undefined
+  };
+}
+
+function sameMeasurement(left: ProductMeasurement, right: ProductMeasurement) {
+  return (
+    left.unitGroup === right.unitGroup &&
+    left.quantityValue === right.quantityValue &&
+    left.quantityUnit === right.quantityUnit &&
+    left.packType === right.packType
+  );
+}
+
+function sameSku(left: string, right: string) {
+  return left.trim().toUpperCase() === right.trim().toUpperCase();
+}
+
+function sameText(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function sameNumber(left: number, right: number) {
+  return Math.abs(left - right) < 0.0001;
+}

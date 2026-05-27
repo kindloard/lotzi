@@ -1,0 +1,36 @@
+{
+  "home": {
+    "title": "Shop nearby stores",
+    "subtitle": "Fresh groceries, essentials, and local favorites delivered from trusted stores around you.",
+    "searchPlaceholder": "Search products or stores",
+    "featuredStores": "Featured stores",
+    "popularProducts": "Popular products",
+    "nearYou": "Near you",
+    "viewStore": "View store",
+    "addToCart": "Add to cart",
+    "emptyTitle": "No products found",
+    "emptyDescription": "Try another search or category."
+  },
+  "filters": {
+    "all": "All",
+    "grocery": "Grocery",
+    "fresh": "Fresh",
+    "household": "Household",
+    "personalCare": "Personal care",
+    "sort": "Sort",
+    "priceLowHigh": "Price: Low to high",
+    "priceHighLow": "Price: High to low"
+  },
+  "product": {
+    "price": "Price",
+    "mrp": "MRP",
+    "inStock": "In stock",
+    "outOfStock": "Out of stock",
+    "quantity": "Quantity",
+    "seller": "Seller"
+  },
+  "toasts": {
+    "addedToCart": "{name} added to cart.",
+    "removedFromCart": "{name} removed from cart."
+  }
+}

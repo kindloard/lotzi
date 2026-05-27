@@ -1,0 +1,1171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  LOCKED
+  SUSPENDED
+  DELETED
+}
+
+enum UserProviderType {
+  EMAIL
+  GOOGLE
+  MULTI
+}
+
+enum IdentityProviderName {
+  GOOGLE
+}
+
+enum OtpPurpose {
+  EMAIL_SIGNUP
+  EMAIL_CHANGE
+}
+
+enum SessionRevokedReason {
+  LOGOUT
+  USER_REVOKED
+  PASSWORD_RESET
+  TOKEN_REUSE
+  ROLE_CHANGED
+  ADMIN_REVOKED
+  COMPROMISED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+  PENDING
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum StoreStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum OnboardingLifecycleState {
+  PENDING
+  BUSINESS_DONE
+  BRANDING_DONE
+  LEGAL_DONE
+  LOCATION_DONE
+  PREFS_DONE
+  READY_FOR_REVIEW
+  LAUNCHED
+  APPROVAL_PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum OnboardingStep {
+  BUSINESS
+  BRANDING
+  LEGAL
+  LOCATION
+  PREFERENCES
+  REVIEW
+}
+
+enum OnboardingValidationStatus {
+  DRAFT
+  VALID
+  INVALID
+}
+
+enum StoreMediaKind {
+  LOGO
+  BANNER
+}
+
+enum StoreMediaProvider {
+  CLOUDINARY
+}
+
+enum StoreMediaStatus {
+  TEMP
+  VALIDATED
+  ATTACHED
+  ORPHANED
+  REJECTED
+}
+
+enum StoreApprovalStatus {
+  PENDING
+  AUTO_APPROVED
+  MANUAL_REVIEW
+  REJECTED
+}
+
+enum DomainEventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+enum StoreMemberStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum RoleScope {
+  PLATFORM
+  STORE
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum PayoutStatus {
+  NOT_CONFIGURED
+  PENDING
+  VERIFIED
+  REJECTED
+  DISABLED
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  PACKING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+  RAZORPAY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum UploadPurpose {
+  PRODUCT_IMAGE
+  STORE_LOGO
+  STORE_BANNER
+  CATEGORY_IMAGE
+  USER_AVATAR
+}
+
+enum UploadAssetStatus {
+  TEMP
+  READY
+  ATTACHED
+  ORPHANED
+  REJECTED
+}
+
+enum UploadProvider {
+  CLOUDINARY
+}
+
+enum UploadRenditionKind {
+  THUMBNAIL
+  CARD
+  DETAIL
+  ZOOM
+  JPEG_FALLBACK
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  NEEDS_REVIEW
+}
+
+enum UnitGroup {
+  WEIGHT
+  VOLUME
+  COUNT
+  LENGTH
+  AREA
+  BUNDLE
+}
+
+enum MeasurementUnit {
+  MG
+  G
+  KG
+  TONNE
+  ML
+  LITRE
+  GALLON
+  PIECE
+  PAIR
+  DOZEN
+  CM
+  METER
+  INCH
+  FEET
+  SQ_FT
+  SQ_METER
+}
+
+enum PackType {
+  UNIT
+  PACK
+  PACKET
+  BOX
+  CARTON
+  BOTTLE
+  POUCH
+  JAR
+  CAN
+  SACHET
+  STRIP
+  BAG
+  TRAY
+  BUNCH
+  BUNDLE
+  SET
+}
+
+enum StockReservationStatus {
+  ACTIVE
+  RELEASED
+  FINALIZED
+  EXPIRED
+}
+
+model User {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String           @unique @db.Citext
+  fullName          String?          @map("full_name")
+  passwordHash      String?          @map("password_hash")
+  providerType      UserProviderType @default(EMAIL) @map("provider_type")
+  emailVerified     Boolean          @default(false) @map("email_verified")
+  avatarUrl         String?          @map("avatar_url")
+  status            UserStatus       @default(PENDING)
+  phone             String?
+  loginCount        Int              @default(0) @map("login_count")
+  failedAttempts    Int              @default(0) @map("failed_attempts")
+  lockedUntil       DateTime?        @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt       DateTime?        @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt DateTime?        @map("password_changed_at") @db.Timestamptz(3)
+  authzVersion      Int              @default(1) @map("authz_version")
+  deletedAt         DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  addresses               Address[]
+  carts                   Cart[]
+  orders                  Order[]
+  stockReservations       StockReservation[]
+  identityProviders       IdentityProvider[]
+  otpVerifications        OtpVerification[]
+  sessions                Session[]
+  passwordResets          PasswordReset[]
+  customerProfile         CustomerProfile?
+  merchantProfile         MerchantProfile?
+  accountDeletionRequests AccountDeletionRequest[]
+  createdStores           Store[]               @relation("StoreCreatedBy")
+  approvedStores          Store[]               @relation("StoreApprovedBy")
+  userRoles               UserRoleAssignment[]  @relation("UserRoleUser")
+  assignedUserRoles       UserRoleAssignment[]  @relation("UserRoleAssignedBy")
+  storeMemberships        StoreMember[]         @relation("StoreMemberUser")
+  invitedStoreMemberships StoreMember[]         @relation("StoreMemberInvitedBy")
+  auditLogs               AuditLog[]            @relation("AuditActor")
+  uploadedStoreMedia      StoreMedia[]          @relation("StoreMediaUploadedBy")
+  uploadedAssets          UploadAsset[]         @relation("UploadAssetUploadedBy")
+  idempotencyKeys         IdempotencyKey[]       @relation("IdempotencyKeyUser")
+  reviewedStoreApprovals  StoreApprovalReview[] @relation("StoreApprovalReviewedBy")
+
+  @@index([email, status])
+  @@index([status])
+  @@map("users")
+}
+
+model IdentityProvider {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String               @map("user_id") @db.Uuid
+  provider       IdentityProviderName
+  providerUserId String               @map("provider_user_id")
+  providerEmail  String               @map("provider_email") @db.Citext
+  metadata       Json                 @default("{}")
+  linkedAt       DateTime             @default(now()) @map("linked_at") @db.Timestamptz(3)
+  lastLoginAt    DateTime?            @map("last_login_at") @db.Timestamptz(3)
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@index([providerEmail])
+  @@map("identity_providers")
+}
+
+model OtpVerification {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String     @map("user_id") @db.Uuid
+  email         String     @db.Citext
+  otpHash       String     @map("otp_hash")
+  otpNonce      String     @map("otp_nonce")
+  purpose       OtpPurpose
+  metadata      Json       @default("{}")
+  verified      Boolean    @default(false)
+  verifiedAt    DateTime?  @map("verified_at") @db.Timestamptz(3)
+  attemptCount  Int        @default(0) @map("attempt_count")
+  sendCount     Int        @default(1) @map("send_count")
+  expiresAt     DateTime   @map("expires_at") @db.Timestamptz(3)
+  cooldownUntil DateTime?  @map("cooldown_until") @db.Timestamptz(3)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose, createdAt])
+  @@index([userId, purpose, verified, expiresAt])
+  @@map("otp_verifications")
+}
+
+model Session {
+  id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
+  tokenFamilyId     String                @map("token_family_id") @db.Uuid
+  refreshTokenHash  String                @unique @map("refresh_token_hash")
+  refreshTokenJti   String?               @map("refresh_token_jti") @db.VarChar(64)
+  refreshTokenParentJti String?           @map("refresh_token_parent_jti") @db.VarChar(64)
+  refreshTokenIssuedAt DateTime?          @map("refresh_token_issued_at") @db.Timestamptz(3)
+  clientSecretHash  String?               @map("client_secret_hash") @db.VarChar(128)
+  deviceFingerprint String                @map("device_fingerprint")
+  deviceMetadata    Json?                 @map("device_metadata")
+  ipAddress         String?               @map("ip_address")
+  userAgent         String?               @map("user_agent")
+  expiresAt         DateTime              @map("expires_at") @db.Timestamptz(3)
+  persistent        Boolean               @default(true)
+  revoked           Boolean               @default(false)
+  revokedAt         DateTime?             @map("revoked_at") @db.Timestamptz(3)
+  revokedReason     SessionRevokedReason? @map("revoked_reason")
+  lastSeenAt        DateTime              @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshHistory    RefreshTokenHistory[]
+  auditLogs         AuditLog[]
+
+  @@index([userId, revoked, expiresAt])
+  @@index([tokenFamilyId, revoked])
+  @@index([tokenFamilyId, refreshTokenJti])
+  @@index([deviceFingerprint])
+  @@map("sessions")
+}
+
+model RefreshTokenHistory {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId        String    @map("session_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenFamilyId    String    @map("token_family_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  refreshTokenJti  String?   @map("refresh_token_jti") @db.VarChar(64)
+  replacementRefreshTokenJti String? @map("replacement_refresh_token_jti") @db.VarChar(64)
+  deviceFingerprint String?  @map("device_fingerprint") @db.VarChar(128)
+  consumedAt       DateTime  @default(now()) @map("consumed_at") @db.Timestamptz(3)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  reuseDetectedAt  DateTime? @map("reuse_detected_at") @db.Timestamptz(3)
+  session          Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tokenFamilyId, expiresAt])
+  @@index([userId, consumedAt])
+  @@index([sessionId, refreshTokenJti])
+  @@map("refresh_token_history")
+}
+
+model PasswordReset {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  selector      String    @unique
+  verifierHash  String    @map("verifier_hash")
+  verifierNonce String    @map("verifier_nonce")
+  requestedIp   String?   @map("requested_ip")
+  userAgentHash String?   @map("user_agent_hash")
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(3)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt, expiresAt])
+  @@map("password_resets")
+}
+
+model CustomerProfile {
+  userId         String   @id @map("user_id") @db.Uuid
+  displayName    String?  @map("display_name")
+  phone          String?
+  marketingOptIn Boolean  @default(false) @map("marketing_opt_in")
+  loyaltyTier    String   @default("STANDARD") @map("loyalty_tier")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("customer_profiles")
+}
+
+model MerchantProfile {
+  userId             String       @id @map("user_id") @db.Uuid
+  businessName       String       @map("business_name")
+  legalName          String?      @map("legal_name")
+  gstin              String?      @unique @db.VarChar(15)
+  panLast4           String?      @map("pan_last4") @db.VarChar(4)
+  kycStatus          KycStatus    @default(NOT_SUBMITTED) @map("kyc_status")
+  kycProvider        String?      @map("kyc_provider")
+  kycReference       String?      @map("kyc_reference")
+  encryptedKycData   Json?        @map("encrypted_kyc_data")
+  payoutStatus       PayoutStatus @default(NOT_CONFIGURED) @map("payout_status")
+  payoutAccountLast4 String?      @map("payout_account_last4") @db.VarChar(4)
+  payoutIfsc         String?      @map("payout_ifsc")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([kycStatus])
+  @@index([payoutStatus])
+  @@map("merchant_profiles")
+}
+
+model Role {
+  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String               @unique
+  name         String
+  description  String?
+  scope        RoleScope
+  isSystem     Boolean              @default(true) @map("is_system")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  permissions  RolePermission[]
+  userRoles    UserRoleAssignment[]
+  storeMembers StoreMember[]
+
+  @@index([scope])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String           @unique
+  description String?
+  scope       RoleScope
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  roles       RolePermission[]
+
+  @@index([scope])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  assignedById String?   @map("assigned_by_user_id") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  user         User      @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedBy   User?     @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt])
+  @@index([roleId, revokedAt])
+  @@map("user_roles")
+}
+
+model StoreMember {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId         String            @map("store_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  roleId          String            @map("role_id") @db.Uuid
+  status          StoreMemberStatus @default(PENDING)
+  invitedByUserId String?           @map("invited_by_user_id") @db.Uuid
+  joinedAt        DateTime?         @map("joined_at") @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user            User              @relation("StoreMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  role            Role              @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedBy       User?             @relation("StoreMemberInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([storeId, status])
+  @@index([roleId, status])
+  @@map("store_members")
+}
+
+model AuditLog {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventType   String       @map("event_type")
+  actor       String?
+  actorUserId String?      @map("actor_user_id") @db.Uuid
+  storeId     String?      @map("store_id") @db.Uuid
+  outcome     AuditOutcome
+  metadata    Json         @default("{}")
+  ipAddress   String?      @map("ip_address")
+  requestId   String?      @map("request_id")
+  sessionId   String?      @map("session_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  actorUser   User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  store       Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  session     Session?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([requestId])
+  @@map("audit_logs")
+}
+
+model AuditOutbox {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  auditLogId String       @map("audit_log_id") @db.Uuid
+  eventType  String       @map("event_type")
+  payload    Json
+  status     OutboxStatus @default(PENDING)
+  attempts   Int          @default(0)
+  nextRunAt  DateTime     @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  lastError  String?      @map("last_error")
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt     DateTime?    @map("sent_at") @db.Timestamptz(3)
+
+  @@index([status, nextRunAt])
+  @@map("audit_outbox")
+}
+
+model EmailOutbox {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  toEmail        String       @map("to_email") @db.Citext
+  template       String
+  subject        String
+  payload        Json
+  idempotencyKey String?      @unique @map("idempotency_key")
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  nextAttemptAt  DateTime     @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lastError      String?      @map("last_error")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt         DateTime?    @map("sent_at") @db.Timestamptz(3)
+
+  @@index([status, nextAttemptAt])
+  @@index([toEmail, createdAt])
+  @@map("email_outbox")
+}
+
+model Address {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  label                String?
+  recipientName        String?   @map("recipient_name")
+  recipientPhone       String?   @map("recipient_phone")
+  line1                String
+  line2                String?
+  city                 String
+  state                String
+  pincode              String
+  latitude             Decimal?  @db.Decimal(10, 7)
+  longitude            Decimal?  @db.Decimal(10, 7)
+  deliveryInstructions String?   @map("delivery_instructions")
+  isDefault            Boolean   @default(false) @map("is_default")
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders               Order[]
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, deletedAt, updatedAt])
+  @@map("addresses")
+}
+
+model AccountDeletionRequest {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  confirmationHash String @map("confirmation_hash")
+  confirmationNonce String @map("confirmation_nonce")
+  requestedIp   String?   @map("requested_ip")
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(3)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  cooldownUntil DateTime? @map("cooldown_until") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt, expiresAt])
+  @@map("account_deletion_requests")
+}
+
+model Store {
+  id                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdByUserId     String                 @map("created_by_user_id") @db.Uuid
+  approvedByUserId    String?                @map("approved_by_user_id") @db.Uuid
+  name                String
+  legalName           String?                @map("legal_name")
+  slug                String                 @unique @db.Citext
+  description         String?
+  phone               String?
+  email               String?                @db.Citext
+  addressLine         String?                @map("address_line")
+  city                String?
+  state               String?
+  pincode             String?
+  latitude            Decimal?               @db.Decimal(10, 7)
+  longitude           Decimal?               @db.Decimal(10, 7)
+  status              StoreStatus            @default(PENDING)
+  isDeliveryAvailable Boolean                @default(false) @map("is_delivery_available")
+  openingTime         String?                @map("opening_time")
+  closingTime         String?                @map("closing_time")
+  imageUrl            String?                @map("image_url")
+  approvedAt          DateTime?              @map("approved_at") @db.Timestamptz(3)
+  rejectionReason     String?                @map("rejection_reason")
+  deletedAt           DateTime?              @map("deleted_at") @db.Timestamptz(3)
+  createdBy           User                   @relation("StoreCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  approvedBy          User?                  @relation("StoreApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  members             StoreMember[]
+  products            Product[]
+  orders              Order[]
+  carts               Cart[]
+  auditLogs           AuditLog[]
+  businessProfile     StoreBusinessProfile?
+  branding            StoreBranding?
+  settings            StoreSettings?
+  onboardingState     StoreOnboardingState?
+  onboardingDrafts    StoreOnboardingDraft[]
+  media               StoreMedia[]
+  uploadAssets        UploadAsset[]
+  idempotencyKeys     IdempotencyKey[]
+  approvalReviews     StoreApprovalReview[]
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([createdByUserId, status])
+  @@index([status, deletedAt])
+  @@map("stores")
+}
+
+model StoreBusinessProfile {
+  storeId            String   @id @map("store_id") @db.Uuid
+  businessName       String   @map("business_name")
+  category           String?
+  businessType       String?  @map("business_type")
+  country            String   @default("IN") @db.VarChar(2)
+  legalName          String?  @map("legal_name")
+  taxId              String?  @map("tax_id") @db.VarChar(64)
+  gstin              String?  @db.VarChar(15)
+  registrationNumber String?  @map("registration_number")
+  addressLine        String?  @map("address_line")
+  city               String?
+  state              String?
+  pincode            String?
+  contactEmail       String?  @map("contact_email") @db.Citext
+  phone              String?
+  verificationStatus String   @default("NOT_SUBMITTED") @map("verification_status")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store              Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([country, businessType])
+  @@index([verificationStatus])
+  @@map("store_business_profiles")
+}
+
+model StoreMedia {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String             @map("store_id") @db.Uuid
+  kind             StoreMediaKind
+  provider         StoreMediaProvider @default(CLOUDINARY)
+  providerPublicId String             @map("provider_public_id")
+  url              String
+  mimeType         String             @map("mime_type")
+  byteSize         Int                @map("byte_size")
+  width            Int?
+  height           Int?
+  checksum         String?
+  status           StoreMediaStatus   @default(TEMP)
+  uploadedByUserId String             @map("uploaded_by_user_id") @db.Uuid
+  attachedAt       DateTime?          @map("attached_at") @db.Timestamptz(3)
+  expiresAt        DateTime?          @map("expires_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store            Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  uploadedBy       User               @relation("StoreMediaUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  logoBranding     StoreBranding[]    @relation("StoreBrandingLogo")
+  bannerBranding   StoreBranding[]    @relation("StoreBrandingBanner")
+
+  @@unique([storeId, provider, providerPublicId])
+  @@index([storeId, kind, status])
+  @@index([status, expiresAt])
+  @@map("store_media")
+}
+
+model StoreBranding {
+  storeId       String      @id @map("store_id") @db.Uuid
+  logoMediaId   String?     @map("logo_media_id") @db.Uuid
+  bannerMediaId String?     @map("banner_media_id") @db.Uuid
+  tagline       String?
+  description   String?
+  primaryColor  String?     @map("primary_color") @db.VarChar(16)
+  accentColor   String?     @map("accent_color") @db.VarChar(16)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  logoMedia     StoreMedia? @relation("StoreBrandingLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
+  bannerMedia   StoreMedia? @relation("StoreBrandingBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+
+  @@map("store_branding")
+}
+
+model StoreSettings {
+  storeId                 String   @id @map("store_id") @db.Uuid
+  businessHours           Json     @default("{}") @map("business_hours")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("store_settings")
+}
+
+model StoreOnboardingState {
+  storeId                String                   @id @map("store_id") @db.Uuid
+  state                  OnboardingLifecycleState @default(PENDING)
+  currentStep            OnboardingStep           @default(BUSINESS) @map("current_step")
+  completionPercent      Int                      @default(0) @map("completion_percent")
+  businessCompletedAt    DateTime?                @map("business_completed_at") @db.Timestamptz(3)
+  brandingCompletedAt    DateTime?                @map("branding_completed_at") @db.Timestamptz(3)
+  legalCompletedAt       DateTime?                @map("legal_completed_at") @db.Timestamptz(3)
+  locationCompletedAt    DateTime?                @map("location_completed_at") @db.Timestamptz(3)
+  preferencesCompletedAt DateTime?                @map("preferences_completed_at") @db.Timestamptz(3)
+  reviewReadyAt          DateTime?                @map("review_ready_at") @db.Timestamptz(3)
+  launchedAt             DateTime?                @map("launched_at") @db.Timestamptz(3)
+  approvalSubmittedAt    DateTime?                @map("approval_submitted_at") @db.Timestamptz(3)
+  version                Int                      @default(1)
+  createdAt              DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store                  Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([state, updatedAt])
+  @@map("store_onboarding_states")
+}
+
+model StoreOnboardingDraft {
+  storeId          String                     @map("store_id") @db.Uuid
+  step             OnboardingStep
+  stepPayload      Json                       @default("{}") @map("step_payload")
+  validationStatus OnboardingValidationStatus @default(DRAFT) @map("validation_status")
+  validationErrors Json                       @default("[]") @map("validation_errors")
+  version          Int                        @default(1)
+  expiresAt        DateTime                   @default(dbgenerated("(now() + '30 days'::interval)")) @map("expires_at") @db.Timestamptz(3)
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store            Store                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, step])
+  @@index([expiresAt])
+  @@map("store_onboarding_drafts")
+}
+
+model StoreApprovalReview {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String              @map("store_id") @db.Uuid
+  status           StoreApprovalStatus @default(PENDING)
+  riskScore        Int                 @default(0) @map("risk_score")
+  reasonCodes      Json                @default("[]") @map("reason_codes")
+  reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?           @map("reviewed_at") @db.Timestamptz(3)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store            Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  reviewedBy       User?               @relation("StoreApprovalReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId])
+  @@index([storeId, status])
+  @@index([status, createdAt])
+  @@map("store_approval_reviews")
+}
+
+model DomainEvent {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventType     String            @map("event_type")
+  aggregateType String            @map("aggregate_type")
+  aggregateId   String            @map("aggregate_id") @db.Uuid
+  payload       Json              @default("{}")
+  status        DomainEventStatus @default(PENDING)
+  attempts      Int               @default(0)
+  nextRunAt     DateTime          @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  lastError     String?           @map("last_error")
+  publishedAt   DateTime?         @map("published_at") @db.Timestamptz(3)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextRunAt])
+  @@index([aggregateType, aggregateId, createdAt])
+  @@map("domain_events")
+}
+
+model Category {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String    @unique
+  slug      String    @unique
+  products  Product[]
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("categories")
+}
+
+model Product {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String           @map("store_id") @db.Uuid
+  categoryId     String?          @map("category_id") @db.Uuid
+  name           String
+  sku            String?
+  subCategory    String?          @map("sub_category")
+  productType    String?          @map("product_type")
+  description    String?
+  seoTitle       String?          @map("seo_title")
+  seoDescription String?          @map("seo_description")
+  price          Decimal          @db.Decimal(10, 2)
+  compareAtPrice Decimal?         @map("compare_at_price") @db.Decimal(10, 2)
+  stock          Int              @default(0)
+  reorderPoint   Int              @default(0) @map("reorder_point")
+  unitGroup      UnitGroup        @default(COUNT) @map("unit_group")
+  quantityValue  Decimal          @default(1) @map("quantity_value") @db.Decimal(12, 4)
+  quantityUnit   MeasurementUnit  @default(PIECE) @map("quantity_unit")
+  normalizedValue Decimal         @default(1) @map("normalized_value") @db.Decimal(14, 4)
+  normalizedUnit MeasurementUnit  @default(PIECE) @map("normalized_unit")
+  packType       PackType         @default(UNIT) @map("pack_type")
+  pricePerBaseUnit Decimal        @default(0) @map("price_per_base_unit") @db.Decimal(12, 2)
+  status         ProductStatus    @default(DRAFT)
+  imageUrl       String?          @map("image_url")
+  catalogVersion Int              @default(1) @map("catalog_version")
+  isActive       Boolean          @default(true) @map("is_active")
+  store          Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category       Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  images         ProductImage[]
+  variants       ProductVariant[]
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([storeId, sku])
+  @@index([storeId, status, updatedAt])
+  @@index([storeId, isActive])
+  @@index([categoryId, isActive])
+  @@index([unitGroup, quantityUnit])
+  @@map("products")
+}
+
+model ProductImage {
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId     String                @map("product_id") @db.Uuid
+  uploadAssetId String                @unique @map("upload_asset_id") @db.Uuid
+  sortOrder     Int                   @default(0) @map("sort_order")
+  isPrimary     Boolean               @default(false) @map("is_primary")
+  altText       String?               @map("alt_text")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  product       Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uploadAsset   UploadAsset           @relation(fields: [uploadAssetId], references: [id], onDelete: Restrict)
+  variants      ProductImageVariant[]
+
+  @@index([productId, sortOrder])
+  @@index([productId, isPrimary])
+  @@map("product_images")
+}
+
+model ProductVariant {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId        String                @map("product_id") @db.Uuid
+  name             String
+  sku              String?
+  price            Decimal               @db.Decimal(10, 2)
+  mrp              Decimal?              @db.Decimal(10, 2)
+  costPrice        Decimal?              @map("cost_price") @db.Decimal(10, 2)
+  pricePerBaseUnit Decimal               @default(0) @map("price_per_base_unit") @db.Decimal(12, 2)
+  stock            Int                   @default(0)
+  stockOnHand      Int                   @default(0) @map("stock_on_hand")
+  stockReserved    Int                   @default(0) @map("stock_reserved")
+  stockVersion     Int                   @default(1) @map("stock_version")
+  unitGroup        UnitGroup             @default(COUNT) @map("unit_group")
+  quantityValue    Decimal               @default(1) @map("quantity_value") @db.Decimal(12, 4)
+  quantityUnit     MeasurementUnit       @default(PIECE) @map("quantity_unit")
+  normalizedValue  Decimal               @default(1) @map("normalized_value") @db.Decimal(14, 4)
+  normalizedUnit   MeasurementUnit       @default(PIECE) @map("normalized_unit")
+  packType         PackType              @default(UNIT) @map("pack_type")
+  isDefault        Boolean               @default(false) @map("is_default")
+  position         Int                   @default(0)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  product          Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images           ProductImageVariant[]
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  reservations     StockReservation[]
+
+  @@unique([productId, sku])
+  @@index([productId])
+  @@index([productId, isDefault, position])
+  @@index([unitGroup, quantityUnit])
+  @@index([stockOnHand, stockReserved])
+  @@map("product_variants")
+}
+
+model ProductImageVariant {
+  productImageId   String         @map("product_image_id") @db.Uuid
+  productVariantId String         @map("product_variant_id") @db.Uuid
+  productImage     ProductImage   @relation(fields: [productImageId], references: [id], onDelete: Cascade)
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+
+  @@id([productImageId, productVariantId])
+  @@map("product_image_variants")
+}
+
+model UploadAsset {
+  id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String?                 @map("store_id") @db.Uuid
+  uploadedByUserId String                  @map("uploaded_by_user_id") @db.Uuid
+  purpose          UploadPurpose
+  status           UploadAssetStatus       @default(TEMP)
+  sourceSha256     String                  @map("source_sha256") @db.VarChar(64)
+  originalFilename String                  @map("original_filename")
+  draftId          String?                 @map("draft_id") @db.VarChar(120)
+  clientFileId     String?                 @map("client_file_id") @db.VarChar(120)
+  mimeType         String                  @map("mime_type")
+  width            Int
+  height           Int
+  bytes            Int
+  failureReason    String?                 @map("failure_reason")
+  originalProviderPublicId String?         @map("original_provider_public_id")
+  originalSecureUrl        String?         @map("original_secure_url")
+  cleanupAttemptedAt       DateTime?       @map("cleanup_attempted_at") @db.Timestamptz(3)
+  cleanupSucceededAt       DateTime?       @map("cleanup_succeeded_at") @db.Timestamptz(3)
+  cleanupAttemptCount      Int             @default(0) @map("cleanup_attempt_count")
+  cleanupLastError         String?         @map("cleanup_last_error")
+  expiresAt        DateTime?               @map("expires_at") @db.Timestamptz(3)
+  attachedAt       DateTime?               @map("attached_at") @db.Timestamptz(3)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store            Store?                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  uploadedBy       User                    @relation("UploadAssetUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  renditions       UploadAssetRendition[]
+  productImage     ProductImage?
+
+  @@index([originalProviderPublicId])
+  @@index([storeId, purpose, sourceSha256])
+  @@index([storeId, purpose, draftId, sourceSha256])
+  @@index([storeId, purpose, status])
+  @@index([status, expiresAt])
+  @@index([cleanupSucceededAt, cleanupAttemptCount])
+  @@index([uploadedByUserId, createdAt])
+  @@map("upload_assets")
+}
+
+model UploadAssetRendition {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uploadAssetId    String              @map("upload_asset_id") @db.Uuid
+  kind             UploadRenditionKind
+  provider         UploadProvider      @default(CLOUDINARY)
+  providerPublicId String?             @map("provider_public_id")
+  secureUrl        String              @map("secure_url")
+  transformation   String?
+  format           String
+  width            Int
+  height           Int
+  bytes            Int?
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  uploadAsset      UploadAsset         @relation(fields: [uploadAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([uploadAssetId, kind])
+  @@index([provider, providerPublicId])
+  @@index([uploadAssetId])
+  @@map("upload_asset_renditions")
+}
+
+model IdempotencyKey {
+  key          String            @id
+  storeId      String?           @map("store_id") @db.Uuid
+  userId       String            @map("user_id") @db.Uuid
+  operation    String
+  requestHash  String            @map("request_hash") @db.VarChar(64)
+  status       IdempotencyStatus @default(IN_PROGRESS)
+  responseJson Json?             @map("response_json")
+  expiresAt    DateTime          @map("expires_at") @db.Timestamptz(3)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store        Store?            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user         User              @relation("IdempotencyKeyUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, operation, expiresAt])
+  @@index([userId, operation, expiresAt])
+  @@map("idempotency_keys")
+}
+
+model Cart {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  storeId   String?    @map("store_id") @db.Uuid
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store?     @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  items     CartItem[]
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId])
+  @@index([storeId])
+  @@map("carts")
+}
+
+model CartItem {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cartId    String          @map("cart_id") @db.Uuid
+  productId String          @map("product_id") @db.Uuid
+  variantId String?         @map("variant_id") @db.Uuid
+  quantity  Int             @default(1)
+  cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([cartId, productId, variantId])
+  @@index([variantId])
+  @@map("cart_items")
+}
+
+model Order {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  storeId       String        @map("store_id") @db.Uuid
+  addressId     String?       @map("address_id") @db.Uuid
+  addressRecipientName String? @map("address_recipient_name")
+  addressRecipientPhone String? @map("address_recipient_phone")
+  addressLine1  String?       @map("address_line1")
+  addressLine2  String?       @map("address_line2")
+  addressCity   String?       @map("address_city")
+  addressState  String?       @map("address_state")
+  addressPincode String?      @map("address_pincode")
+  addressLatitude Decimal?    @map("address_latitude") @db.Decimal(10, 7)
+  addressLongitude Decimal?   @map("address_longitude") @db.Decimal(10, 7)
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod @map("payment_method")
+  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
+  subtotal      Decimal       @db.Decimal(10, 2)
+  deliveryFee   Decimal       @default(0) @map("delivery_fee") @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  customerNote  String?       @map("customer_note")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  store         Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  address       Address?      @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  payment       Payment?
+  reservations  StockReservation[]
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt])
+  @@index([storeId, status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId       String          @map("order_id") @db.Uuid
+  productId     String          @map("product_id") @db.Uuid
+  variantId     String?         @map("variant_id") @db.Uuid
+  name          String
+  variantName   String?         @map("variant_name")
+  unitDisplay   String?         @map("unit_display")
+  quantityValue Decimal?        @map("quantity_value") @db.Decimal(12, 4)
+  quantityUnit  MeasurementUnit? @map("quantity_unit")
+  packType      PackType?       @map("pack_type")
+  quantity      Int
+  unitPrice     Decimal         @map("unit_price") @db.Decimal(10, 2)
+  mrp           Decimal?        @db.Decimal(10, 2)
+  total         Decimal         @db.Decimal(10, 2)
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product       Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([variantId])
+  @@map("order_items")
+}
+
+model StockReservation {
+  id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String                 @map("user_id") @db.Uuid
+  orderId   String?                @map("order_id") @db.Uuid
+  productVariantId String          @map("product_variant_id") @db.Uuid
+  quantity  Int
+  status    StockReservationStatus @default(ACTIVE)
+  reason    String?
+  expiresAt DateTime               @map("expires_at") @db.Timestamptz(3)
+  releasedAt DateTime?             @map("released_at") @db.Timestamptz(3)
+  finalizedAt DateTime?            @map("finalized_at") @db.Timestamptz(3)
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order     Order?                 @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  variant   ProductVariant         @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+
+  @@index([productVariantId, status])
+  @@index([status, expiresAt])
+  @@index([userId, status])
+  @@map("stock_reservations")
+}
+
+model Payment {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId           String        @unique @map("order_id") @db.Uuid
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  razorpayOrderId   String?       @map("razorpay_order_id")
+  razorpayPaymentId String?       @map("razorpay_payment_id")
+  razorpaySignature String?       @map("razorpay_signature")
+  amount            Decimal       @db.Decimal(10, 2)
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("payments")
+}
