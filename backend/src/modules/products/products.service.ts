@@ -15,6 +15,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
 import { PERMISSIONS } from "../rbac/permissions";
 import { RbacEngine } from "../rbac/rbac.engine";
+import { ShopsService } from "../shops/shops.service";
 import { UploadEngineService } from "../uploads/upload-engine.service";
 import { uploadError } from "../uploads/uploads.errors";
 import {
@@ -151,6 +152,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rbac: RbacEngine,
+    private readonly shops: ShopsService,
     private readonly uploadEngine: UploadEngineService
   ) {}
 
@@ -215,6 +217,9 @@ export class ProductsService {
       imageRows,
       imageVariantRows
     }));
+    await timeStage(timer, "public-cache-invalidate", () =>
+      this.invalidatePublicShopProductCache(dto.storeId, "product.create")
+    );
 
     return {
       apiVersion: "v1",
@@ -330,6 +335,9 @@ export class ProductsService {
       }
       return { product: updated, variants: variantRows, ...writtenImages };
     }));
+    await timeStage(timer, "public-cache-invalidate", () =>
+      this.invalidatePublicShopProductCache(fullDto.storeId, "product.update")
+    );
 
     return {
       apiVersion: "v1",
@@ -563,6 +571,9 @@ export class ProductsService {
         }
       });
     }));
+    await timeStage(timer, "public-cache-invalidate", () =>
+      this.invalidatePublicShopProductCache(dto.storeId, "product.patch")
+    );
 
     return {
       apiVersion: "v1",
@@ -595,6 +606,7 @@ export class ProductsService {
       where: { id: productId },
       data: { imageUrl: card?.secureUrl ?? null }
     });
+    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.reorder");
     return { apiVersion: "v1", product: toProductResponse(product) };
   }
 
@@ -622,6 +634,7 @@ export class ProductsService {
       })
     ]);
     const product = await this.prisma.product.findUniqueOrThrow({ where: { id: productId }, include: productInclude });
+    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.replace");
     return { apiVersion: "v1", product: toProductResponse(product) };
   }
 
@@ -641,7 +654,12 @@ export class ProductsService {
       })
     ]);
     const product = await this.prisma.product.findUniqueOrThrow({ where: { id: productId }, include: productInclude });
+    await this.invalidatePublicShopProductCache(storeId, "product.images.delete");
     return { apiVersion: "v1", product: toProductResponse(product) };
+  }
+
+  private async invalidatePublicShopProductCache(storeId: string, operation: string) {
+    await this.shops.invalidateShopCaches({ keyFamily: "products", operation, storeId });
   }
 
   private async assertStoreAccess(auth: AuthenticatedPrincipal, storeId: string) {

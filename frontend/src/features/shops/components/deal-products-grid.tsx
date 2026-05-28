@@ -147,7 +147,7 @@ const DealProductCard = memo(function DealProductCard({
       ) : null}
 
       {imageUrl && shouldRenderMedia ? (
-        <div className="relative h-36 w-full overflow-hidden rounded-2xl bg-slate-100 shadow-inner">
+        <div className="relative flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl border border-slate-100 bg-white p-3 shadow-inner sm:h-44 lg:h-40 xl:h-44">
           <Image
             src={imageUrl}
             alt={product.name}
@@ -156,11 +156,11 @@ const DealProductCard = memo(function DealProductCard({
             sizes="(max-width: 768px) 100vw, 25vw"
             placeholder="blur"
             blurDataURL={blurDataUrl("#f8fafc")}
-            className="object-cover"
+            className="object-contain p-3"
           />
         </div>
       ) : (
-        <div className={`flex h-36 w-full items-center justify-center rounded-2xl text-2xl font-black shadow-inner ${product.imageBg}`}>
+        <div className={`flex h-40 w-full items-center justify-center rounded-2xl text-2xl font-black shadow-inner sm:h-44 lg:h-40 xl:h-44 ${product.imageBg}`}>
           {product.imageInitials}
         </div>
       )}

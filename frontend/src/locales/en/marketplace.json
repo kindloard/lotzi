@@ -29,6 +29,21 @@
     "quantity": "Quantity",
     "seller": "Seller"
   },
+  "shopHeader": {
+    "fallbackAddress": "Local store",
+    "fallbackTagline": "Shop local & fresh"
+  },
+  "shopProductDetail": {
+    "savePercent": "Save {percent}%",
+    "selectOption": "Select Option",
+    "inStock": "In Stock & Ready to Ship",
+    "outOfStock": "Currently Out of Stock",
+    "addToCart": "Add to Cart",
+    "aboutItem": "About this item",
+    "specifications": "Specifications",
+    "youMightAlsoLike": "You might also like",
+    "packSuffix": "Pack"
+  },
   "toasts": {
     "addedToCart": "{name} added to cart.",
     "removedFromCart": "{name} removed from cart."

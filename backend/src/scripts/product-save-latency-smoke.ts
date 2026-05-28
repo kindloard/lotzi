@@ -33,6 +33,7 @@ async function main() {
         storeAuthorization: async () => ({ permissions: [PERMISSIONS.PRODUCT_MANAGE] }),
         hasPermissions: () => true
       } as never,
+      { invalidateShopCaches: async () => undefined } as never,
       { sweepStoreOrphans: async () => undefined } as never
     );
 

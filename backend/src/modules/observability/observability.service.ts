@@ -109,6 +109,32 @@ export class ObservabilityService implements OnModuleInit {
     help: "Client-observed translation fallbacks by locale, namespace, key, and normalized route template",
     labelNames: ["locale", "namespace", "key", "route_template"]
   });
+  readonly shopPageRequests = new client.Counter({
+    name: "namastore_shop_page_requests_total",
+    help: "Public shop page API requests by endpoint, status, and cache outcome",
+    labelNames: ["endpoint", "status", "cache"]
+  });
+  readonly shopPageDuration = new client.Histogram({
+    name: "namastore_shop_page_duration_seconds",
+    help: "Public shop page API duration in seconds by endpoint and cache outcome",
+    labelNames: ["endpoint", "cache"],
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 0.8, 1.5, 2.5, 5]
+  });
+  readonly shopPageCacheEvents = new client.Counter({
+    name: "namastore_shop_page_cache_events_total",
+    help: "Public shop page cache events by event and key family",
+    labelNames: ["event", "key_family"]
+  });
+  readonly shopPageProductsReturned = new client.Histogram({
+    name: "namastore_shop_page_products_returned_bucket",
+    help: "Number of products returned by public shop product listing requests",
+    buckets: [0, 1, 4, 8, 12, 24, 48]
+  });
+  readonly shopPageRateLimited = new client.Counter({
+    name: "namastore_shop_page_rate_limited_total",
+    help: "Public shop page rate limited requests by endpoint",
+    labelNames: ["endpoint"]
+  });
 
   onModuleInit() {
     client.collectDefaultMetrics({ register: this.registry });
@@ -133,6 +159,11 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.uploadOrphanOriginals);
     this.registry.registerMetric(this.uploadCircuitState);
     this.registry.registerMetric(this.i18nFallbacks);
+    this.registry.registerMetric(this.shopPageRequests);
+    this.registry.registerMetric(this.shopPageDuration);
+    this.registry.registerMetric(this.shopPageCacheEvents);
+    this.registry.registerMetric(this.shopPageProductsReturned);
+    this.registry.registerMetric(this.shopPageRateLimited);
   }
 
   observeAuthStep(flow: string, step: string, durationMs: number): void {
@@ -207,6 +238,30 @@ export class ObservabilityService implements OnModuleInit {
       namespace: input.namespace,
       route_template: input.routeTemplate
     });
+  }
+
+  recordShopPageRequest(input: { endpoint: string; status: string; cache: string; durationMs: number }): void {
+    this.shopPageRequests.inc({
+      cache: input.cache,
+      endpoint: input.endpoint,
+      status: input.status
+    });
+    this.shopPageDuration.observe({
+      cache: input.cache,
+      endpoint: input.endpoint
+    }, input.durationMs / 1000);
+  }
+
+  recordShopPageCacheEvent(event: string, keyFamily: string): void {
+    this.shopPageCacheEvents.inc({ event, key_family: keyFamily });
+  }
+
+  observeShopPageProductsReturned(count: number): void {
+    this.shopPageProductsReturned.observe(count);
+  }
+
+  recordShopPageRateLimited(endpoint: string): void {
+    this.shopPageRateLimited.inc({ endpoint });
   }
 
   metrics() {

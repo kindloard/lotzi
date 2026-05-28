@@ -193,7 +193,8 @@ function AnimatedLocationTicker({
   brandName?: string;
 }) {
   const lineHeight = compact ? 16 : 28;
-  const currentLabel = ticks.length > 0 ? ticks[activeIndex % ticks.length]?.label : "";
+  const activeTick = ticks.length > 0 ? ticks[activeIndex % ticks.length] : undefined;
+  const currentLabel = activeTick?.label ?? "";
 
   if (ticks.length === 0 || gpsStatus === "idle") {
     return null;
@@ -201,16 +202,16 @@ function AnimatedLocationTicker({
 
   return (
     <div
-      className={`group flex min-w-0 items-center gap-1.5 ${
+      className={`group inline-flex min-w-0 max-w-full items-center gap-1.5 ${
         compact ? "" : ""
       }`}
-      title={ticks[activeIndex]?.label}
+      title={activeTick?.label}
     >
       {/* Scrolling label rail */}
       <div
         className={`relative overflow-hidden ${
           compact ? "h-[16px]" : "h-[28px]"
-        } min-w-0`}
+        } min-w-0 max-w-[calc(100%-22px)]`}
       >
         <div
           className={`flex flex-col will-change-transform ${
@@ -223,7 +224,7 @@ function AnimatedLocationTicker({
           {ticks.map((tick, i) => (
             <span
               key={`${tick.label}-${i}`}
-              className={`block whitespace-nowrap tracking-tight ${
+              className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
                 compact
                   ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
                   : "h-[28px] text-lg font-black leading-[28px] text-slate-950 [font-weight:950]"
@@ -235,7 +236,7 @@ function AnimatedLocationTicker({
           {/* Duplicate first tick for seamless loop */}
           {ticks[0] && (
             <span
-              className={`block whitespace-nowrap tracking-tight ${
+              className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
                 compact
                   ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
                   : "h-[28px] text-lg font-black leading-[28px] text-slate-950 [font-weight:950]"
@@ -252,8 +253,8 @@ function AnimatedLocationTicker({
         size={compact ? 11 : 15}
         strokeWidth={2.4}
         className={`shrink-0 text-slate-950 transition-all duration-500 ease-in-out ${
-          currentLabel === brandName ? "w-0 opacity-0 scale-50" : "w-[15px] opacity-100 scale-100"
-        }`}
+          compact ? "w-[11px]" : "w-[15px]"
+        } ${currentLabel === brandName ? "opacity-0 scale-50" : "opacity-100 scale-100"}`}
       />
     </div>
   );
@@ -279,6 +280,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   const tMarketplace = useTranslations("marketplace.home");
   const tNav = useTranslations("common.navigation");
   const isCartPage = pathname === "/cart";
+  const isShopPage = pathname.includes("/shop/");
   const { session, clearSession } = useAuthSession();
   const profileUser = session?.user;
   const isLoggedIn = Boolean(profileUser);
@@ -475,7 +477,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300">
+      <header className={`sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 ${isShopPage ? "hidden md:block" : ""}`}>
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-slate-950 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
         href="#main-content"
@@ -485,20 +487,20 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
       <nav
         aria-label={tAria("navigation")}
-        className="mx-auto grid h-[64px] w-full max-w-[1600px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-6 sm:px-6 lg:px-8"
+        className="mx-auto grid h-[64px] w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(320px,520px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(420px,600px)_minmax(0,1fr)] lg:gap-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_minmax(460px,640px)_minmax(0,1fr)]"
       >
         {/* Left Side: Logo + Location Ticker */}
-        <div className="flex items-center gap-2 sm:gap-4 lg:gap-6">
+        <div className="flex min-w-0 items-center gap-2 justify-self-start sm:gap-4 lg:gap-6 md:w-full">
           <Link
             aria-label={tBrand("name")}
-            className="group flex shrink-0 items-center gap-3 rounded-xl focus:outline-none"
+            className="group flex min-w-0 max-w-full items-center gap-3 rounded-xl focus:outline-none md:w-full"
             href="/"
           >
             <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-900 text-white transition-all duration-200">
               <ShoppingBag aria-hidden="true" size={16} strokeWidth={2.4} />
             </span>
             {/* Location ticker OR fallback brand name */}
-            <span className="flex flex-col justify-center min-w-0">
+            <span className="flex min-w-0 max-w-full flex-1 flex-col justify-center">
               {ticks.length > 0 && gpsStatus !== "idle" ? (
                 <AnimatedLocationTicker
                   ticks={ticks}
@@ -508,7 +510,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   brandName={tBrand("name")}
                 />
               ) : (
-                <span className="block text-lg font-black tracking-tight text-slate-950 [font-weight:950]">
+                <span className="block max-w-full truncate text-lg font-black tracking-tight text-slate-950 [font-weight:950]">
                   {tBrand("name")}
                 </span>
               )}
@@ -517,14 +519,16 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
         </div>
 
         {/* Middle Side: Premium Search with hotkeys & smart suggestion panel */}
-        <div className="hidden md:flex justify-center w-full max-w-[460px] mx-auto relative" ref={searchContainerRef}>
-          <div 
-            onClick={() => searchInputRef.current?.focus()}
-            className={`flex items-center gap-3 px-5 py-2.5 w-full rounded-full border border-black transition-all duration-200 bg-white cursor-text ${
-              isSearchFocused ? "shadow-[0_4px_12px_rgba(0,0,0,0.05)]" : "hover:shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
-            }`}
-          >
-            <Search className={`shrink-0 transition-colors duration-200 ${isSearchFocused ? "text-slate-900" : "text-slate-400"}`} size={18} strokeWidth={2.2} />
+        <div className="relative hidden w-full max-w-[520px] justify-self-center md:flex lg:max-w-[576px]" ref={searchContainerRef}>
+          {!isShopPage && (
+            <>
+              <div 
+                onClick={() => searchInputRef.current?.focus()}
+                className={`flex items-center gap-3 px-5 py-2.5 w-full rounded-full border border-black transition-all duration-200 bg-white cursor-text ${
+                  isSearchFocused ? "shadow-[0_4px_12px_rgba(0,0,0,0.05)]" : "hover:shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
+                }`}
+              >
+                <Search className={`shrink-0 transition-colors duration-200 ${isSearchFocused ? "text-slate-900" : "text-slate-400"}`} size={18} strokeWidth={2.2} />
             <div className="relative min-w-0 flex-1">
               <AnimatedSearchPlaceholder
                 activeIndex={searchRailIndex}
@@ -640,10 +644,12 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
 
         {/* Right Side: Cart, User Profile & Mobile Toggle */}
-        <div className="flex items-center justify-self-end gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex min-w-0 shrink-0 items-center justify-self-end gap-1.5 sm:gap-3 md:w-full md:justify-end">
           
           {/* Cart Icon Dropdown */}
           <div className="relative hidden md:block" ref={cartRef}>
@@ -836,42 +842,44 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
       </header>
 
       {/* Mobile Search Below Navbar */}
-      <div className="bg-white px-3 pb-2.5 pt-2.5 md:hidden">
-        <div className="mx-auto w-full max-w-[1600px]">
-          <div className="flex h-[46px] items-center gap-3 rounded-2xl border border-slate-300 bg-white px-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.055),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all focus-within:border-slate-900 focus-within:shadow-[0_14px_30px_rgba(15,23,42,0.09),0_0_0_3px_rgba(15,23,42,0.04)]">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500">
-                <Search size={15} strokeWidth={2.3} />
-              </span>
-              <div className="relative min-w-0 flex-1">
-                <AnimatedSearchPlaceholder
-                  compact
-                  activeIndex={searchRailIndex}
-                  disableTransition={isSearchRailResetting}
-                  visible={!searchQuery}
-                />
-                <input
-                  aria-label={`Search for ${animatedSearchTerm}`}
-                  ref={mobileSearchInputRef}
-                  type="text"
-                  placeholder=""
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="relative z-10 w-full bg-transparent text-[14px] font-black text-slate-950 caret-slate-950 outline-none placeholder:text-slate-950"
-                />
-              </div>
-              {searchQuery && (
-                <button
-                  aria-label="Clear search"
-                  className="rounded-full p-1 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
-                  onClick={() => setSearchQuery("")}
-                  type="button"
-                >
-                  <X size={13} strokeWidth={2.3} />
-                </button>
-              )}
+      {!isShopPage && (
+        <div className="bg-white px-3 pb-2.5 pt-2.5 md:hidden">
+          <div className="mx-auto w-full max-w-[1600px]">
+            <div className="flex h-[46px] items-center gap-3 rounded-2xl border border-slate-300 bg-white px-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.055),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all focus-within:border-slate-900 focus-within:shadow-[0_14px_30px_rgba(15,23,42,0.09),0_0_0_3px_rgba(15,23,42,0.04)]">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500">
+                  <Search size={15} strokeWidth={2.3} />
+                </span>
+                <div className="relative min-w-0 flex-1">
+                  <AnimatedSearchPlaceholder
+                    compact
+                    activeIndex={searchRailIndex}
+                    disableTransition={isSearchRailResetting}
+                    visible={!searchQuery}
+                  />
+                  <input
+                    aria-label={`Search for ${animatedSearchTerm}`}
+                    ref={mobileSearchInputRef}
+                    type="text"
+                    placeholder=""
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="relative z-10 w-full bg-transparent text-[14px] font-black text-slate-950 caret-slate-950 outline-none placeholder:text-slate-950"
+                  />
+                </div>
+                {searchQuery && (
+                  <button
+                    aria-label="Clear search"
+                    className="rounded-full p-1 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
+                    onClick={() => setSearchQuery("")}
+                    type="button"
+                  >
+                    <X size={13} strokeWidth={2.3} />
+                  </button>
+                )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
 
       {/* Mobile Sliding Navigation Drawer */}

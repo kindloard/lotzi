@@ -1,12 +1,10 @@
-import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, StoreStatus } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
-import { RedisService } from "../redis/redis.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
+import { ShopsService } from "../shops/shops.service";
 import { UpdateStoreLocationDto } from "./dto/merchant-settings.dto";
 import { MerchantDashboardBootstrap, MerchantStoreLocation } from "./merchant-dashboard.types";
-
-const PUBLIC_SHOP_CACHE_KEYS = ["shops:list:v1", "shops:products:v1"];
 
 interface DashboardBootstrapRow {
   user_id: string;
@@ -33,11 +31,9 @@ interface DashboardBootstrapRow {
 
 @Injectable()
 export class MerchantDashboardService {
-  private readonly logger = new Logger(MerchantDashboardService.name);
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService
+    private readonly shops: ShopsService
   ) {}
 
   async bootstrap(auth: AuthenticatedPrincipal): Promise<MerchantDashboardBootstrap> {
@@ -99,7 +95,11 @@ export class MerchantDashboardService {
       }
     });
 
-    await this.invalidatePublicShopCaches();
+    await this.shops.invalidateShopCaches({
+      keyFamily: "all",
+      operation: "merchant.location.update",
+      storeId: updated.id
+    });
     return locationFromStore(updated);
   }
 
@@ -158,15 +158,6 @@ export class MerchantDashboardService {
     }
 
     return membership;
-  }
-
-  private async invalidatePublicShopCaches() {
-    try {
-      await Promise.all(PUBLIC_SHOP_CACHE_KEYS.map((key) => this.redis.del(key)));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Store location saved, but public shop cache invalidation failed: ${message}`);
-    }
   }
 }
 

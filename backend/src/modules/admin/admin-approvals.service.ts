@@ -13,6 +13,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthStateInvalidator } from "../rbac/auth-state-invalidator.service";
+import { ShopsService } from "../shops/shops.service";
 import { AdminApprovalDecisionDto, AdminRejectionDto } from "./dto/admin-approval.dto";
 
 const approvalStoreInclude = {
@@ -49,7 +50,8 @@ type ApprovalReviewAggregate = Prisma.StoreApprovalReviewGetPayload<{
 export class AdminApprovalsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly authStateInvalidator: AuthStateInvalidator
+    private readonly authStateInvalidator: AuthStateInvalidator,
+    private readonly shops: ShopsService
   ) {}
 
   async listPending() {
@@ -160,6 +162,11 @@ export class AdminApprovalsService {
     void this.authStateInvalidator.invalidateUserVersions(result.ownerUserId, [
       result.ownerAuthzVersion
     ]);
+    await this.shops.invalidateShopCaches({
+      keyFamily: "all",
+      operation: "admin.approval.approve",
+      storeId: result.storeId
+    });
     const { ownerUserId: _ownerUserId, ownerAuthzVersion: _ownerAuthzVersion, ...response } = result;
     return response;
   }
@@ -236,6 +243,11 @@ export class AdminApprovalsService {
     void this.authStateInvalidator.invalidateUserVersions(result.ownerUserId, [
       result.ownerAuthzVersion
     ]);
+    await this.shops.invalidateShopCaches({
+      keyFamily: "all",
+      operation: "admin.approval.reject",
+      storeId: result.storeId
+    });
     const { ownerUserId: _ownerUserId, ownerAuthzVersion: _ownerAuthzVersion, ...response } = result;
     return response;
   }

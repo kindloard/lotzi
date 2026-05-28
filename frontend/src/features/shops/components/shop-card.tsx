@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Clock, Heart, Star, Truck } from "lucide-react";
+import { ChevronRight, Heart } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { blurDataUrl, optimizedCloudinaryUrl } from "../lib/image-utils";
 import type { Shop } from "../shops-api";
@@ -50,6 +50,13 @@ export const ShopCard = memo(function ShopCard({
     () => optimizedCloudinaryUrl(shop.logoUrl, { width: 96 }),
     [shop.logoUrl]
   );
+  const shopDescription =
+    shop.branding?.description?.trim() ||
+    shop.branding?.tagline?.trim() ||
+    `${shop.name} is a local ${shop.typeName.toLowerCase()} store serving your neighborhood.`;
+  const viewStoreHref = shouldUseShopPage(shop.id)
+    ? `/shop/${shop.publicId}/${shop.publicSlug}`
+    : `#shop-${shop.id}`;
 
   return (
     <article
@@ -67,25 +74,11 @@ export const ShopCard = memo(function ShopCard({
             sizes="(max-width: 768px) 100vw, 33vw"
             placeholder="blur"
             blurDataURL={blurDataUrl("#ecfdf5")}
-            className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            className="object-cover"
           />
         ) : (
           <div className={`absolute inset-0 bg-gradient-to-br ${shop.imageBg}`} />
         )}
-
-        <button
-          type="button"
-          onClick={() => onToggleFavorite(shop.id)}
-          className="absolute right-3.5 top-3.5 z-10 flex size-8 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-md transition-all hover:bg-white hover:text-rose-600"
-          title="Add to favorites"
-          aria-label={isFavorite ? `Remove ${shop.name} from favorites` : `Add ${shop.name} to favorites`}
-        >
-          <Heart
-            size={14}
-            fill={isFavorite ? "#e11d48" : "none"}
-            className={isFavorite ? "text-rose-600" : ""}
-          />
-        </button>
       </div>
 
       <div className="flex flex-1 flex-col justify-between space-y-4 p-5">
@@ -115,15 +108,21 @@ export const ShopCard = memo(function ShopCard({
                 {shop.typeName}
               </span>
             </div>
-            <p
-              className="mt-1 text-xs leading-none text-slate-500"
-              title={distanceTitle(shop)}
-            >
-              {shop.distanceSource === "google_road" && shop.durationText
-                ? `${shop.distance} road - ${shop.durationText}`
-                : shop.distance}
-            </p>
           </div>
+
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(shop.id)}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-rose-200 hover:text-rose-600"
+            title="Add to favorites"
+            aria-label={isFavorite ? `Remove ${shop.name} from favorites` : `Add ${shop.name} to favorites`}
+          >
+            <Heart
+              size={18}
+              fill={isFavorite ? "#e11d48" : "none"}
+              className={isFavorite ? "text-rose-600" : ""}
+            />
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-1.5">
@@ -137,39 +136,18 @@ export const ShopCard = memo(function ShopCard({
           ))}
         </div>
 
-        <div className="grid grid-cols-3 gap-2 rounded-2xl border-y border-slate-100 bg-slate-50/50 py-3 text-center">
-          <div>
-            <p className="flex items-center justify-center gap-0.5 text-xs font-bold text-slate-900">
-              <Star size={12} className="text-amber-500" fill="#f59e0b" />
-              {shop.rating}
-            </p>
-            <p className="mt-0.5 text-[9px] text-slate-400">{shop.reviews}</p>
-          </div>
-          <div className="border-x border-slate-200/60">
-            <p className="flex items-center justify-center gap-0.5 text-xs font-bold text-slate-900">
-              <Clock size={12} className="text-slate-500" />
-              {shop.deliveryTime}
-            </p>
-            <p className="mt-0.5 text-[9px] text-slate-400">Delivery</p>
-          </div>
-          <div>
-            <p className="flex items-center justify-center gap-0.5 text-xs font-bold text-slate-900">
-              <Truck size={12} className="text-slate-500" />
-              {shop.deliveryFee}
-            </p>
-            <p className="mt-0.5 text-[9px] text-slate-400">Fee</p>
-          </div>
+        <div className="px-1">
+          <p className="line-clamp-3 text-sm font-medium leading-6 text-slate-700">
+            {shopDescription}
+          </p>
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <span className="min-w-0 truncate text-[10px] font-medium text-slate-500">
-            Featured: <strong className="font-bold text-slate-800">{shop.featuredProduct}</strong>
-          </span>
+        <div className="pt-1">
           <Link
-            href={`#shop-${shop.id}`}
-            className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 px-3 text-[11px] font-bold text-white transition-colors hover:bg-slate-800"
+            href={viewStoreHref}
+            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-black px-4 text-sm font-extrabold text-white transition-opacity hover:opacity-90"
           >
-            Shop Store
+            View Store
             <ChevronRight size={13} className="ml-0.5" />
           </Link>
         </div>
@@ -178,12 +156,17 @@ export const ShopCard = memo(function ShopCard({
   );
 });
 
-function distanceTitle(shop: Shop) {
-  if (shop.distanceSource === "google_road") {
-    return "Google road distance based on your precise location";
+function shouldUseShopPage(shopId: string) {
+  const rawPercent = Number(process.env.NEXT_PUBLIC_SHOP_PAGE_ROLLOUT_PERCENT ?? "100");
+  const percent = Math.max(0, Math.min(100, Number.isFinite(rawPercent) ? rawPercent : 0));
+  return stableHash(shopId) % 100 < percent;
+}
+
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
   }
-  if (shop.distanceSource === "straight_line") {
-    return `Approximate straight-line distance${shop.distanceAccuracyMeters ? `; GPS accuracy ${Math.round(shop.distanceAccuracyMeters)} m` : ""}`;
-  }
-  return "Allow location access to calculate distance";
+  return hash >>> 0;
 }

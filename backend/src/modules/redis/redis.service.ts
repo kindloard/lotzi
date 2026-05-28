@@ -114,6 +114,70 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  async delByPrefix(prefix: string): Promise<number> {
+    let deleted = 0;
+    for (const key of Array.from(this.localCache.keys())) {
+      if (key.startsWith(prefix)) {
+        this.localCache.delete(key);
+        deleted += 1;
+      }
+    }
+
+    if (!this.client || this.isCircuitOpen()) {
+      return deleted;
+    }
+
+    try {
+      await this.ensureConnected();
+      let cursor = "0";
+      do {
+        const [nextCursor, keys] = await this.client.scan(
+          cursor,
+          "MATCH",
+          `${prefix}*`,
+          "COUNT",
+          "100"
+        );
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          deleted += await this.client.del(...keys);
+        }
+      } while (cursor !== "0");
+      return deleted;
+    } catch (error) {
+      this.openCircuit(error);
+      return deleted;
+    }
+  }
+
+  async xAdd(stream: string, values: Record<string, string | number | boolean | null | undefined>, maxLen?: number): Promise<void> {
+    if (!this.client || this.isCircuitOpen()) {
+      return;
+    }
+
+    const entries: string[] = [];
+    for (const [key, value] of Object.entries(values)) {
+      if (value == null) {
+        continue;
+      }
+      entries.push(key, String(value));
+    }
+    if (!entries.length) {
+      return;
+    }
+
+    try {
+      await this.ensureConnected();
+      if (maxLen && maxLen > 0) {
+        await this.client.xadd(stream, "MAXLEN", "~", maxLen, "*", ...entries);
+      } else {
+        await this.client.xadd(stream, "*", ...entries);
+      }
+    } catch (error) {
+      this.openCircuit(error);
+    }
+  }
+
   async onModuleDestroy() {
     if (this.client) {
       if (this.client.status === "ready" || this.client.status === "connect") {
