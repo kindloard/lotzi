@@ -28,6 +28,7 @@
     "@nestjs/common": "^11.1.23",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.23",
+    "@nestjs/cli": "^11.0.21",
     "@nestjs/platform-express": "^11.1.23",
     "@prisma/client": "^5.20.0",
     "argon2": "^0.44.0",
@@ -54,7 +55,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.21",
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.1.23",
     "@types/compression": "^1.8.1",
