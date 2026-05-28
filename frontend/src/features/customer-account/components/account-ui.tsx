@@ -193,7 +193,7 @@ export function Button({
   variant = "primary"
 }: {
   disabled?: boolean;
-  icon: LucideIcon;
+  icon?: LucideIcon;
   label: string;
   onClick?: () => void;
   type?: "button" | "submit";
@@ -213,7 +213,7 @@ export function Button({
       onClick={onClick}
       type={type}
     >
-      <Icon className="shrink-0" size={15} />
+      {Icon && <Icon className="shrink-0" size={15} />}
       <span className="truncate">{label}</span>
     </button>
   );

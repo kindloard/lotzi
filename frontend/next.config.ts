@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+const apiProxyOrigin = (process.env.API_PROXY_URL ?? process.env.BACKEND_URL ?? "http://127.0.0.1:4000").replace(/\/$/, "");
 
 const devOrigins = [
   "127.0.0.1",
@@ -22,11 +23,15 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:4000/api/:path*"
+        destination: `${apiProxyOrigin}/api/:path*`
       }
     ];
   },
   images: {
+    deviceSizes: [360, 414, 640, 768, 1024, 1280, 1536],
+    formats: ["image/avif", "image/webp"],
+    imageSizes: [32, 48, 64, 96, 160, 240, 320, 400, 600],
+    minimumCacheTTL: 86_400,
     remotePatterns: [
       {
         protocol: "https",

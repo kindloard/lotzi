@@ -24,11 +24,18 @@ const auth = {
 
 function serviceWithMembership(membership: unknown) {
   const prisma = {
-    $queryRaw: jest.fn(async (..._args: unknown[]) => (membership ? [membership] : []))
+    $queryRaw: jest.fn(async (..._args: unknown[]) => (membership ? [membership] : [])),
+    store: {
+      update: jest.fn()
+    }
+  };
+  const redis = {
+    del: jest.fn(async () => 1)
   };
   return {
     prisma,
-    service: new MerchantDashboardService(prisma as never)
+    redis,
+    service: new MerchantDashboardService(prisma as never, redis as never)
   };
 }
 
@@ -145,5 +152,107 @@ describe("MerchantDashboardService", () => {
         message: "No active merchant store is available for this account."
       }
     });
+  });
+
+  it("returns the active store's exact saved location for merchant settings", async () => {
+    const { service } = serviceWithMembership({
+      user_id: "user-1",
+      user_email: "raja@example.com",
+      full_name: "Raja Raman",
+      avatar_url: null,
+      store_id: "store-1",
+      store_name: "Auxi store",
+      store_slug: "mr-aj",
+      store_status: StoreStatus.APPROVED,
+      store_address_line: "Market road",
+      store_city: "Tirunelveli",
+      store_state: "Tamil Nadu",
+      store_pincode: "627001",
+      store_latitude: "8.7128180",
+      store_longitude: "77.4215380",
+      store_updated_at: new Date("2026-05-28T10:00:00.000Z"),
+      store_image_url: null,
+      business_name: null,
+      logo_url: null,
+      role_code: "MERCHANT_OWNER",
+      role_name: "Merchant owner"
+    });
+
+    await expect(service.getStoreLocation(auth)).resolves.toEqual({
+      id: "store-1",
+      name: "Auxi store",
+      slug: "mr-aj",
+      status: StoreStatus.APPROVED,
+      addressLine: "Market road",
+      city: "Tirunelveli",
+      state: "Tamil Nadu",
+      pincode: "627001",
+      latitude: 8.712818,
+      longitude: 77.421538,
+      googleMapsUrl: "https://www.google.com/maps/search/?api=1&query=8.712818,77.421538",
+      updatedAt: "2026-05-28T10:00:00.000Z"
+    });
+  });
+
+  it("saves rounded coordinates and invalidates public shop caches", async () => {
+    const { prisma, redis, service } = serviceWithMembership({
+      user_id: "user-1",
+      user_email: "raja@example.com",
+      full_name: null,
+      avatar_url: null,
+      store_id: "store-1",
+      store_name: "Auxi store",
+      store_slug: "mr-aj",
+      store_status: StoreStatus.APPROVED,
+      store_address_line: null,
+      store_city: null,
+      store_state: null,
+      store_pincode: null,
+      store_latitude: null,
+      store_longitude: null,
+      store_updated_at: new Date("2026-05-28T09:00:00.000Z"),
+      store_image_url: null,
+      business_name: null,
+      logo_url: null,
+      role_code: "MERCHANT_OWNER",
+      role_name: "Merchant owner"
+    });
+    prisma.store.update.mockResolvedValue({
+      id: "store-1",
+      name: "Auxi store",
+      slug: "mr-aj",
+      status: StoreStatus.APPROVED,
+      addressLine: "Market road",
+      city: "Tirunelveli",
+      state: "Tamil Nadu",
+      pincode: "627001",
+      latitude: "8.7128181",
+      longitude: "77.4215382",
+      updatedAt: new Date("2026-05-28T11:00:00.000Z")
+    });
+
+    await expect(service.updateStoreLocation(auth, {
+      latitude: 8.712818123,
+      longitude: 77.421538234,
+      addressLine: " Market road ",
+      city: " Tirunelveli ",
+      state: " Tamil Nadu ",
+      pincode: "627001"
+    })).resolves.toMatchObject({
+      latitude: 8.7128181,
+      longitude: 77.4215382,
+      googleMapsUrl: "https://www.google.com/maps/search/?api=1&query=8.7128181,77.4215382"
+    });
+
+    expect(prisma.store.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "store-1" },
+      data: expect.objectContaining({
+        latitude: 8.7128181,
+        longitude: 77.4215382,
+        addressLine: "Market road"
+      })
+    }));
+    expect(redis.del).toHaveBeenCalledWith("shops:list:v1");
+    expect(redis.del).toHaveBeenCalledWith("shops:products:v1");
   });
 });

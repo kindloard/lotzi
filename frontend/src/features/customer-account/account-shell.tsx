@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { AccountQueryProvider } from "./account-query-provider";
+import { CartProvider } from "@/lib/cart-context";
 import {
   accountHomeNav,
   accountSectionFromPath,
@@ -20,7 +21,9 @@ export function AccountShell({ children }: { children: ReactNode }) {
   return (
     <AccountQueryProvider>
       <AccountIdentityProvider>
-        <AccountShellFrame>{children}</AccountShellFrame>
+        <CartProvider>
+          <AccountShellFrame>{children}</AccountShellFrame>
+        </CartProvider>
       </AccountIdentityProvider>
     </AccountQueryProvider>
   );

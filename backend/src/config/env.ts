@@ -49,6 +49,7 @@ export const envSchema = z
     FIREBASE_PRIVATE_KEY: optionalString,
     FIREBASE_SERVICE_ACCOUNT_PATH: optionalString,
     FIREBASE_SERVICE_ACCOUNT_JSON: optionalString,
+    GOOGLE_MAPS_API_KEY: optionalString,
     JWT_KEY_ID: z.string().default("local-dev"),
     JWT_PRIVATE_KEY: optionalString,
     JWT_PUBLIC_KEY: optionalString,

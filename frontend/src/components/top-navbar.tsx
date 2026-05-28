@@ -13,15 +13,13 @@ import {
   Trash2,
   Plus,
   Minus,
-  Settings,
   History,
   Store,
   LogOut,
   User as UserIcon,
   HelpCircle,
   ArrowLeft,
-  Send,
-  ChevronUp
+  Send
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useEffect, useRef } from "react";
@@ -802,22 +800,16 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <History size={13} className="text-slate-450" />
                     Order History
                   </Link>
-                  <Link
-                    href={profileUser?.roleCodes.includes("MERCHANT_OWNER") ? "/merchant/dashboard" : "/auth/merchant/signup"}
-                    onClick={() => setIsProfileOpen(false)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
-                  >
-                    <Store size={13} className="text-slate-450" />
-                    Manage Store
-                  </Link>
-                  <Link
-                    href="/account/settings"
-                    onClick={() => setIsProfileOpen(false)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
-                  >
-                    <Settings size={13} className="text-slate-450" />
-                    Settings
-                  </Link>
+                  {profileUser?.roleCodes.includes("MERCHANT_OWNER") && (
+                    <Link
+                      href="/merchant/dashboard"
+                      onClick={() => setIsProfileOpen(false)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
+                    >
+                      <Store size={13} className="text-slate-450" />
+                      Manage Store
+                    </Link>
+                  )}
                 </div>
 
                 <div className="border-t border-slate-100 my-1" />
@@ -997,7 +989,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       </div>
                     </div>
                     <Link
-                      href="/account/profile"
+                      href="/account"
                       onClick={() => setIsMobileMenuOpen(false)}
                       className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-800 hover:bg-slate-50"
                     >
@@ -1016,6 +1008,18 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       </span>
                       Order History
                     </Link>
+                    {profileUser?.roleCodes.includes("MERCHANT_OWNER") && (
+                      <Link
+                        href="/merchant/dashboard"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-800 hover:bg-slate-50"
+                      >
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
+                          <Store size={18} strokeWidth={2.45} />
+                        </span>
+                        Manage Store
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="flex min-h-12 w-full items-center gap-3 rounded-[18px] px-3 py-2 text-left text-[15px] font-extrabold text-rose-650 hover:bg-rose-50"

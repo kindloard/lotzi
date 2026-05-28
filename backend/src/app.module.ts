@@ -18,6 +18,7 @@ import { ProductsModule } from "./modules/products/products.module";
 import { RateLimitModule } from "./modules/rate-limit/rate-limit.module";
 import { RedisModule } from "./modules/redis/redis.module";
 import { StoresModule } from "./modules/stores/stores.module";
+import { ShopsModule } from "./modules/shops/shops.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 import { UsersModule } from "./modules/users/users.module";
 import { RbacModule } from "./modules/rbac/rbac.module";
@@ -38,6 +39,7 @@ import { RbacModule } from "./modules/rbac/rbac.module";
     UsersModule,
     CustomerAccountModule,
     StoresModule,
+    ShopsModule,
     ProductsModule,
     CategoriesModule,
     CartModule,

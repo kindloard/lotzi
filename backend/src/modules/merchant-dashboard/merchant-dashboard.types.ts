@@ -19,3 +19,18 @@ export interface MerchantDashboardBootstrap {
     roleName: string;
   };
 }
+
+export interface MerchantStoreLocation {
+  id: string;
+  name: string;
+  slug: string;
+  status: StoreStatus;
+  addressLine: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  googleMapsUrl: string | null;
+  updatedAt: string;
+}

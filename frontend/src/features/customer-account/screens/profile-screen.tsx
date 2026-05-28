@@ -1,6 +1,5 @@
 "use client";
 
-import { Save } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { useToast } from "@/components/toast/toast-context";
@@ -130,10 +129,9 @@ export function ProfileForm({
               Receive updates in WhatsApp
             </label>
           </div>
-          <div className="pt-2">
+          <div className="flex justify-end pt-2">
             <Button
               disabled={profileMutation.isPending || (phone.length > 0 && !isValidIndianPhoneNumber(phone))}
-              icon={Save}
               label={profileMutation.isPending ? "Saving..." : "Save changes"}
               type="submit"
             />
