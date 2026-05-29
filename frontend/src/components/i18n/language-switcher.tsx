@@ -35,7 +35,7 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
       {routing.locales.map((item) => (
         <button
           aria-pressed={item === locale}
-          className={`h-8 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+          className={`h-8 shrink-0 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition ${
             item === locale ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950"
           }`}
           data-i18n-fit

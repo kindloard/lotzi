@@ -73,6 +73,14 @@ export const envSchema = z
     CLOUDINARY_API_KEY: optionalString,
     CLOUDINARY_API_SECRET: optionalString,
     CLOUDINARY_PRODUCT_UPLOAD_PRESET: optionalString,
+    CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+    CASHFREE_BASE_URL: optionalString.pipe(z.url().optional()),
+    CASHFREE_API_VERSION: z.string().default("2025-01-01"),
+    CASHFREE_APP_ID: optionalString,
+    CASHFREE_SECRET_KEY: optionalString,
+    CASHFREE_WEBHOOK_SECRET: optionalString,
+    CASHFREE_RETURN_URL: optionalString.pipe(z.url().optional()),
+    CASHFREE_NOTIFY_URL: optionalString.pipe(z.url().optional()),
     UPLOAD_PROCESSING_CONCURRENCY: z.coerce.number().int().positive().default(2),
     TRUST_PROXY_HEADERS: booleanFromString,
     AUTH_REQUIRE_STRICT_SECRETS: booleanFromString,
@@ -100,7 +108,9 @@ export const envSchema = z
       "CSRF_PEPPER",
       "ADMIN_APPROVAL_SESSION_SECRET",
       "ADMIN_APPROVAL_PASSWORD_HASH",
-      "INTERNAL_METRICS_TOKEN"
+      "INTERNAL_METRICS_TOKEN",
+      "CASHFREE_APP_ID",
+      "CASHFREE_SECRET_KEY"
     ];
 
     for (const key of required) {

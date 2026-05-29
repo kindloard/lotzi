@@ -4,6 +4,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { memo, type MouseEvent, useCallback, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Heart, Minus, Plus } from "lucide-react";
+import { useFormatter, useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCart } from "@/lib/cart-context";
 import { optimizedCloudinaryUrl } from "../lib/image-utils";
@@ -14,6 +15,7 @@ import { fetchShopProductDetail } from "../shops-api";
 import type { ShopDetail, ShopProduct, ShopProductsFilters, ShopProductsResponse } from "../shops-api";
 import { shopProductDetailQueryKey } from "../hooks/use-shop-product-detail";
 import { canonicalProductPath, productRefFromParts } from "../lib/product-route";
+import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
 import { Link, useRouter } from "@/i18n/navigation";
 
 const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -33,6 +35,10 @@ export function ShopCatalog({
 }: ShopCatalogProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const format = useFormatter();
+  const tCatalog = useTranslations("marketplace.shopCatalog");
+  const tCategories = useTranslations("marketplace.categories");
+  const subCategoryLabels = useMemo(() => buildSubCategoryLabels(tCatalog), [tCatalog]);
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(initialFilters);
   const [pendingProduct, setPendingProduct] = useState<ShopProduct | null>(null);
@@ -102,7 +108,16 @@ export function ShopCatalog({
     () => new Map(cartItems.map((item) => [item.id, item.qty])),
     [cartItems]
   );
-  const resultText = `${data.pagination.total} ${data.pagination.total === 1 ? "item" : "items"} available`;
+  const formatPrice = useCallback(
+    (value: number) =>
+      format.number(value, {
+        currency: "INR",
+        maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+        style: "currency"
+      }),
+    [format]
+  );
+  const resultText = tCatalog("resultCount", { count: data.pagination.total });
   const facetSource = useMemo(() => {
     if (isLocalCatalogMode) {
       return data.facets;
@@ -118,7 +133,7 @@ export function ShopCatalog({
       .map((item) => ({
         count: item.count,
         key: `sub:${item.name}`,
-        label: item.name,
+        label: localizeSubCategoryLabel(item.name, subCategoryLabels),
         value: item.name
       }))
       .sort((left, right) => {
@@ -137,7 +152,7 @@ export function ShopCatalog({
       .map((item) => ({
         count: item.count,
         key: `cat:${item.slug}`,
-        label: item.name,
+        label: localizeCategoryLabel(item.slug, item.name, tCategories),
         value: item.slug
       }))
       .sort((left, right) => {
@@ -146,7 +161,7 @@ export function ShopCatalog({
         }
         return left.label.localeCompare(right.label);
       });
-  }, [facetSource.categories, facetSource.subCategories]);
+  }, [facetSource.categories, facetSource.subCategories, subCategoryLabels, tCategories]);
 
   function requestAdd(product: ShopProduct) {
     if (hasCrossStoreItems) {
@@ -220,10 +235,10 @@ export function ShopCatalog({
             />
           </div>
 
-          <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide" aria-label="Product categories">
+          <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide" aria-label={tCatalog("productCategories")}>
             <CategoryButton
               active={!filters.category}
-              label="All"
+              label={tCatalog("all")}
               onClick={() => updateFilters({ category: null, page: 1 })}
             />
             {categoryFacets.map((category) => (
@@ -241,22 +256,22 @@ export function ShopCatalog({
       <div className="mx-auto flex min-h-[56dvh] max-w-6xl flex-col px-4 pb-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id="shop-catalog-title" className="text-xl font-black tracking-tight text-slate-950">
-            Products
+            {tCatalog("title")}
           </h2>
           <p className="text-sm font-semibold text-slate-500" aria-live="polite">
-            {query.isFetching ? "Updating products" : resultText}
+            {query.isFetching ? tCatalog("updatingProducts") : resultText}
           </p>
         </div>
 
         {showProductError ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
-            Products could not load right now.
+            {tCatalog("loadError")}
             <button
               type="button"
               onClick={() => query.refetch()}
               className="ml-2 rounded-md bg-black px-3 py-1.5 text-white"
             >
-              Retry
+              {tCatalog("retry")}
             </button>
           </div>
         ) : data.products.length ? (
@@ -271,15 +286,25 @@ export function ShopCatalog({
                 onPrefetch={() => warmProductRoute(product)}
                 onPreviewImage={(imageIndex) => openProductImageViewer(product, imageIndex)}
                 onQtyChange={(delta) => updateQty(product.id, delta)}
+                labels={{
+                  addButton: tCatalog("addButton"),
+                  addToCart: (name) => tCatalog("addToCartAria", { name }),
+                  decreaseQuantity: (name) => tCatalog("decreaseQuantity", { name }),
+                  favorite: tCatalog("favorite"),
+                  increaseQuantity: (name) => tCatalog("increaseQuantity", { name }),
+                  outOfStock: tCatalog("outOfStock"),
+                  viewImage: (name) => tCatalog("viewImage", { name })
+                }}
+                formatPrice={formatPrice}
                 productHref={canonicalProductPath(shop.publicId, shop.publicSlug, product.publicId, product.slug)}
               />
             ))}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
-            <p className="text-base font-black text-slate-950">No products found</p>
+            <p className="text-base font-black text-slate-950">{tCatalog("emptyTitle")}</p>
             <p className="mt-2 text-sm font-medium text-slate-500">
-              Try a different search or category.
+              {tCatalog("emptyDescription")}
             </p>
           </div>
         )}
@@ -293,10 +318,10 @@ export function ShopCatalog({
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-bold text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronLeft size={16} />
-              Previous
+              {tCatalog("previous")}
             </button>
             <span className="text-sm font-bold text-slate-500">
-              Page {data.pagination.page} of {data.pagination.totalPages}
+              {tCatalog("pageStatus", { page: data.pagination.page, totalPages: data.pagination.totalPages })}
             </span>
             <button
               type="button"
@@ -304,7 +329,7 @@ export function ShopCatalog({
               onClick={() => updateFilters({ page: data.pagination.page + 1 })}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-bold text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Next
+              {tCatalog("next")}
               <ChevronRight size={16} />
             </button>
           </div>
@@ -315,10 +340,10 @@ export function ShopCatalog({
         <div className="fixed inset-0 z-50 flex items-end bg-black/40 p-4 sm:items-center sm:justify-center" role="dialog" aria-modal="true" aria-labelledby="replace-cart-title">
           <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
             <h3 id="replace-cart-title" className="text-lg font-black text-slate-950">
-              Replace cart with items from this store?
+              {tCatalog("replaceCartTitle")}
             </h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Your cart has items from another store. Namastore keeps one store per order for accurate pricing and pickup.
+              {tCatalog("replaceCartDescription")}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
@@ -326,14 +351,14 @@ export function ShopCatalog({
                 onClick={() => setPendingProduct(null)}
                 className="h-11 rounded-lg border border-slate-300 text-sm font-black text-slate-800"
               >
-                Cancel
+                {tCatalog("cancel")}
               </button>
               <button
                 type="button"
                 onClick={confirmReplaceCart}
                 className="h-11 rounded-lg bg-black text-sm font-black text-white"
               >
-                Replace cart
+                {tCatalog("replaceCart")}
               </button>
             </div>
           </div>
@@ -379,6 +404,8 @@ function CategoryButton({
 }
 
 const ProductCard = memo(function ProductCard({
+  formatPrice,
+  labels,
   product,
   priority,
   qty,
@@ -388,6 +415,8 @@ const ProductCard = memo(function ProductCard({
   productHref,
   onQtyChange
 }: {
+  formatPrice: (value: number) => string;
+  labels: ProductCardLabels;
   product: ShopProduct;
   priority: boolean;
   qty: number;
@@ -398,10 +427,11 @@ const ProductCard = memo(function ProductCard({
   onQtyChange: (delta: number) => void;
 }) {
   const router = useRouter();
-  const imageUrl = optimizedCloudinaryUrl(product.imageUrl ?? product.images[0]?.url, { width: 360 });
-  const hasViewerImage = Boolean(product.imageUrl || product.images[0]?.url);
-  const price = formatCurrency(product.price);
-  const compareAt = product.compareAtPrice ? formatCurrency(product.compareAtPrice) : null;
+  const catalogImage = getPreferredCatalogImage(product);
+  const imageUrl = optimizedCloudinaryUrl(catalogImage?.url ?? product.imageUrl, { width: 360 });
+  const hasViewerImage = Boolean(catalogImage?.url || product.imageUrl);
+  const price = formatPrice(product.price);
+  const compareAt = product.compareAtPrice ? formatPrice(product.compareAtPrice) : null;
 
   function handleCardClick(event: MouseEvent<HTMLElement>) {
     const target = event.target as HTMLElement;
@@ -424,12 +454,12 @@ const ProductCard = memo(function ProductCard({
         className="relative h-[130px] w-full overflow-hidden bg-slate-50/50 p-2 text-left sm:h-[150px] sm:p-3 disabled:cursor-default"
         disabled={!hasViewerImage}
         onClick={() => onPreviewImage(0)}
-        aria-label={`View ${product.name} image`}
+        aria-label={labels.viewImage(product.name)}
       >
         {imageUrl ? (
           <Image
             src={imageUrl}
-            alt={product.images[0]?.altText ?? product.name}
+            alt={catalogImage?.altText ?? product.name}
             fill
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
@@ -456,7 +486,7 @@ const ProductCard = memo(function ProductCard({
               {product.name}
             </h3>
           </Link>
-          <button type="button" aria-label="Favorite" className="text-slate-900 shrink-0 mt-0.5">
+          <button type="button" aria-label={labels.favorite} className="text-slate-900 shrink-0 mt-0.5">
             <Heart size={16} strokeWidth={3} />
           </button>
         </div>
@@ -475,12 +505,12 @@ const ProductCard = memo(function ProductCard({
 
           {product.inStock ? (
             qty > 0 ? (
-              <div className="flex h-9 w-[76px] items-center justify-between rounded-lg bg-slate-900 text-white shadow-sm overflow-hidden transition-all">
+              <div className="flex h-9 w-[76px] items-center justify-between rounded-lg bg-black text-white shadow-sm overflow-hidden transition-all">
                 <button
                   type="button"
                   onClick={() => onQtyChange(-1)}
                   className="flex h-full w-7 items-center justify-center"
-                  aria-label={`Decrease ${product.name} quantity`}
+                  aria-label={labels.decreaseQuantity(product.name)}
                 >
                   <Minus size={14} strokeWidth={2.5} />
                 </button>
@@ -489,7 +519,7 @@ const ProductCard = memo(function ProductCard({
                   type="button"
                   onClick={() => onQtyChange(1)}
                   className="flex h-full w-7 items-center justify-center"
-                  aria-label={`Increase ${product.name} quantity`}
+                  aria-label={labels.increaseQuantity(product.name)}
                 >
                   <Plus size={14} strokeWidth={2.5} />
                 </button>
@@ -498,15 +528,15 @@ const ProductCard = memo(function ProductCard({
               <button
                 type="button"
                 onClick={onAdd}
-                className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-slate-900 text-sm font-black text-white shadow-sm"
-                aria-label={`Add ${product.name} to cart`}
+                className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-black text-sm font-black text-white shadow-sm"
+                aria-label={labels.addToCart(product.name)}
               >
-                ADD
+                {labels.addButton}
               </button>
             )
           ) : (
             <span className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-500">
-              Out of stock
+              {labels.outOfStock}
             </span>
           )}
         </div>
@@ -515,21 +545,34 @@ const ProductCard = memo(function ProductCard({
   );
 });
 
+type ProductCardLabels = {
+  addButton: string;
+  addToCart: (name: string) => string;
+  decreaseQuantity: (name: string) => string;
+  favorite: string;
+  increaseQuantity: (name: string) => string;
+  outOfStock: string;
+  viewImage: (name: string) => string;
+};
+
 function getProductViewerImages(product: ShopProduct): ViewImageItem[] {
   const seen = new Set<string>();
   const images: ViewImageItem[] = [];
+  const visibleProductImages = getCatalogVisibleImages(product);
 
-  const primaryUrl = optimizedCloudinaryUrl(product.imageUrl, { width: 1600 });
-  if (primaryUrl && !seen.has(primaryUrl)) {
-    seen.add(primaryUrl);
-    images.push({
-      id: `${product.id}:primary`,
-      src: primaryUrl,
-      alt: product.name
-    });
+  if (!visibleProductImages.length) {
+    const fallbackUrl = optimizedCloudinaryUrl(product.imageUrl, { width: 1600 });
+    if (fallbackUrl) {
+      images.push({
+        id: `${product.id}:primary`,
+        src: fallbackUrl,
+        alt: product.name
+      });
+    }
+    return images;
   }
 
-  for (const image of product.images) {
+  for (const image of visibleProductImages) {
     const optimized = optimizedCloudinaryUrl(image.url, { width: 1600 });
     if (!optimized || seen.has(optimized)) {
       continue;
@@ -547,12 +590,32 @@ function getProductViewerImages(product: ShopProduct): ViewImageItem[] {
   return images;
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    currency: "INR",
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-    style: "currency"
-  }).format(value);
+function getPreferredCatalogImage(product: ShopProduct) {
+  return getCatalogVisibleImages(product)[0] ?? null;
+}
+
+function getCatalogVisibleImages(product: ShopProduct) {
+  const productLevelImages = product.images.filter((image) => (image.variantIds ?? []).length === 0);
+  const defaultVariant = product.variants.find((variant) => variant.isDefault) ?? product.variants[0];
+  const defaultVariantImages = defaultVariant
+    ? product.images.filter((image) => (image.variantIds ?? []).includes(defaultVariant.id))
+    : [];
+  return uniqueImagesById(
+    productLevelImages.length || defaultVariantImages.length
+      ? [...productLevelImages, ...defaultVariantImages]
+      : product.images
+  );
+}
+
+function uniqueImagesById(images: ShopProduct["images"]) {
+  const seen = new Set<string>();
+  return images.filter((image) => {
+    if (seen.has(image.id)) {
+      return false;
+    }
+    seen.add(image.id);
+    return true;
+  });
 }
 
 function filtersEqual(left: ShopProductsFilters, right: ShopProductsFilters) {

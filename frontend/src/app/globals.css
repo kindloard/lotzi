@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
 @theme {
   --font-sans:
@@ -61,6 +62,56 @@ input,
 select,
 textarea {
   -webkit-tap-highlight-color: transparent;
+}
+
+img:not([data-allow-image-drag="true"]),
+picture:not([data-allow-image-drag="true"]),
+[data-no-image-drag="true"],
+[data-no-image-drag="true"] * {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+[data-allow-image-drag="true"],
+[data-allow-image-drag="true"] img,
+img[data-allow-image-drag="true"],
+picture[data-allow-image-drag="true"] {
+  -webkit-touch-callout: default;
+  -webkit-user-drag: auto;
+  user-select: auto;
+}
+
+.checkout-map-pin {
+  display: block;
+  height: 36px;
+  position: relative;
+  width: 36px;
+}
+
+.checkout-map-pin::before {
+  background: #09090b;
+  border: 3px solid #ffffff;
+  border-radius: 999px 999px 999px 0;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.32);
+  content: "";
+  height: 28px;
+  left: 4px;
+  position: absolute;
+  top: 0;
+  transform: rotate(-45deg);
+  width: 28px;
+}
+
+.checkout-map-pin span {
+  background: #ffffff;
+  border-radius: 999px;
+  height: 8px;
+  left: 14px;
+  position: absolute;
+  top: 10px;
+  width: 8px;
+  z-index: 1;
 }
 
 h1,

@@ -16,6 +16,7 @@ import {
 import { MEASUREMENT_UNITS, PACK_TYPES, UNIT_GROUPS } from "../product-measurement";
 
 const productStatuses = ["Draft", "Published", "Paused", "Needs review"] as const;
+const productImageScopes = ["PRODUCT", "VARIANT"] as const;
 
 export class ProductMeasurementInputDto {
   @IsIn(UNIT_GROUPS)
@@ -47,6 +48,10 @@ export class ProductImageInputDto {
   @IsString()
   @MaxLength(160)
   altText?: string;
+
+  @IsOptional()
+  @IsIn(productImageScopes)
+  imageScope?: (typeof productImageScopes)[number];
 
   @IsOptional()
   @IsArray()

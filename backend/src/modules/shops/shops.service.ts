@@ -151,6 +151,8 @@ export interface ShopProductDto {
     width: number | null;
     height: number | null;
     isPrimary: boolean;
+    variantIds: string[];
+    variantSkuIds: string[];
   }>;
   variants: Array<{
     id: string;
@@ -1158,12 +1160,22 @@ const publicProductSelect = {
       { isPrimary: "desc" as const },
       { sortOrder: "asc" as const }
     ],
-    take: 4,
+    take: 8,
     select: {
       id: true,
       altText: true,
       isPrimary: true,
       sortOrder: true,
+      variants: {
+        select: {
+          productVariant: {
+            select: {
+              id: true,
+              sku: true
+            }
+          }
+        }
+      },
       uploadAsset: {
         select: {
           renditions: {
@@ -1339,10 +1351,15 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
         altText: image.altText,
         width: rendition.width,
         height: rendition.height,
-        isPrimary: image.isPrimary
+        isPrimary: image.isPrimary,
+        variantIds: image.variants.map((variant) => variant.productVariant.id),
+        variantSkuIds: image.variants
+          .map((variant) => variant.productVariant.sku)
+          .filter((sku): sku is string => Boolean(sku))
       };
     })
     .filter((image): image is NonNullable<typeof image> => Boolean(image));
+  const primaryImage = preferredPublicProductImage(images, defaultVariant?.id);
 
   return {
     id: product.id,
@@ -1362,11 +1379,20 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
     pricePerBaseUnitDisplay:
       defaultVariant?.pricePerBaseUnitDisplay ??
       formatPricePerBaseUnitDisplay(Number(product.pricePerBaseUnit), product.unitGroup),
-    imageUrl: images[0]?.url ?? product.imageUrl,
+    imageUrl: primaryImage?.url ?? product.imageUrl,
     imageInitials: initialsFromName(product.name),
     images,
     variants
   };
+}
+
+function preferredPublicProductImage(
+  images: ShopProductDto["images"],
+  defaultVariantId: string | undefined
+) {
+  return images.find((image) => image.variantIds.length === 0) ??
+    images.find((image) => defaultVariantId && image.variantIds.includes(defaultVariantId)) ??
+    images[0];
 }
 
 function buildProductSpecifications(product: PublicProductDetailRow) {

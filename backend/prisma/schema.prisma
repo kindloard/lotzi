@@ -150,24 +150,93 @@ enum PayoutStatus {
 
 enum OrderStatus {
   PENDING
+  PENDING_PAYMENT
+  PAYMENT_CONFIRMED
+  PAYMENT_FAILED
+  FULFILLMENT_READY
   ACCEPTED
   REJECTED
   PACKING
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
+  EXPIRED
+  REFUND_PENDING
+  RETURN_REQUESTED
 }
 
 enum PaymentMethod {
-  COD
-  RAZORPAY
+  CASHFREE
 }
 
 enum PaymentStatus {
   PENDING
+  INITIATED
+  SESSION_CREATED
+  PENDING_GATEWAY
+  AUTHORIZED
   PAID
   FAILED
+  USER_DROPPED
+  EXPIRED
+  UNKNOWN_GATEWAY
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
   REFUNDED
+  CHARGEBACK_OPENED
+  DUPLICATE_SUCCESS_REQUIRES_REFUND
+}
+
+enum PaymentProvider {
+  CASHFREE
+}
+
+enum PaymentAttemptStatus {
+  INITIATED
+  SESSION_CREATED
+  PENDING_GATEWAY
+  AUTHORIZED
+  PAID
+  FAILED
+  USER_DROPPED
+  EXPIRED
+  UNKNOWN_GATEWAY
+  DUPLICATE_SUCCESS_REQUIRES_REFUND
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  DLQ
+  DUPLICATE
+}
+
+enum RefundStatus {
+  INITIATED
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum ReconciliationStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  FAILED
+  DLQ
+}
+
+enum ReconciliationReason {
+  UNKNOWN_GATEWAY
+  LONG_PENDING
+  MISSING_WEBHOOK
+  DUPLICATE_SUCCESS
+  AMOUNT_MISMATCH
+  STATUS_DRIFT
+  REFUND_DRIFT
 }
 
 enum UploadPurpose {
@@ -288,6 +357,7 @@ model User {
   addresses               Address[]
   carts                   Cart[]
   orders                  Order[]
+  checkoutSessions        CheckoutSession[]
   stockReservations       StockReservation[]
   identityProviders       IdentityProvider[]
   otpVerifications        OtpVerification[]
@@ -664,6 +734,7 @@ model Store {
   products            Product[]
   orders              Order[]
   carts               Cart[]
+  checkoutSessions    CheckoutSession[]
   auditLogs           AuditLog[]
   businessProfile     StoreBusinessProfile?
   branding            StoreBranding?
@@ -824,9 +895,13 @@ model StoreApprovalReview {
 
 model DomainEvent {
   id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schemaVersion Int               @default(1) @map("schema_version")
   eventType     String            @map("event_type")
   aggregateType String            @map("aggregate_type")
   aggregateId   String            @map("aggregate_id") @db.Uuid
+  idempotencyKey String?          @map("idempotency_key")
+  producer      String            @default("namastore-api")
+  occurredAt    DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(3)
   payload       Json              @default("{}")
   status        DomainEventStatus @default(PENDING)
   attempts      Int               @default(0)
@@ -838,6 +913,7 @@ model DomainEvent {
 
   @@index([status, nextRunAt])
   @@index([aggregateType, aggregateId, createdAt])
+  @@index([eventType, schemaVersion, createdAt])
   @@map("domain_events")
 }
 
@@ -1092,18 +1168,36 @@ model Order {
   subtotal      Decimal       @db.Decimal(10, 2)
   deliveryFee   Decimal       @default(0) @map("delivery_fee") @db.Decimal(10, 2)
   total         Decimal       @db.Decimal(10, 2)
+  currency      String        @default("INR") @db.Char(3)
+  pricingVersion Int          @default(1) @map("pricing_version")
+  quoteHash     String?       @map("quote_hash") @db.VarChar(64)
+  subtotalPaise BigInt        @default(0) @map("subtotal_paise")
+  discountPaise BigInt        @default(0) @map("discount_paise")
+  taxPaise      BigInt        @default(0) @map("tax_paise")
+  deliveryFeePaise BigInt     @default(0) @map("delivery_fee_paise")
+  grandTotalPaise BigInt      @default(0) @map("grand_total_paise")
+  expiresAt     DateTime?     @map("expires_at") @db.Timestamptz(3)
+  confirmedAt   DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  cancelledAt   DateTime?     @map("cancelled_at") @db.Timestamptz(3)
   customerNote  String?       @map("customer_note")
   user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
   store         Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
   address       Address?      @relation(fields: [addressId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payment       Payment?
+  paymentAttempts PaymentAttempt[]
+  paymentEvents PaymentEvent[]
+  stateTransitions OrderStateTransition[]
+  refunds       Refund[]
+  checkoutSession CheckoutSession?
   reservations  StockReservation[]
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId, createdAt])
   @@index([storeId, status])
+  @@index([status, paymentStatus, updatedAt])
+  @@index([paymentStatus, updatedAt])
   @@map("orders")
 }
 
@@ -1122,6 +1216,10 @@ model OrderItem {
   unitPrice     Decimal         @map("unit_price") @db.Decimal(10, 2)
   mrp           Decimal?        @db.Decimal(10, 2)
   total         Decimal         @db.Decimal(10, 2)
+  unitPricePaise BigInt         @default(0) @map("unit_price_paise")
+  discountPaise BigInt          @default(0) @map("discount_paise")
+  taxPaise      BigInt          @default(0) @map("tax_paise")
+  totalPaise    BigInt          @default(0) @map("total_paise")
   order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product       Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
@@ -1159,13 +1257,200 @@ model Payment {
   orderId           String        @unique @map("order_id") @db.Uuid
   method            PaymentMethod
   status            PaymentStatus @default(PENDING)
-  razorpayOrderId   String?       @map("razorpay_order_id")
-  razorpayPaymentId String?       @map("razorpay_payment_id")
-  razorpaySignature String?       @map("razorpay_signature")
+  provider          PaymentProvider @default(CASHFREE)
+  cashfreeOrderId   String?       @map("cashfree_order_id")
+  cashfreeCfOrderId String?       @map("cashfree_cf_order_id")
+  cashfreePaymentId String?       @map("cashfree_payment_id")
+  currency          String        @default("INR") @db.Char(3)
   amount            Decimal       @db.Decimal(10, 2)
+  amountPaise       BigInt        @default(0) @map("amount_paise")
+  refundedPaise     BigInt        @default(0) @map("refunded_paise")
+  idempotencyKey    String?       @unique @map("idempotency_key")
+  verifiedAt        DateTime?     @map("verified_at") @db.Timestamptz(3)
+  failedAt          DateTime?     @map("failed_at") @db.Timestamptz(3)
+  gatewayResponse   Json          @default("{}") @map("gateway_response")
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attempts          PaymentAttempt[]
+  events            PaymentEvent[]
+  webhookEvents     WebhookEvent[]
+  refunds           Refund[]
+  reconciliationRuns ReconciliationRun[]
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  @@unique([cashfreePaymentId])
+  @@unique([cashfreeOrderId])
+  @@index([status, updatedAt])
+  @@index([provider, status, updatedAt])
   @@map("payments")
+}
+
+model CheckoutSession {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  storeId        String        @map("store_id") @db.Uuid
+  orderId        String?       @unique @map("order_id") @db.Uuid
+  idempotencyKey String        @unique @map("idempotency_key")
+  requestHash    String        @map("request_hash") @db.VarChar(64)
+  quoteHash      String        @map("quote_hash") @db.VarChar(64)
+  currency       String        @default("INR") @db.Char(3)
+  subtotalPaise  BigInt        @map("subtotal_paise")
+  discountPaise  BigInt        @default(0) @map("discount_paise")
+  taxPaise       BigInt        @default(0) @map("tax_paise")
+  deliveryFeePaise BigInt      @default(0) @map("delivery_fee_paise")
+  grandTotalPaise BigInt       @map("grand_total_paise")
+  status         String        @default("CREATED")
+  expiresAt      DateTime      @map("expires_at") @db.Timestamptz(3)
+  payload        Json          @default("{}")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store          Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  order          Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, status, expiresAt])
+  @@index([storeId, createdAt])
+  @@map("checkout_sessions")
+}
+
+model PaymentAttempt {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId              String               @map("order_id") @db.Uuid
+  paymentId            String               @map("payment_id") @db.Uuid
+  attemptNumber        Int                  @map("attempt_number")
+  status               PaymentAttemptStatus @default(INITIATED)
+  cashfreeOrderId      String?              @unique @map("cashfree_order_id")
+  cashfreeCfOrderId    String?              @map("cashfree_cf_order_id")
+  cashfreePaymentId    String?              @map("cashfree_payment_id")
+  paymentSessionIdHash String?              @map("payment_session_id_hash") @db.VarChar(64)
+  amountPaise          BigInt               @map("amount_paise")
+  currency             String               @default("INR") @db.Char(3)
+  idempotencyKey       String?              @unique @map("idempotency_key")
+  gatewayRequest       Json                 @default("{}") @map("gateway_request")
+  gatewayResponse      Json                 @default("{}") @map("gateway_response")
+  expiresAt            DateTime?            @map("expires_at") @db.Timestamptz(3)
+  order                Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment              Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  events               PaymentEvent[]
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([orderId, attemptNumber])
+  @@index([paymentId, status, updatedAt])
+  @@index([status, expiresAt])
+  @@map("payment_attempts")
+}
+
+model PaymentEvent {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId     String         @map("payment_id") @db.Uuid
+  orderId       String         @map("order_id") @db.Uuid
+  attemptId     String?        @map("attempt_id") @db.Uuid
+  eventType     String         @map("event_type")
+  schemaVersion Int            @default(1) @map("schema_version")
+  fromStatus    PaymentStatus? @map("from_status")
+  toStatus      PaymentStatus? @map("to_status")
+  actorType     String         @default("SYSTEM") @map("actor_type")
+  actorUserId   String?        @map("actor_user_id") @db.Uuid
+  reason        String?
+  requestId     String?        @map("request_id")
+  payload       Json           @default("{}")
+  payment       Payment        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attempt       PaymentAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([paymentId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([eventType, schemaVersion, createdAt])
+  @@map("payment_events")
+}
+
+model WebhookEvent {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        PaymentProvider    @default(CASHFREE)
+  paymentId       String?            @map("payment_id") @db.Uuid
+  eventType       String             @map("event_type")
+  eventVersion    String             @default("2025-01-01") @map("event_version")
+  dedupeKey       String             @unique @map("dedupe_key")
+  payloadHash     String             @map("payload_hash") @db.VarChar(64)
+  signatureHash   String?            @map("signature_hash") @db.VarChar(64)
+  headers         Json               @default("{}")
+  rawPayload      Json               @default("{}") @map("raw_payload")
+  status          WebhookEventStatus @default(RECEIVED)
+  attempts        Int                @default(0)
+  nextRunAt       DateTime           @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  lastError       String?            @map("last_error")
+  processedAt     DateTime?          @map("processed_at") @db.Timestamptz(3)
+  payment         Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextRunAt])
+  @@index([eventType, createdAt])
+  @@index([paymentId, createdAt])
+  @@map("webhook_events")
+}
+
+model Refund {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId            String       @map("order_id") @db.Uuid
+  paymentId          String       @map("payment_id") @db.Uuid
+  refundId           String       @unique @map("refund_id")
+  cashfreeRefundId   String?      @unique @map("cashfree_refund_id")
+  cashfreePaymentId  String?      @map("cashfree_payment_id")
+  amountPaise        BigInt       @map("amount_paise")
+  currency           String       @default("INR") @db.Char(3)
+  status             RefundStatus @default(INITIATED)
+  reason             String?
+  idempotencyKey     String?      @unique @map("idempotency_key")
+  gatewayResponse    Json         @default("{}") @map("gateway_response")
+  processedAt        DateTime?    @map("processed_at") @db.Timestamptz(3)
+  order              Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment            Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([paymentId, status, createdAt])
+  @@index([orderId, createdAt])
+  @@map("refunds")
+}
+
+model OrderStateTransition {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId      String      @map("order_id") @db.Uuid
+  fromStatus   OrderStatus @map("from_status")
+  toStatus     OrderStatus @map("to_status")
+  actorType    String      @default("SYSTEM") @map("actor_type")
+  actorUserId  String?     @map("actor_user_id") @db.Uuid
+  reason       String
+  requestId    String?     @map("request_id")
+  metadata     Json        @default("{}")
+  order        Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([orderId, createdAt])
+  @@index([toStatus, createdAt])
+  @@map("order_state_transitions")
+}
+
+model ReconciliationRun {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId      String               @map("payment_id") @db.Uuid
+  reason         ReconciliationReason
+  status         ReconciliationStatus @default(PENDING)
+  driftCode      String?              @map("drift_code")
+  details        Json                 @default("{}")
+  attempts       Int                  @default(0)
+  nextCheckAt    DateTime             @default(now()) @map("next_check_at") @db.Timestamptz(3)
+  resolvedAt     DateTime?            @map("resolved_at") @db.Timestamptz(3)
+  lastError      String?              @map("last_error")
+  payment        Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextCheckAt])
+  @@index([reason, status, createdAt])
+  @@index([paymentId, createdAt])
+  @@map("reconciliation_runs")
 }

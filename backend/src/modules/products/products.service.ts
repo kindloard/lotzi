@@ -184,6 +184,7 @@ export class ProductsService {
     const variantRows = variants.map((variant) => productVariantCreateData(productId, variant, randomUUID()));
     const variantsBySku = variantsBySkuMap(variantRows);
     const variantsByClientId = variantsByClientIdMap(variants, variantRows);
+    assertVariantImageAssignments(images, variantsBySku, variantsByClientId);
     const imageRows = productImageCreateRows(productId, images);
     const imageVariantRows = productImageVariantCreateRows(images, imageRows, variantsBySku, variantsByClientId);
 
@@ -280,6 +281,7 @@ export class ProductsService {
     const variantRows = normalizedProductVariants.map((variant) => productVariantCreateData(productId, variant, randomUUID()));
     const variantsBySku = variantsBySkuMap(variantRows);
     const variantsByClientId = variantsByClientIdMap(normalizedProductVariants, variantRows);
+    assertVariantImageAssignments(images, variantsBySku, variantsByClientId);
     const imageRows = productImageCreateRows(productId, images);
 
     const result = await timeStage(timer, "db-write", () => this.prisma.$transaction(async (tx) => {
@@ -1023,6 +1025,7 @@ export class ProductsService {
       };
     }
 
+    assertVariantImageAssignments(input.images, input.variantsBySku, input.variantsByClientId);
     await tx.productImage.createMany({ data: input.imageRows });
     const imagesByAssetId = new Map(input.imageRows.map((image) => [image.uploadAssetId, image]));
     const variantsById = new Map(input.variants.map((variant) => [variant.id, variant]));
@@ -1324,6 +1327,9 @@ function imageVariantIds(
   variantsBySku: Map<string, string>,
   variantsByClientId: Map<string, string>
 ) {
+  if ((image.imageScope ?? "PRODUCT") !== "VARIANT") {
+    return [];
+  }
   const ids = new Set<string>();
   for (const clientId of image.variantClientIds ?? []) {
     const productVariantId = variantsByClientId.get(clientId);
@@ -1334,6 +1340,26 @@ function imageVariantIds(
     if (productVariantId) ids.add(productVariantId);
   }
   return Array.from(ids);
+}
+
+function assertVariantImageAssignments(
+  images: ProductImageInputDto[],
+  variantsBySku: Map<string, string>,
+  variantsByClientId: Map<string, string>
+) {
+  for (const image of images) {
+    if ((image.imageScope ?? "PRODUCT") !== "VARIANT") {
+      continue;
+    }
+    if (imageVariantIds(image, variantsBySku, variantsByClientId).length > 0) {
+      continue;
+    }
+    throw uploadError(
+      HttpStatus.BAD_REQUEST,
+      "PRODUCT_VARIANT_IMAGE_ASSIGNMENT_REQUIRED",
+      "Variant images must be assigned to at least one variant."
+    );
+  }
 }
 
 function productVariantCreateData(
@@ -1413,6 +1439,7 @@ function normalizeImages(images: ProductImageInputDto[]) {
   return images
     .map((image, index) => ({
       ...image,
+      imageScope: image.imageScope ?? "PRODUCT",
       sortOrder: image.sortOrder ?? index,
       variantClientIds: image.variantClientIds?.map((id) => id.trim()).filter(Boolean),
       variantSkuIds: image.variantSkuIds?.map((sku) => sku.toUpperCase())

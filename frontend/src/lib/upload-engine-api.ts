@@ -302,6 +302,7 @@ function toProductPayload(draft: ProductDraft, storeId: string, status: ProductS
         sortOrder: index,
         isPrimary: image.isPrimary ?? index === 0,
         altText: image.altText ?? image.name,
+        imageScope: useVariantAssignments ? "VARIANT" : "PRODUCT",
         variantClientIds: useVariantAssignments ? (image.variantIds ?? []) : [],
         variantSkuIds: useVariantAssignments ? (image.variantSkuIds ?? []) : []
       };
@@ -396,6 +397,7 @@ function imageFingerprint(image: ProductImage) {
     uploadAssetId: image.uploadAssetId ?? "",
     isPrimary: image.isPrimary ?? false,
     altText: image.altText ?? "",
+    imageScope: image.imageScope ?? "PRODUCT",
     variantIds: [...(image.variantIds ?? [])].sort(),
     variantSkuIds: [...(image.variantSkuIds ?? [])].sort()
   };

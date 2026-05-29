@@ -45,6 +45,8 @@ const DELETE_ACCOUNT_TTL_MINUTES = 10;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 const AVATAR_MAX_PIXELS = 16_000_000;
+const CHECKOUT_ADDRESS_CACHE_TTL_MS = 60_000;
+const CHECKOUT_ADDRESS_REVALIDATE_AFTER_MS = 250;
 const VISIBLE_ACTIVITY_TYPES = new Map<string, { category: string; summary: string }>([
   ["account.profile.updated", { category: "profile", summary: "Profile details updated" }],
   ["account.avatar.updated", { category: "profile", summary: "Profile photo updated" }],
@@ -60,9 +62,14 @@ const VISIBLE_ACTIVITY_TYPES = new Map<string, { category: string; summary: stri
   ["account.deletion.requested", { category: "security", summary: "Account deletion requested" }],
   ["account.deletion.completed", { category: "security", summary: "Account deleted" }]
 ]);
+type CheckoutAddressHint = { id: string };
 
 @Injectable()
 export class CustomerAccountService {
+  private readonly checkoutAddressCache = new Map<string, { address: CheckoutAddressHint | null; expiresAt: number }>();
+  private readonly checkoutAddressRefreshes = new Map<string, Promise<void>>();
+  private readonly checkoutAddressCacheVersions = new Map<string, number>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly rateLimit: RateLimitService,
@@ -309,6 +316,28 @@ export class CustomerAccountService {
     return { apiVersion: "v1", addresses: addresses.map(safeAddress) };
   }
 
+  async checkoutAddress(auth: AuthenticatedPrincipal, selectedAddressId?: string) {
+    const requestedAddressId = uuidOrUndefined(selectedAddressId);
+    const cacheKey = this.checkoutAddressCacheKey(auth.userId, requestedAddressId);
+    const cached = this.checkoutAddressCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        apiVersion: "v1",
+        address: cached.address,
+        cacheStatus: "HIT",
+        revalidateAfterMs: null
+      };
+    }
+
+    this.revalidateCheckoutAddress(auth.userId, requestedAddressId, cacheKey);
+    return {
+      apiVersion: "v1",
+      address: cached?.address ?? null,
+      cacheStatus: cached ? "STALE_REVALIDATING" : "MISS_REVALIDATING",
+      revalidateAfterMs: CHECKOUT_ADDRESS_REVALIDATE_AFTER_MS
+    };
+  }
+
   async createAddress(auth: AuthenticatedPrincipal, dto: CreateAddressDto, context: RequestContext) {
     await this.rateLimit.enforce(`account:address:write:${auth.userId}`, 30, 10 * 60);
     const created = await this.prisma.$transaction(async (tx) => {
@@ -337,7 +366,14 @@ export class CustomerAccountService {
       sessionId: auth.sessionId,
       metadata: { addressId: created.id } as Prisma.InputJsonObject
     });
-    return { apiVersion: "v1", address: safeAddress(created) };
+    const address = safeAddress(created);
+    const hint = checkoutAddressHint(created);
+    this.invalidateCheckoutAddressCache(auth.userId);
+    this.primeCheckoutAddressCache(auth.userId, created.id, hint);
+    if (created.isDefault) {
+      this.primeCheckoutAddressCache(auth.userId, undefined, hint);
+    }
+    return { apiVersion: "v1", address };
   }
 
   async updateAddress(auth: AuthenticatedPrincipal, id: string, dto: UpdateAddressDto, context: RequestContext) {
@@ -381,7 +417,14 @@ export class CustomerAccountService {
       sessionId: auth.sessionId,
       metadata: { addressId: id } as Prisma.InputJsonObject
     });
-    return { apiVersion: "v1", address: safeAddress(updated) };
+    const address = safeAddress(updated);
+    const hint = checkoutAddressHint(updated);
+    this.invalidateCheckoutAddressCache(auth.userId);
+    this.primeCheckoutAddressCache(auth.userId, id, hint);
+    if (updated.isDefault) {
+      this.primeCheckoutAddressCache(auth.userId, undefined, hint);
+    }
+    return { apiVersion: "v1", address };
   }
 
   async deleteAddress(auth: AuthenticatedPrincipal, id: string, context: RequestContext) {
@@ -420,6 +463,7 @@ export class CustomerAccountService {
       sessionId: auth.sessionId,
       metadata: { addressId: id } as Prisma.InputJsonObject
     });
+    this.invalidateCheckoutAddressCache(auth.userId);
     return { apiVersion: "v1", status: "DELETED" };
   }
 
@@ -451,7 +495,12 @@ export class CustomerAccountService {
       sessionId: auth.sessionId,
       metadata: { addressId: id } as Prisma.InputJsonObject
     });
-    return { apiVersion: "v1", address: safeAddress(updated) };
+    const address = safeAddress(updated);
+    const hint = checkoutAddressHint(updated);
+    this.invalidateCheckoutAddressCache(auth.userId);
+    this.primeCheckoutAddressCache(auth.userId, id, hint);
+    this.primeCheckoutAddressCache(auth.userId, undefined, hint);
+    return { apiVersion: "v1", address };
   }
 
   async orders(auth: AuthenticatedPrincipal, cursor?: string, limit = 10) {
@@ -1006,6 +1055,70 @@ export class CustomerAccountService {
     }
   }
 
+  private revalidateCheckoutAddress(userId: string, selectedAddressId: string | undefined, cacheKey: string) {
+    if (this.checkoutAddressRefreshes.has(cacheKey)) {
+      return;
+    }
+
+    const cacheVersion = this.checkoutAddressCacheVersions.get(userId) ?? 0;
+    const refresh = this.loadCheckoutAddress(userId, selectedAddressId)
+      .then((address) => {
+        if ((this.checkoutAddressCacheVersions.get(userId) ?? 0) !== cacheVersion) {
+          return;
+        }
+        this.checkoutAddressCache.set(cacheKey, {
+          address,
+          expiresAt: Date.now() + CHECKOUT_ADDRESS_CACHE_TTL_MS
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.checkoutAddressRefreshes.delete(cacheKey);
+      });
+    this.checkoutAddressRefreshes.set(cacheKey, refresh);
+  }
+
+  private async loadCheckoutAddress(userId: string, selectedAddressId: string | undefined) {
+    const selected = selectedAddressId
+      ? await this.prisma.address.findFirst({
+          where: { id: selectedAddressId, userId, deletedAt: null },
+          select: { id: true }
+        })
+      : null;
+    const address = selected ?? (await this.prisma.address.findFirst({
+      where: { userId, deletedAt: null },
+      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+      select: { id: true }
+    }));
+    return address ? checkoutAddressHint(address) : null;
+  }
+
+  private checkoutAddressCacheKey(userId: string, selectedAddressId: string | undefined) {
+    return `${userId}:${selectedAddressId ?? "default"}`;
+  }
+
+  private primeCheckoutAddressCache(userId: string, selectedAddressId: string | undefined, address: CheckoutAddressHint | null) {
+    this.checkoutAddressCache.set(this.checkoutAddressCacheKey(userId, selectedAddressId), {
+      address,
+      expiresAt: Date.now() + CHECKOUT_ADDRESS_CACHE_TTL_MS
+    });
+  }
+
+  private invalidateCheckoutAddressCache(userId: string) {
+    this.checkoutAddressCacheVersions.set(userId, (this.checkoutAddressCacheVersions.get(userId) ?? 0) + 1);
+    const prefix = `${userId}:`;
+    for (const key of Array.from(this.checkoutAddressCache.keys())) {
+      if (key.startsWith(prefix)) {
+        this.checkoutAddressCache.delete(key);
+      }
+    }
+    for (const key of Array.from(this.checkoutAddressRefreshes.keys())) {
+      if (key.startsWith(prefix)) {
+        this.checkoutAddressRefreshes.delete(key);
+      }
+    }
+  }
+
   private deleteConfirmationHash(userId: string, email: string, nonce: string, code: string) {
     return this.crypto.hmac(
       ["account_delete", userId, email.toLowerCase(), nonce, code].join(":"),
@@ -1077,6 +1190,16 @@ function safeAddress(address: {
     createdAt: address.createdAt.toISOString(),
     updatedAt: address.updatedAt.toISOString()
   };
+}
+
+function checkoutAddressHint(address: { id: string }): CheckoutAddressHint {
+  return { id: address.id };
+}
+
+function uuidOrUndefined(value: string | undefined) {
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined;
 }
 
 function safeOrder(order: {

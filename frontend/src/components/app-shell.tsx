@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { ImageDragGuard } from "@/components/image-drag-guard";
 import { TopNavbar } from "@/components/top-navbar";
 import { SessionRefreshProvider } from "@/components/session-refresh-provider";
 import { ToastProvider } from "@/components/toast/toast-context";
@@ -22,6 +23,11 @@ function usesStandaloneShell(pathname: string) {
   );
 }
 
+function hidesTopNavbar(pathname: string) {
+  const pathWithoutLocale = stripLocalePrefix(pathname);
+  return pathWithoutLocale.startsWith("/checkout");
+}
+
 function stripLocalePrefix(pathname: string) {
   const [, maybeLocale, ...rest] = pathname.split("/");
   if (routing.locales.includes(maybeLocale as never)) {
@@ -37,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
       <ToastProvider>
         <SessionRefreshProvider>
+          <ImageDragGuard />
           <WebVitalsReporter />
           {children}
         </SessionRefreshProvider>
@@ -47,9 +54,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
       <SessionRefreshProvider>
+        <ImageDragGuard />
         <WebVitalsReporter />
         <CartProvider>
-          <TopNavbar />
+          {hidesTopNavbar(pathname) ? null : <TopNavbar />}
           {children}
         </CartProvider>
       </SessionRefreshProvider>

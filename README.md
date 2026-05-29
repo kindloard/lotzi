@@ -27,7 +27,7 @@ Namastore helps local shops sell online without needing their own app or website
 - View products from a selected shop
 - Add products to cart
 - Checkout with address
-- Choose COD or Razorpay online payment
+- Pay through Cashfree hosted checkout
 - Track order status
 - Cancel eligible orders
 - View order history
@@ -70,7 +70,7 @@ Namastore helps local shops sell online without needing their own app or website
 - Prisma ORM
 - Firebase Admin SDK only for server-side Google token verification
 - Cloudinary
-- Razorpay
+- Cashfree
 
 ### Infrastructure
 
@@ -78,7 +78,7 @@ Namastore helps local shops sell online without needing their own app or website
 - Backend: Render, Railway, Fly.io, or a simple VPS
 - Database: Neon, Supabase, Railway PostgreSQL, or managed PostgreSQL
 - Image storage: Cloudinary
-- Payments: Razorpay
+- Payments: Cashfree
 - Maps: Google Maps Platform
 
 ## Folder Structure
@@ -138,7 +138,7 @@ namastore/
       integrations/
         firebase/
         cloudinary/
-        razorpay/
+        cashfree/
         google-maps/
 
   shared/
@@ -161,7 +161,7 @@ namastore/
 - PostgreSQL
 - Firebase project
 - Cloudinary account
-- Razorpay account
+- Cashfree account
 - Google Maps API key
 
 ### Setup
@@ -227,8 +227,10 @@ FIREBASE_PRIVATE_KEY=
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
-RAZORPAY_KEY_ID=
-RAZORPAY_KEY_SECRET=
+CASHFREE_ENV=sandbox
+CASHFREE_APP_ID=
+CASHFREE_SECRET_KEY=
+CASHFREE_WEBHOOK_SECRET=
 GOOGLE_MAPS_API_KEY=
 FRONTEND_URL=http://localhost:3000
 PORT=4000
@@ -244,7 +246,7 @@ NEXT_PUBLIC_FIREBASE_API_KEY=
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
-NEXT_PUBLIC_RAZORPAY_KEY_ID=
+NEXT_PUBLIC_CASHFREE_MODE=sandbox
 ```
 
 In production, keep `NEXT_PUBLIC_API_URL=/api` for browser requests, but set `INTERNAL_API_URL`
@@ -305,7 +307,7 @@ Keep the schema normalized enough to avoid data chaos, but avoid premature analy
 - Never trust frontend role claims without backend verification.
 - Store secrets only in environment variables.
 - Validate all request payloads.
-- Verify Razorpay payments on the backend.
+- Verify Cashfree payments on the backend.
 - Restrict Cloudinary upload operations through backend-controlled signatures or upload endpoints.
 - Add rate limiting for auth-sensitive and order/payment endpoints before launch.
 
@@ -320,14 +322,14 @@ Recommended MVP deployment:
 - Run Prisma migrations during backend deployment.
 - Use Cloudinary for product and shop images.
 - Use Firebase for auth.
-- Use Razorpay test mode first, then switch to live keys after verification.
+- Use Cashfree sandbox mode first, then switch to live keys after verification.
 
 ## Major Folder Purpose
 
 - `frontend`: Next.js customer, store-owner, and admin UI.
 - `backend`: NestJS REST API, business logic, authentication verification, payments, uploads, and database access.
 - `backend/src/modules`: Core business domains such as shops, products, orders, payments, admin, and users.
-- `backend/src/integrations`: External services such as Firebase, Cloudinary, Razorpay, and Google Maps.
+- `backend/src/integrations`: External services such as Firebase, Cloudinary, Cashfree, and Google Maps.
 - `shared`: Lightweight shared constants and TypeScript types only. Avoid turning this into a complex internal package at MVP stage.
 - `docs`: Practical project notes for architecture, API behavior, database design, and deployment.
 

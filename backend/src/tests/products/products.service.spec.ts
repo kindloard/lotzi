@@ -24,7 +24,7 @@ describe("ProductsService product save hot path", () => {
       status: "Published",
       seoDescription: "test description",
       images: [
-        { uploadAssetId: assetA, sortOrder: 0, isPrimary: true, altText: "Front", variantClientIds: ["small"] },
+        { uploadAssetId: assetA, sortOrder: 0, isPrimary: true, altText: "Front", imageScope: "VARIANT", variantClientIds: ["small"] },
         { uploadAssetId: assetB, sortOrder: 1, isPrimary: false, altText: "Back" }
       ],
       variants: [
@@ -41,6 +41,21 @@ describe("ProductsService product save hot path", () => {
     expect(tx.productVariant.create).not.toHaveBeenCalled();
     expect(tx.productImage.create).not.toHaveBeenCalled();
     expect(prisma.product.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("rejects variant-scoped images without a selected variant", async () => {
+    const { prisma, service } = createHarness();
+
+    await expect(service.create(auth(), draft({
+      images: [
+        { uploadAssetId: assetA, sortOrder: 0, isPrimary: true, imageScope: "VARIANT" }
+      ]
+    }))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "PRODUCT_VARIANT_IMAGE_ASSIGNMENT_REQUIRED" })
+    });
+
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("creates a draft without images and skips image writes", async () => {
@@ -238,8 +253,16 @@ function createHarness(options: {
     storeAuthorization: jest.fn(async () => ({ permissions: [PERMISSIONS.PRODUCT_MANAGE] })),
     hasPermissions: jest.fn(() => options.hasPermissions ?? true)
   };
-  const service = new ProductsService(prisma as never, rbac as never, { sweepStoreOrphans: jest.fn() } as never);
-  return { prisma, tx, rbac, service };
+  const shops = {
+    invalidateShopCaches: jest.fn()
+  };
+  const service = new ProductsService(
+    prisma as never,
+    rbac as never,
+    shops as never,
+    {} as never
+  );
+  return { prisma, tx, rbac, shops, service };
 }
 
 function auth() {

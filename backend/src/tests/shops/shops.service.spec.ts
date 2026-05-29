@@ -392,6 +392,54 @@ describe("ShopsService", () => {
     expect(response.products.map((product) => product.id)).toEqual(["prod-1", "prod-2"]);
   });
 
+  it("exposes image variant links in public product DTOs", async () => {
+    const record = catalogProductWithVariantImagesFixture();
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => [record]),
+        count: jest.fn(async () => 1),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    const response = await (service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<{ products: Array<{ imageUrl: string | null; images: Array<{ id: string; variantIds: string[]; variantSkuIds: string[] }> }> }>;
+    }).loadProductsForShopDetail(shopDetailFixture(), {
+      category: null,
+      includeFacets: false,
+      limit: 24,
+      page: 1,
+      q: "",
+      sort: "relevance"
+    });
+
+    expect(response.products[0].imageUrl).toBe("https://cdn.example.test/front.webp");
+    expect(response.products[0].images).toEqual([
+      expect.objectContaining({
+        id: "image-front",
+        variantIds: [],
+        variantSkuIds: []
+      }),
+      expect.objectContaining({
+        id: "image-500ml",
+        variantIds: ["variant-500ml"],
+        variantSkuIds: ["GW-500"]
+      })
+    ]);
+  });
+
   it("builds facet queries with search retained and category removed", async () => {
     const productGroupBy = jest.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => (args.by[0] === "categoryId" ? [] : []));
     const productFindMany = jest.fn(async () => []);
@@ -547,5 +595,86 @@ function catalogProductFixture(id: string, subCategory: string, categorySlug: st
     },
     images: [],
     variants: []
+  };
+}
+
+function catalogProductWithVariantImagesFixture() {
+  return {
+    ...catalogProductFixture("prod-with-images", "Cooking Oils", "grocery"),
+    images: [
+      {
+        id: "image-front",
+        altText: "Gold Winner front",
+        isPrimary: true,
+        sortOrder: 0,
+        variants: [],
+        uploadAsset: {
+          renditions: [
+            {
+              secureUrl: "https://cdn.example.test/front.webp",
+              width: 640,
+              height: 640
+            }
+          ]
+        }
+      },
+      {
+        id: "image-500ml",
+        altText: "Gold Winner 500ml",
+        isPrimary: false,
+        sortOrder: 1,
+        variants: [
+          {
+            productVariant: {
+              id: "variant-500ml",
+              sku: "GW-500"
+            }
+          }
+        ],
+        uploadAsset: {
+          renditions: [
+            {
+              secureUrl: "https://cdn.example.test/500ml.webp",
+              width: 640,
+              height: 640
+            }
+          ]
+        }
+      }
+    ],
+    variants: [
+      {
+        id: "variant-1l",
+        name: "1L Packet",
+        price: new Prisma.Decimal("240"),
+        mrp: null,
+        stock: 10,
+        stockOnHand: 10,
+        stockReserved: 0,
+        unitGroup: "VOLUME",
+        quantityValue: new Prisma.Decimal("1"),
+        quantityUnit: "L",
+        packType: "PACKET",
+        pricePerBaseUnit: new Prisma.Decimal("240"),
+        isDefault: true,
+        position: 0
+      },
+      {
+        id: "variant-500ml",
+        name: "500ml Packet",
+        price: new Prisma.Decimal("140"),
+        mrp: null,
+        stock: 10,
+        stockOnHand: 10,
+        stockReserved: 0,
+        unitGroup: "VOLUME",
+        quantityValue: new Prisma.Decimal("500"),
+        quantityUnit: "ML",
+        packType: "PACKET",
+        pricePerBaseUnit: new Prisma.Decimal("280"),
+        isDefault: false,
+        position: 1
+      }
+    ]
   };
 }

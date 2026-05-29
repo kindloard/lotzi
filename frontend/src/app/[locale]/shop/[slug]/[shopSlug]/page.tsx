@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { MapPin } from "lucide-react";
 import { Link } from "@/i18n/navigation";
+import type { AppLocale } from "@/i18n/routing";
 import {
   getShopDetailForPage,
   getShopProductsForPage,
@@ -78,6 +80,12 @@ export async function generateMetadata({ params, searchParams }: ShopPageProps):
 export default async function ShopPage({ params, searchParams }: ShopPageProps) {
   const [{ locale, slug: shopCode, shopSlug }, rawSearchParams] = await Promise.all([params, searchParams]);
   let shop: ShopDetail;
+  const appLocale = locale as AppLocale;
+  const [tShopHeader, tCategories, tUnavailable] = await Promise.all([
+    getTranslations({ locale: appLocale, namespace: "marketplace.shopHeader" }),
+    getTranslations({ locale: appLocale, namespace: "marketplace.categories" }),
+    getTranslations({ locale: appLocale, namespace: "marketplace.shopUnavailable" })
+  ]);
 
   try {
     shop = await getShopDetailForPage(shopCode, shopSlug);
@@ -87,17 +95,32 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
         notFound();
       }
       if (error.status === 410) {
-        return <ShopUnavailable locale={locale} title="This store is no longer available" />;
+        return (
+          <ShopUnavailable
+            browseLabel={tUnavailable("browseShops")}
+            description={tUnavailable("description")}
+            label={tUnavailable("label")}
+            title={tUnavailable("goneTitle")}
+          />
+        );
       }
+      return (
+        <ShopTemporarilyUnavailable
+          browseLabel={tUnavailable("browseShops")}
+          retryHref={`/${locale}/shop/${shopCode}/${shopSlug}`}
+        />
+      );
     }
     throw error;
   }
 
   const filters = filtersFromSearchParams(rawSearchParams);
+  const localizedTypeName = localizeShopType(shop.type, shop.typeName, tCategories);
+  const addressFallback = tShopHeader("fallbackAddress");
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950" id="main-content">
-      <ShopHero shop={shop} />
+      <ShopHero addressFallback={addressFallback} shop={shop} typeName={localizedTypeName} />
       <ShopsQueryProvider>
         <Suspense fallback={<CatalogFallback />}>
           <ServerShopCatalog locale={locale} shop={shop} filters={filters} />
@@ -133,13 +156,21 @@ async function ServerShopCatalog({
 
 import { ShopHeaderMobile } from "@/components/shop-header-mobile";
 
-function ShopHero({ shop }: { shop: ShopDetail }) {
-  const address = formatAddress(shop);
+function ShopHero({
+  addressFallback,
+  shop,
+  typeName
+}: {
+  addressFallback: string;
+  shop: ShopDetail;
+  typeName: string;
+}) {
+  const address = formatAddress(shop, addressFallback);
 
   return (
     <>
       {/* Mobile Sticky Header */}
-      <ShopHeaderMobile shopName={shop.name} address={address} typeName={shop.typeName} />
+      <ShopHeaderMobile shopName={shop.name} address={address} typeName={typeName} />
       
       {/* Desktop Header */}
       <section className="bg-white border-b border-slate-200 hidden md:block">
@@ -180,21 +211,65 @@ function CatalogFallback() {
   );
 }
 
-function ShopUnavailable({ title }: { locale: string; title: string }) {
+function ShopUnavailable({
+  browseLabel,
+  description,
+  label,
+  title
+}: {
+  browseLabel: string;
+  description: string;
+  label: string;
+  title: string;
+}) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-white px-4 text-center">
       <div className="max-w-md">
-        <p className="text-sm font-black uppercase tracking-wide text-slate-400">Store unavailable</p>
+        <p className="text-sm font-black uppercase tracking-wide text-slate-400">{label}</p>
         <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          The store may have closed, moved, or changed its public listing.
+          {description}
         </p>
         <Link
           href="/"
           className="mt-6 inline-flex h-11 items-center justify-center rounded-lg bg-black px-5 text-sm font-black text-white"
         >
-          Browse nearby shops
+          {browseLabel}
         </Link>
+      </div>
+    </main>
+  );
+}
+
+function ShopTemporarilyUnavailable({
+  browseLabel,
+  retryHref
+}: {
+  browseLabel: string;
+  retryHref: string;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-white px-4 text-center text-slate-950">
+      <div className="max-w-md">
+        <p className="text-sm font-black uppercase tracking-wide text-slate-400">Store temporarily unavailable</p>
+        <h1 className="mt-3 text-3xl font-black tracking-tight">We're reconnecting to this store</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          The store API is taking longer than usual. This keeps the page from crashing while the backend catches up.
+        </p>
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <a
+            href={retryHref}
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-black px-5 text-sm font-black text-white"
+          >
+            Retry store
+          </a>
+          <Link
+            href="/"
+            className="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-950"
+          >
+            {browseLabel}
+          </Link>
+        </div>
       </div>
     </main>
   );
@@ -300,6 +375,23 @@ function absoluteUrl(path: string) {
   return `${base}${path}`;
 }
 
-function formatAddress(shop: ShopDetail) {
-  return [shop.address.city, shop.address.state].filter(Boolean).join(", ") || "Local store";
+function formatAddress(shop: ShopDetail, fallback: string) {
+  return [shop.address.city, shop.address.state].filter(Boolean).join(", ") || fallback;
+}
+
+function localizeShopType(
+  type: string,
+  fallback: string,
+  tCategories: (key: "grocery" | "vegetables" | "bakery" | "dairy" | "meat") => string
+) {
+  switch (type) {
+    case "grocery":
+    case "vegetables":
+    case "bakery":
+    case "dairy":
+    case "meat":
+      return tCategories(type);
+    default:
+      return fallback;
+  }
 }

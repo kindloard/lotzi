@@ -1,5 +1,37 @@
 import { apiFetch } from "@/lib/api";
 
+const CUSTOMER_ADDRESSES_CACHE_TTL_MS = 30_000;
+const CHECKOUT_ADDRESS_RETRY_MS = 300;
+
+export type CheckoutAddressResponse = {
+  apiVersion: "v1";
+  address: { id: string } | null;
+  cacheStatus?: "HIT" | "MISS_REVALIDATING" | "STALE_REVALIDATING";
+  revalidateAfterMs?: number | null;
+};
+
+let customerAddressesCache:
+  | {
+      expiresAt: number;
+      response: { apiVersion: "v1"; addresses: CustomerAddress[] };
+    }
+  | null = null;
+let customerAddressesInFlight: Promise<{ apiVersion: "v1"; addresses: CustomerAddress[] }> | null = null;
+let customerAddressesCacheVersion = 0;
+let checkoutAddressCache:
+  | {
+      key: string;
+      expiresAt: number;
+      response: CheckoutAddressResponse;
+    }
+  | null = null;
+let checkoutAddressInFlight:
+  | {
+      key: string;
+      promise: Promise<CheckoutAddressResponse>;
+    }
+  | null = null;
+
 export interface AccountBootstrap {
   apiVersion: "v1";
   account: {
@@ -135,6 +167,8 @@ export type AddressInput = {
   city: string;
   state: string;
   pincode: string;
+  latitude?: number;
+  longitude?: number;
   deliveryInstructions?: string;
   isDefault?: boolean;
 };
@@ -168,14 +202,84 @@ export function uploadCustomerAvatar(file: File) {
   });
 }
 
-export function fetchCustomerAddresses() {
-  return apiFetch<{ apiVersion: "v1"; addresses: CustomerAddress[] }>("/v1/me/addresses");
+export function fetchCustomerAddresses(options: { force?: boolean } = {}) {
+  if (!options.force && customerAddressesCache && customerAddressesCache.expiresAt > Date.now()) {
+    return Promise.resolve(customerAddressesCache.response);
+  }
+
+  if (!options.force && customerAddressesInFlight) {
+    return customerAddressesInFlight;
+  }
+
+  const cacheVersion = customerAddressesCacheVersion;
+  customerAddressesInFlight = apiFetch<{ apiVersion: "v1"; addresses: CustomerAddress[] }>("/v1/me/addresses", {
+    cache: "no-store"
+  })
+    .then((response) => {
+      if (cacheVersion === customerAddressesCacheVersion) {
+        customerAddressesCache = {
+          expiresAt: Date.now() + CUSTOMER_ADDRESSES_CACHE_TTL_MS,
+          response
+        };
+      }
+      return response;
+    })
+    .finally(() => {
+      customerAddressesInFlight = null;
+    });
+
+  return customerAddressesInFlight;
+}
+
+export function fetchCheckoutAddress(options: { selectedAddressId?: string | null; force?: boolean } = {}) {
+  const cacheKey = options.selectedAddressId ?? "default";
+  if (!options.force && checkoutAddressCache?.key === cacheKey && checkoutAddressCache.expiresAt > Date.now()) {
+    return Promise.resolve(checkoutAddressCache.response);
+  }
+
+  if (!options.force && checkoutAddressInFlight?.key === cacheKey) {
+    return checkoutAddressInFlight.promise;
+  }
+
+  const query = options.selectedAddressId
+    ? `?${new URLSearchParams({ selectedAddressId: options.selectedAddressId }).toString()}`
+    : "";
+  const cacheVersion = customerAddressesCacheVersion;
+  const promise = apiFetch<CheckoutAddressResponse>(`/v1/me/checkout-address${query}`, {
+    cache: "no-store"
+  })
+    .then((response) => {
+      if (cacheVersion === customerAddressesCacheVersion) {
+        checkoutAddressCache = {
+          key: cacheKey,
+          expiresAt: Date.now() + CUSTOMER_ADDRESSES_CACHE_TTL_MS,
+          response
+        };
+      }
+      return response;
+    })
+    .finally(() => {
+      if (checkoutAddressInFlight?.key === cacheKey) {
+        checkoutAddressInFlight = null;
+      }
+    });
+
+  checkoutAddressInFlight = { key: cacheKey, promise };
+  return promise;
+}
+
+export function checkoutAddressRetryDelay(response: CheckoutAddressResponse) {
+  const delay = response.revalidateAfterMs;
+  return typeof delay === "number" && delay >= 0 ? delay : CHECKOUT_ADDRESS_RETRY_MS;
 }
 
 export function createCustomerAddress(input: AddressInput) {
   return apiFetch<{ apiVersion: "v1"; address: CustomerAddress }>("/v1/me/addresses", {
     method: "POST",
     body: JSON.stringify(input)
+  }).then((response) => {
+    invalidateCustomerAddressesCache();
+    return response;
   });
 }
 
@@ -183,19 +287,36 @@ export function updateCustomerAddress(id: string, input: AddressInput & { addres
   return apiFetch<{ apiVersion: "v1"; address: CustomerAddress }>(`/v1/me/addresses/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(input)
+  }).then((response) => {
+    invalidateCustomerAddressesCache();
+    return response;
   });
 }
 
 export function deleteCustomerAddress(id: string) {
   return apiFetch<{ apiVersion: "v1"; status: string }>(`/v1/me/addresses/${encodeURIComponent(id)}`, {
     method: "DELETE"
+  }).then((response) => {
+    invalidateCustomerAddressesCache();
+    return response;
   });
 }
 
 export function setDefaultCustomerAddress(id: string) {
   return apiFetch<{ apiVersion: "v1"; address: CustomerAddress }>(`/v1/me/addresses/${encodeURIComponent(id)}/default`, {
     method: "POST"
+  }).then((response) => {
+    invalidateCustomerAddressesCache();
+    return response;
   });
+}
+
+export function invalidateCustomerAddressesCache() {
+  customerAddressesCacheVersion += 1;
+  customerAddressesCache = null;
+  customerAddressesInFlight = null;
+  checkoutAddressCache = null;
+  checkoutAddressInFlight = null;
 }
 
 export function fetchCustomerOrders(cursor?: string) {

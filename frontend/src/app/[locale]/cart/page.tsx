@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useRouter } from "@/i18n/navigation";
 import Image from "next/image";
+import { useTranslations } from "next-intl";
+import { useAuthSession } from "@/components/session-refresh-provider";
 import { Skeleton, SkeletonSurface, SkeletonText } from "@/components/skeleton-engine";
 import {
   ShoppingBag,
@@ -10,10 +12,7 @@ import {
   Minus,
   Check,
   Tag,
-  MapPin,
   Clock,
-  CalendarClock,
-  ShieldCheck,
   CreditCard,
   X,
   Bike,
@@ -23,7 +22,14 @@ import {
   ArrowRight,
   Percent
 } from "lucide-react";
-import { useCart, CartItem } from "@/lib/cart-context";
+import { createCheckoutSession } from "@/features/checkout/checkout-api";
+import { loadCashfree } from "@/features/checkout/cashfree-sdk";
+import {
+  checkoutAddressRetryDelay,
+  fetchCheckoutAddress
+} from "@/features/customer-account/customer-account-api";
+import { ApiError } from "@/lib/api";
+import { useCart, CartItem, cartLineKey } from "@/lib/cart-context";
 import { formatIndianRupees } from "@/lib/currency";
 
 interface PlacedOrderDetails {
@@ -34,9 +40,14 @@ interface PlacedOrderDetails {
   tax: number;
   deliveryFee: number;
   grandTotal: number;
-  address: string;
   speed: string;
 }
+
+const SHOW_PROMO_CODE_SECTION = false;
+const SHOW_BASKET_TIMING = false;
+const SHOW_DELIVERY_SPEED_SECTION = false;
+const CHECKOUT_SELECTED_ADDRESS_KEY = "ns:checkout:selected-address-id";
+type AddressLookupState = "idle" | "loading" | "ready" | "error";
 
 function CartPageSkeleton() {
   return (
@@ -65,7 +76,7 @@ function CartPageSkeleton() {
               <div className="divide-y divide-slate-100">
                 {[0, 1].map((item) => (
                   <div
-                    className="grid grid-cols-[48px_minmax(0,1fr)_82px] items-start gap-2 px-3 py-4 sm:grid-cols-[60px_minmax(0,1fr)_104px] sm:gap-4 sm:px-5"
+                    className="grid grid-cols-[48px_minmax(0,1fr)_auto] items-start gap-3 px-3 py-4 sm:grid-cols-[60px_minmax(0,1fr)_auto] sm:gap-4 sm:px-5"
                     key={item}
                   >
                     <Skeleton height={48} radius="2xl" width={48} />
@@ -87,28 +98,6 @@ function CartPageSkeleton() {
               </div>
             </SkeletonSurface>
 
-            <SkeletonSurface>
-              <div className="mb-4 flex items-center gap-2">
-                <Skeleton height={18} radius="full" width={18} />
-                <Skeleton height={16} radius="full" width={122} />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Skeleton height={96} radius="xl" />
-                <Skeleton height={96} radius="xl" tone="soft" />
-              </div>
-            </SkeletonSurface>
-
-            <SkeletonSurface>
-              <div className="mb-4 flex items-center gap-2">
-                <Skeleton height={18} radius="full" width={18} />
-                <Skeleton height={16} radius="full" width={132} />
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <Skeleton height={78} radius="xl" />
-                <Skeleton height={78} radius="xl" tone="soft" />
-                <Skeleton height={78} radius="xl" tone="soft" />
-              </div>
-            </SkeletonSurface>
           </div>
 
           <div className="w-full max-w-[calc(100vw-24px)] min-w-0 space-y-6 sm:max-w-none lg:col-span-4">
@@ -142,6 +131,8 @@ function CartPageSkeleton() {
 
 export default function CartPage() {
   const router = useRouter();
+  const tCart = useTranslations("cart");
+  const { isSessionReady, session } = useAuthSession();
   const {
     cartItems,
     cartSubtotal,
@@ -156,26 +147,96 @@ export default function CartPage() {
   const [promoError, setPromoError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; discountPercent: number } | null>(null);
   const [deliverySpeed, setDeliverySpeed] = useState<"standard" | "priority">("standard");
-  const [selectedAddressId, setSelectedAddressId] = useState<"home" | "work" | "custom">("home");
-  const [customAddress, setCustomAddress] = useState("");
-  const [customAddressInput, setCustomAddressInput] = useState("");
   const [checkoutStep, setCheckoutStep] = useState<"idle" | "verifying" | "securing" | "processing" | "success">("idle");
   const [placedOrderDetails, setPlacedOrderDetails] = useState<PlacedOrderDetails | null>(null);
-  const [addressError, setAddressError] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [isSelectedAddressLoaded, setIsSelectedAddressLoaded] = useState(false);
+  const [checkoutAddress, setCheckoutAddress] = useState<{ id: string } | null>(null);
+  const [addressLookupState, setAddressLookupState] = useState<AddressLookupState>("idle");
 
   // Pricing calculations
   const subtotal = cartSubtotal;
   const deliveryFee = deliverySpeed === "priority" ? 49 : 0;
-  const discount = appliedPromo ? (subtotal * appliedPromo.discountPercent) / 100 : 0;
-  const tax = Math.max(0, (subtotal - discount) * 0.18); // 18% GST/Tax on discounted subtotal
-  const grandTotal = Math.max(0, subtotal + deliveryFee + tax - discount);
+  const discount = SHOW_PROMO_CODE_SECTION && appliedPromo ? (subtotal * appliedPromo.discountPercent) / 100 : 0;
+  const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
+  const effectiveAddressId = checkoutAddress?.id ?? selectedAddressId;
+  const isCheckingAddress = isSessionReady && Boolean(session) && (
+    !isSelectedAddressLoaded || (!effectiveAddressId && (addressLookupState === "idle" || addressLookupState === "loading"))
+  );
+  const shouldSelectAddress = isSessionReady && (
+    !session || addressLookupState === "error" || (addressLookupState === "ready" && !effectiveAddressId)
+  );
 
-  // Address lookup helper
-  const getAddressText = () => {
-    if (selectedAddressId === "home") return "Home - 12 Main St, Primary Address";
-    if (selectedAddressId === "work") return "Work - 45 Tech Park, Tower B, Office Address";
-    return customAddress || "Click edit to set custom address";
-  };
+  useEffect(() => {
+    try {
+      setSelectedAddressId(sessionStorage.getItem(CHECKOUT_SELECTED_ADDRESS_KEY));
+    } catch {
+      setSelectedAddressId(null);
+    } finally {
+      setIsSelectedAddressLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSessionReady || !isSelectedAddressLoaded) {
+      return;
+    }
+
+    if (!session) {
+      setCheckoutAddress(null);
+      setAddressLookupState("idle");
+      return;
+    }
+
+    let isCurrent = true;
+    let retryTimer: number | undefined;
+    let retryCount = 0;
+    setAddressLookupState("loading");
+
+    const loadAddress = () => {
+      void fetchCheckoutAddress({ selectedAddressId })
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setCheckoutAddress(response.address);
+          setAddressLookupState("ready");
+
+          if (response.cacheStatus && response.cacheStatus !== "HIT" && response.revalidateAfterMs !== null && retryCount < 6) {
+            retryCount += 1;
+            retryTimer = window.setTimeout(loadAddress, checkoutAddressRetryDelay(response));
+          }
+
+          try {
+            if (response.address) {
+              sessionStorage.setItem(CHECKOUT_SELECTED_ADDRESS_KEY, response.address.id);
+            } else if (response.cacheStatus === "HIT") {
+              sessionStorage.removeItem(CHECKOUT_SELECTED_ADDRESS_KEY);
+              setSelectedAddressId(null);
+            }
+          } catch {
+            if (!response.address && response.cacheStatus === "HIT") {
+              setSelectedAddressId(null);
+            }
+          }
+        })
+        .catch(() => {
+          if (!isCurrent) {
+            return;
+          }
+          setCheckoutAddress(null);
+          setAddressLookupState("error");
+        });
+    };
+
+    loadAddress();
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(retryTimer);
+    };
+  }, [isSelectedAddressLoaded, isSessionReady, selectedAddressId, session?.sessionId]);
 
   // Promo code validation
   const handleApplyPromo = (e: React.FormEvent) => {
@@ -203,70 +264,88 @@ export default function CartPage() {
     setAppliedPromo(null);
   };
 
-  // Address validation
-  useEffect(() => {
-    if (selectedAddressId === "custom" && !customAddress.trim()) {
-      setAddressError("Please set your custom delivery address");
-    } else {
-      setAddressError(null);
-    }
-  }, [selectedAddressId, customAddress]);
-
   // Checkout handling
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cartItems.length === 0) return;
-    if (selectedAddressId === "custom" && !customAddress.trim()) {
-      setAddressError("Please enter and save a custom delivery address first");
+    setCheckoutError(null);
+
+    if (!isSessionReady) {
+      setCheckoutError("Checking your session. Please try again in a moment.");
       return;
     }
 
-    // Begin checkout animation steps
+    if (!session) {
+      router.push(`/checkout/address?next=${encodeURIComponent("/cart")}`);
+      return;
+    }
+
+    if (isCheckingAddress) {
+      setCheckoutError("Checking your delivery address. Please try again in a moment.");
+      return;
+    }
+
+    if (!effectiveAddressId) {
+      router.push(`/checkout/address?next=${encodeURIComponent("/cart")}`);
+      return;
+    }
+
+    const invalidItem = cartItems.find((item) => !item.variantId);
+    if (invalidItem) {
+      setCheckoutError("Refresh this product from the store page before checkout.");
+      return;
+    }
+
     setCheckoutStep("verifying");
+    try {
+      const session = await createCheckoutSession({
+        items: cartItems.map((item) => ({
+          productId: item.id,
+          variantId: item.variantId!,
+          quantity: item.qty
+        })),
+        shippingOption: deliverySpeed,
+        couponCode: appliedPromo?.code,
+        addressId: effectiveAddressId,
+        idempotencyKey: crypto.randomUUID()
+      });
 
-    setTimeout(() => {
+      if (session.status === "UNKNOWN_GATEWAY" || !session.paymentSessionId) {
+        router.push(`/checkout/status?orderId=${session.orderId}&paymentId=${session.paymentId}`);
+        return;
+      }
+
       setCheckoutStep("securing");
-      
-      setTimeout(() => {
-        setCheckoutStep("processing");
-
-        setTimeout(() => {
-          // Complete payment and generate order details
-          const generatedOrderId = `NMA-${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(100 + Math.random() * 900)}`;
-          
-          setPlacedOrderDetails({
-            orderId: generatedOrderId,
-            items: [...cartItems],
-            subtotal,
-            discount,
-            tax,
-            deliveryFee,
-            grandTotal,
-            address: getAddressText(),
-            speed: deliverySpeed === "priority" ? "Priority Delivery" : "Standard Delivery"
-          });
-
-          setCheckoutStep("success");
-          clearCart(); // Flush global state
-        }, 800);
-      }, 700);
-    }, 600);
+      const cashfree = await loadCashfree();
+      setCheckoutStep("processing");
+      await cashfree.checkout({
+        paymentSessionId: session.paymentSessionId,
+        redirectTarget: "_self"
+      });
+    } catch (error) {
+      setCheckoutStep("idle");
+      if (isApiErrorCode(error, "CHECKOUT_ADDRESS_REQUIRED")) {
+        router.push(`/checkout/address?next=${encodeURIComponent("/cart")}`);
+        return;
+      }
+      setCheckoutError(checkoutErrorMessage(error));
+    }
   };
 
   // Loading text depending on animation stage
   const getLoaderText = () => {
-    if (checkoutStep === "verifying") return "Verifying basket items...";
-    if (checkoutStep === "securing") return "Establishing secure gateway...";
-    if (checkoutStep === "processing") return "Processing payment & booking courier...";
+    if (checkoutStep === "verifying") return "Validating server-side totals...";
+    if (checkoutStep === "securing") return "Opening secure Cashfree checkout...";
+    if (checkoutStep === "processing") return "Waiting for payment authorization...";
     return "Finalizing order...";
   };
 
   const handleQuantityChange = (item: CartItem, delta: number) => {
     if (delta < 0 && item.qty <= 1) {
-      removeFromCart(item.id);
+      removeFromCart(cartLineKey(item));
       return;
     }
 
-    updateQty(item.id, delta);
+    updateQty(cartLineKey(item), delta);
   };
 
   if (!isCartReady) {
@@ -297,9 +376,9 @@ export default function CartPage() {
             </p>
             <Link
               href="/"
-              className="mt-6 inline-flex h-11 items-center justify-center px-6 rounded-xl bg-slate-950 text-xs font-bold text-white shadow-md hover:bg-slate-850 hover:-translate-y-0.5 transition-all duration-200"
+              className="mt-6 inline-flex h-11 items-center justify-center px-6 rounded-xl bg-black text-xs font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90"
             >
-              Start Shopping
+              {tCart("browseProducts")}
             </Link>
           </div>
         ) : (
@@ -310,7 +389,8 @@ export default function CartPage() {
             <div className="w-full max-w-[calc(100vw-24px)] min-w-0 space-y-6 sm:max-w-none lg:col-span-8">
               
               {/* Premium Product List */}
-              <section className="w-full min-w-0 max-w-full overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.07)] animate-scale-up">
+              <section className="w-full min-w-0 max-w-full overflow-hidden rounded-[24px] border border-slate-200 bg-white px-3 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.07)] animate-scale-up sm:px-5 sm:py-5">
+                {SHOW_BASKET_TIMING ? (
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-100 px-3 py-3.5 sm:gap-4 sm:px-5">
                   <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-900 shadow-sm">
@@ -326,33 +406,32 @@ export default function CartPage() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-2 text-[11px] font-black text-amber-800 transition-all hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-100 focus:outline-none focus:ring-4 focus:ring-amber-200/50 sm:h-9 sm:gap-2 sm:px-3 sm:text-xs"
-                  >
-                    <CalendarClock size={13} strokeWidth={2.4} />
-                    <span>Schedule</span>
-                  </button>
                 </div>
+                ) : null}
 
                 <div className="divide-y divide-slate-100">
                   {cartItems.map((item) => {
-                    const originalPrice = item.price * item.qty * 1.12;
                     const lineTotal = item.price * item.qty;
 
                     return (
                       <article
-                        key={item.id}
-                        className="grid grid-cols-[48px_minmax(0,1fr)_82px] items-start gap-2 px-3 py-4 transition-colors hover:bg-slate-50/55 sm:grid-cols-[60px_minmax(0,1fr)_104px] sm:gap-4 sm:px-5"
+                        key={cartLineKey(item)}
+                        className="grid grid-cols-[64px_minmax(0,1fr)_84px] items-start gap-4 px-1 py-5 transition-colors hover:bg-slate-50/55 sm:grid-cols-[72px_minmax(0,1fr)_92px] sm:gap-5 sm:px-2"
                       >
-                        <span className={`relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-black text-sm shadow-sm ring-1 ring-slate-950/[0.04] sm:size-14 ${item.imageBg}`}>
+                        <span
+                          className="relative flex size-16 shrink-0 select-none items-center justify-center overflow-hidden font-black text-sm sm:size-[72px]"
+                          draggable={false}
+                          onDragStart={(event) => event.preventDefault()}
+                        >
                           {item.imageUrl ? (
                             <Image
                               alt=""
-                              className="absolute inset-0 size-full object-cover"
+                              className="absolute inset-0 size-full object-contain"
+                              draggable={false}
                               fill
                               loading="lazy"
-                              sizes="56px"
+                              onDragStart={(event) => event.preventDefault()}
+                              sizes="72px"
                               src={item.imageUrl}
                             />
                           ) : (
@@ -365,40 +444,35 @@ export default function CartPage() {
                             {item.name}
                           </h3>
                           <p className="mt-1 text-xs font-semibold text-slate-400">
-                            {item.unitDisplay ?? item.unit ?? "1 pc"} | {item.pricePerBaseUnitDisplay ?? `${formatIndianRupees(item.price)} each`}
+                            {item.unitDisplay ?? item.unit ?? "1 pc"}
+                          </p>
+
+                          <p className="mt-3 text-sm font-black text-slate-950 sm:text-base">
+                            {formatIndianRupees(lineTotal)}
                           </p>
                         </div>
 
-                        <div className="flex min-w-0 flex-col items-end gap-2">
-                          <div className="flex h-8 items-center overflow-hidden rounded-xl border border-rose-100 bg-rose-50/80 text-rose-600">
+                        <div className="flex min-w-0 justify-end">
+                          <div className="flex h-8 items-center overflow-hidden rounded-xl border border-black bg-black text-white">
                             <button
                               onClick={() => handleQuantityChange(item, -1)}
-                              className="flex size-8 items-center justify-center transition-all hover:bg-rose-100"
+                              className="flex size-8 items-center justify-center transition-all hover:bg-white/15"
                               aria-label={
                                 item.qty <= 1 ? "Remove product" : "Decrease quantity"
                               }
                             >
                               <Minus size={12} strokeWidth={3} />
                             </button>
-                            <span className="w-6 select-none text-center text-sm font-black text-rose-600">
+                            <span className="w-6 select-none text-center text-sm font-black text-white">
                               {item.qty}
                             </span>
                             <button
                               onClick={() => handleQuantityChange(item, 1)}
-                              className="flex size-8 items-center justify-center transition-all hover:bg-rose-100"
+                              className="flex size-8 items-center justify-center transition-all hover:bg-white/15"
                               aria-label="Increase quantity"
                             >
                               <Plus size={12} strokeWidth={3} />
                             </button>
-                          </div>
-
-                          <div className="flex flex-wrap items-baseline justify-end gap-x-1.5 gap-y-0.5 leading-tight">
-                            <p className="text-[13px] font-black text-emerald-600 sm:text-sm">
-                              {formatIndianRupees(lineTotal)}
-                            </p>
-                            <p className="text-[11px] font-bold text-slate-400 line-through">
-                              {formatIndianRupees(originalPrice)}
-                            </p>
                           </div>
                         </div>
                       </article>
@@ -406,16 +480,18 @@ export default function CartPage() {
                   })}
                 </div>
 
-                <button
-                  type="button"
-                  className="flex h-12 w-full items-center justify-center gap-2 border-t border-slate-100 bg-slate-50/70 px-4 text-sm font-black text-slate-950 transition-all hover:bg-white"
-                >
-                  Forgot something?
-                  <span className="text-rose-600">Add More Items</span>
-                </button>
               </section>
 
+              <button
+                type="button"
+                className="-mt-3 flex w-full items-center justify-center gap-2 px-4 text-sm font-medium text-slate-900 transition-colors hover:text-black"
+              >
+                Forgot something?
+                <span className="text-black">Add More Items</span>
+              </button>
+
               {/* Delivery Speed Selection */}
+              {SHOW_DELIVERY_SPEED_SECTION ? (
               <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6">
                 <h3 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
                   <Clock size={16} className="text-slate-800" />
@@ -434,7 +510,7 @@ export default function CartPage() {
                         : "border-slate-200 bg-white"
                     }`}
                   >
-                    <span className={`p-2.5 rounded-xl ${deliverySpeed === "standard" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`}>
+                    <span className={`p-2.5 rounded-xl ${deliverySpeed === "standard" ? "bg-black text-white" : "bg-slate-100 text-slate-500"}`}>
                       <Bike size={18} />
                     </span>
                     <div className="min-w-0">
@@ -454,7 +530,7 @@ export default function CartPage() {
                         : "border-slate-200 bg-white"
                     }`}
                   >
-                    <span className={`p-2.5 rounded-xl ${deliverySpeed === "priority" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`}>
+                    <span className={`p-2.5 rounded-xl ${deliverySpeed === "priority" ? "bg-black text-white" : "bg-slate-100 text-slate-500"}`}>
                       <Zap size={18} />
                     </span>
                     <div className="min-w-0">
@@ -468,112 +544,13 @@ export default function CartPage() {
                   </button>
                 </div>
               </div>
-
-              {/* Delivery Address Selector */}
-              <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <MapPin size={16} className="text-slate-800" />
-                    Delivery Address
-                  </h3>
-                  {addressError && (
-                    <span className="text-[10px] text-rose-600 font-bold animate-pulse">
-                      {addressError}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-450 mb-4">Select your delivery destination</p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Home Option */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAddressId("home")}
-                    className={`flex flex-col p-4 rounded-xl border text-left transition-all hover:bg-slate-50 cursor-pointer ${
-                      selectedAddressId === "home" ? "border-black bg-slate-50/30 ring-1 ring-black" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Home</span>
-                    <span className="text-xs font-bold text-slate-900 mt-1 truncate">12 Main St</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5 truncate">Primary Address</span>
-                  </button>
-
-                  {/* Work Option */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAddressId("work")}
-                    className={`flex flex-col p-4 rounded-xl border text-left transition-all hover:bg-slate-50 cursor-pointer ${
-                      selectedAddressId === "work" ? "border-black bg-slate-50/30 ring-1 ring-black" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Work</span>
-                    <span className="text-xs font-bold text-slate-900 mt-1 truncate">45 Tech Park</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5 truncate">Tower B, Office Address</span>
-                  </button>
-
-                  {/* Custom Option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedAddressId("custom");
-                      if (!customAddress) {
-                        setCustomAddressInput("");
-                      }
-                    }}
-                    className={`flex flex-col p-4 rounded-xl border text-left transition-all hover:bg-slate-50 cursor-pointer ${
-                      selectedAddressId === "custom" ? "border-black bg-slate-50/30 ring-1 ring-black" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center justify-between">
-                      Custom
-                      {customAddress && <Check size={10} className="text-slate-800" />}
-                    </span>
-                    <span className="text-xs font-bold text-slate-900 mt-1 truncate">
-                      {customAddress || "Set Address"}
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-0.5 truncate">
-                      {customAddress ? "Click edit below" : "Enter a new address"}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Inline Editing for Custom Address */}
-                {selectedAddressId === "custom" && (
-                  <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-250/70 animate-scale-up">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Enter Delivery Address Details
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={customAddressInput}
-                        onChange={(e) => setCustomAddressInput(e.target.value)}
-                        placeholder="e.g. Apartment 4B, Green Meadows Road"
-                        className="flex-1 text-xs font-semibold px-3 py-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-black transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (customAddressInput.trim()) {
-                            setCustomAddress(customAddressInput.trim());
-                            setAddressError(null);
-                          }
-                        }}
-                        className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              ) : null}
 
             </div>
 
             {/* Right Column: Checkout Billing & Promo */}
             <div className="w-full max-w-[calc(100vw-24px)] min-w-0 space-y-6 sm:max-w-none lg:col-span-4">
-              
-              {/* Promo Code Form */}
+              {SHOW_PROMO_CODE_SECTION ? (
               <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6">
                 <h3 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
                   <Gift size={16} className="text-slate-800" />
@@ -593,7 +570,7 @@ export default function CartPage() {
                   <button
                     type="submit"
                     disabled={appliedPromo !== null || !promoCode}
-                    className="px-4 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-850 transition-all disabled:opacity-40 disabled:hover:bg-slate-900 cursor-pointer"
+                    className="px-4 py-2.5 bg-black text-white rounded-xl text-xs font-bold transition-all hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40 cursor-pointer"
                   >
                     Apply
                   </button>
@@ -641,6 +618,7 @@ export default function CartPage() {
                   </div>
                 </div>
               </div>
+              ) : null}
 
               {/* Order Summary & Billing */}
               <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6 space-y-4">
@@ -657,7 +635,7 @@ export default function CartPage() {
                   </div>
 
                   {/* Promo Discount */}
-                  {appliedPromo && (
+                  {SHOW_PROMO_CODE_SECTION && appliedPromo && (
                     <div className="flex items-center justify-between text-emerald-600 font-semibold">
                       <span>Promo Discount ({appliedPromo.code})</span>
                       <span>-{formatIndianRupees(discount)}</span>
@@ -672,14 +650,8 @@ export default function CartPage() {
                     </span>
                   </div>
 
-                  {/* Taxes */}
-                  <div className="flex items-center justify-between text-slate-550">
-                    <span>Est. Taxes (GST 18%)</span>
-                    <span className="text-slate-900 font-bold">{formatIndianRupees(tax)}</span>
-                  </div>
-
                   {/* Divider */}
-                  <div className="border-t border-slate-100 my-3" />
+                  <div className="my-4 border-t border-slate-200" />
 
                   {/* Grand Total */}
                   <div className="flex items-center justify-between text-sm font-bold">
@@ -688,37 +660,35 @@ export default function CartPage() {
                   </div>
                 </div>
 
-                {/* Place Order Button */}
-                <button
-                  onClick={handlePlaceOrder}
-                  disabled={checkoutStep !== "idle" || cartItems.length === 0 || addressError !== null}
-                  className="w-full flex h-12 items-center justify-center rounded-xl bg-slate-950 text-xs font-bold text-white shadow-md hover:bg-slate-850 hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:hover:translate-y-0 disabled:bg-slate-950 cursor-pointer"
-                >
-                  {checkoutStep === "idle" ? (
-                    <span className="flex items-center gap-1.5 justify-center">
-                      Place Order • {formatIndianRupees(grandTotal)}
-                      <ArrowRight size={13} strokeWidth={2.5} />
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2 justify-center">
-                      <Loader2 className="size-4 animate-spin text-white" />
-                      {getLoaderText()}
-                    </span>
-                  )}
-                </button>
-
-                {/* Additional Trust Indicators */}
-                <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase">
-                    <ShieldCheck size={13} className="text-slate-400" />
-                    <span>SSL Secure Checkout Guarantee</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase">
-                    <Clock size={13} className="text-slate-400" />
-                    <span>On-time delivery or cash back promise</span>
-                  </div>
-                </div>
               </div>
+
+              {/* Place Order Button */}
+              <button
+                onClick={handlePlaceOrder}
+                disabled={checkoutStep !== "idle" || cartItems.length === 0 || !isSessionReady || isCheckingAddress}
+                className="w-full flex h-12 items-center justify-center rounded-xl bg-black text-xs font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90 disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:opacity-40 disabled:bg-black cursor-pointer"
+              >
+                {checkoutStep === "idle" ? (
+                  <span className="flex items-center gap-1.5 justify-center">
+                    {!isSessionReady ? "Checking account" : isCheckingAddress ? "Checking address" : shouldSelectAddress ? "Select address" : (
+                      <>
+                        Place Order &bull; {formatIndianRupees(grandTotal)}
+                      </>
+                    )}
+                    <ArrowRight size={13} strokeWidth={2.5} />
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2 justify-center">
+                    <Loader2 className="size-4 animate-spin text-white" />
+                    {getLoaderText()}
+                  </span>
+                )}
+              </button>
+              {checkoutError ? (
+                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {checkoutError}
+                </p>
+              ) : null}
 
             </div>
           </div>
@@ -731,7 +701,7 @@ export default function CartPage() {
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           
           {/* Backdrop Blur */}
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md animate-fade-in" />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md animate-fade-in" />
           
           {/* Modal Container */}
           <div className="relative z-10 w-full max-w-lg bg-white rounded-[32px] border border-slate-100 p-8 shadow-2xl overflow-hidden animate-scale-up max-h-[90vh] overflow-y-auto scrollbar-hide">
@@ -769,7 +739,7 @@ export default function CartPage() {
 
                 {/* Stepper item 2: Preparing */}
                 <div className="relative flex gap-3.5 items-start">
-                  <span className="absolute -left-[22px] flex size-4 items-center justify-center rounded-full bg-slate-950 text-white ring-4 ring-white">
+                  <span className="absolute -left-[22px] flex size-4 items-center justify-center rounded-full bg-black text-white ring-4 ring-white">
                     <Loader2 size={9} className="animate-spin" />
                   </span>
                   <div>
@@ -794,29 +764,6 @@ export default function CartPage() {
 
               </div>
 
-              {/* Delivery Details Details */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mt-6 space-y-2.5">
-                <div className="flex justify-between items-start gap-4">
-                  <div className="min-w-0">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase">Delivery Location</p>
-                    <p className="text-xs font-semibold text-slate-800 mt-0.5 truncate">{placedOrderDetails.address}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase">Logistics Speed</p>
-                    <p className="text-xs font-bold text-slate-850 mt-0.5">{placedOrderDetails.speed}</p>
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-200/60 pt-2.5 flex justify-between items-center text-xs font-bold text-slate-700">
-                  <span className="flex items-center gap-1">
-                    <Clock size={13} className="text-slate-400" />
-                    Est. Delivery Time:
-                  </span>
-                  <span className="text-slate-950 font-black">
-                    {placedOrderDetails.speed.includes("Priority") ? "10 - 15 minutes" : "20 - 30 minutes"}
-                  </span>
-                </div>
-              </div>
             </div>
 
             {/* Order Items & Receipt Summary */}
@@ -825,7 +772,7 @@ export default function CartPage() {
               
               <div className="max-h-28 overflow-y-auto scrollbar-hide divide-y divide-slate-100 pr-1">
                 {placedOrderDetails.items.map((item) => (
-                  <div key={item.id} className="py-2 flex items-center justify-between text-xs font-semibold">
+                  <div key={cartLineKey(item)} className="py-2 flex items-center justify-between text-xs font-semibold">
                     <span className="text-slate-650 truncate max-w-[280px]">
                       {item.qty}x {item.name}{item.unitDisplay ? ` ${item.unitDisplay}` : ""}
                     </span>
@@ -846,7 +793,7 @@ export default function CartPage() {
                 setCheckoutStep("idle");
                 router.push("/");
               }}
-              className="w-full flex h-11 items-center justify-center rounded-xl bg-slate-950 hover:bg-slate-850 text-xs font-bold text-white transition-all shadow-md hover:-translate-y-0.5 mt-4 cursor-pointer"
+              className="w-full flex h-11 items-center justify-center rounded-xl bg-black text-xs font-bold text-white transition-all shadow-md hover:-translate-y-0.5 hover:opacity-90 mt-4 cursor-pointer"
             >
               Continue Shopping
             </button>
@@ -857,4 +804,29 @@ export default function CartPage() {
 
     </main>
   );
+}
+
+function checkoutErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    const body = error.body as { code?: string; message?: string; retryAfterSeconds?: number } | undefined;
+    if (body?.code === "CHECKOUT_ADDRESS_REQUIRED") {
+      return "Select a delivery address before payment.";
+    }
+    if (body?.code === "CHECKOUT_OUT_OF_STOCK" || body?.code === "CHECKOUT_PRODUCT_UNAVAILABLE") {
+      return "One or more items changed. Refresh the store page and try again.";
+    }
+    if (body?.code === "CASHFREE_NOT_CONFIGURED") {
+      return "Payments are temporarily unavailable. Please try again later.";
+    }
+    return body?.message ?? error.message;
+  }
+  return error instanceof Error ? error.message : "Checkout failed. Please try again.";
+}
+
+function isApiErrorCode(error: unknown, code: string) {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+  const body = error.body as { code?: unknown } | undefined;
+  return body?.code === code;
 }

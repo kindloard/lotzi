@@ -2,7 +2,7 @@ export type PlatformRole = "PLATFORM_SUPER_ADMIN" | "CUSTOMER";
 export type StoreRole = "MERCHANT_OWNER" | "STORE_MANAGER" | "STORE_STAFF";
 export type RoleCode = PlatformRole | StoreRole;
 
-export type PaymentMethod = "COD" | "RAZORPAY";
+export type PaymentMethod = "CASHFREE";
 
 export type OrderStatus =
   | "PENDING"

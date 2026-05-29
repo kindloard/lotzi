@@ -17,6 +17,7 @@ import { AuthRepository } from "./auth.repository";
 import { AuthService } from "./auth.service";
 import { AccessTokenGuard } from "./guards/access-token.guard";
 import { CsrfGuard } from "./guards/csrf.guard";
+import { JwtHintGuard } from "./guards/jwt-hint.guard";
 import { SessionRepository } from "./repositories/session.repository";
 import { SessionCacheService } from "./session-cache.service";
 import { SessionService } from "./session.service";
@@ -45,8 +46,9 @@ import { SessionService } from "./session.service";
     SessionCacheService,
     SessionService,
     AccessTokenGuard,
+    JwtHintGuard,
     CsrfGuard
   ],
-  exports: [AuthService, AuthStateRepository, AccessTokenGuard, CsrfGuard, SessionCacheService]
+  exports: [AuthService, AuthStateRepository, AccessTokenGuard, JwtHintGuard, CsrfGuard, SessionCacheService]
 })
 export class AuthModule {}

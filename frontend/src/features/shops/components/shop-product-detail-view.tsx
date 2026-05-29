@@ -3,13 +3,14 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Heart, Minus, Plus } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useCart } from "@/lib/cart-context";
 import { Link } from "@/i18n/navigation";
 import { ViewImageViewer, type ViewImageItem } from "@/components/view-image-viewer";
 import { trackProductView, type ShopProductDetailResponse } from "../shops-api";
 import { productRefFromParts } from "../lib/product-route";
 import { useShopProductDetail } from "../hooks/use-shop-product-detail";
+import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
 
 export function ShopProductDetailView({
   initialImageIndex,
@@ -26,17 +27,83 @@ export function ShopProductDetailView({
     productDetail
   );
   const detail = query.data ?? productDetail;
+  const format = useFormatter();
   const tDetail = useTranslations("marketplace.shopProductDetail");
+  const tCatalog = useTranslations("marketplace.shopCatalog");
+  const tCategories = useTranslations("marketplace.categories");
+  const subCategoryLabels = useMemo(() => buildSubCategoryLabels(tCatalog), [tCatalog]);
+  const packTypeLabels = useMemo<PackTypeLabels>(() => ({
+    bag: tDetail("packTypes.bag"),
+    bottle: tDetail("packTypes.bottle"),
+    box: tDetail("packTypes.box"),
+    bunch: tDetail("packTypes.bunch"),
+    bundle: tDetail("packTypes.bundle"),
+    can: tDetail("packTypes.can"),
+    carton: tDetail("packTypes.carton"),
+    jar: tDetail("packTypes.jar"),
+    pack: tDetail("packTypes.pack"),
+    packet: tDetail("packTypes.packet"),
+    pouch: tDetail("packTypes.pouch"),
+    sachet: tDetail("packTypes.sachet"),
+    set: tDetail("packTypes.set"),
+    strip: tDetail("packTypes.strip"),
+    tray: tDetail("packTypes.tray"),
+    unit: tDetail("packTypes.unit")
+  }), [tDetail]);
+  const specificationLabels = useMemo<SpecificationLabels>(() => ({
+    category: tDetail("specificationLabels.category"),
+    pricePerBaseUnit: tDetail("specificationLabels.pricePerBaseUnit"),
+    subcategory: tDetail("specificationLabels.subcategory"),
+    type: tDetail("specificationLabels.type"),
+    unit: tDetail("specificationLabels.unit")
+  }), [tDetail]);
   const { addToCart, cartItems, updateQty } = useCart();
   const [activeImageIndex, setActiveImageIndex] = useState(initialImageIndex);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [selectedVariantId, setSelectedVariantId] = useState(detail.product.variants.find((variant) => variant.isDefault)?.id ?? detail.product.variants[0]?.id ?? null);
+  const defaultVariantId = detail.product.variants.find((variant) => variant.isDefault)?.id ?? detail.product.variants[0]?.id ?? null;
+  const [selectedVariantId, setSelectedVariantId] = useState(defaultVariantId);
 
   const selectedVariant = detail.product.variants.find((variant) => variant.id === selectedVariantId) ?? detail.product.variants[0];
   const displayPrice = selectedVariant?.price ?? detail.product.price;
   const displayCompareAtPrice = selectedVariant?.compareAtPrice ?? detail.product.compareAtPrice;
-  const displayUnit = selectedVariant?.unitDisplay ?? detail.product.unitDisplay;
+  const rawDisplayUnit = selectedVariant?.unitDisplay ?? detail.product.unitDisplay;
+  const displayUnit = localizeUnitDisplay(rawDisplayUnit, packTypeLabels);
+  const displayPricePerBaseUnit = selectedVariant?.pricePerBaseUnitDisplay ?? detail.product.pricePerBaseUnitDisplay;
   const displayInStock = selectedVariant?.inStock ?? detail.product.inStock;
+  const displayCategory = localizeCategoryLabel(detail.product.categorySlug, detail.product.category, tCategories);
+  const displaySubCategory = detail.product.subCategory
+    ? localizeSubCategoryLabel(detail.product.subCategory, subCategoryLabels)
+    : "";
+  const displayCategoryPill = displaySubCategory || displayCategory;
+  const displaySpecifications = useMemo(() => {
+    const specs: Array<{ key: string; label: string; value: string }> = [];
+    if (displayCategory) {
+      specs.push({ key: "category", label: specificationLabels.category, value: displayCategory });
+    }
+    if (displaySubCategory) {
+      specs.push({ key: "subcategory", label: specificationLabels.subcategory, value: displaySubCategory });
+    }
+    if (detail.product.productType.trim()) {
+      specs.push({ key: "type", label: specificationLabels.type, value: detail.product.productType.trim() });
+    }
+    if (displayUnit) {
+      specs.push({ key: `unit:${selectedVariant?.id ?? "product"}`, label: specificationLabels.unit, value: displayUnit });
+    }
+    if (displayPricePerBaseUnit) {
+      specs.push({
+        key: `pricePerBaseUnit:${selectedVariant?.id ?? "product"}`,
+        label: specificationLabels.pricePerBaseUnit,
+        value: displayPricePerBaseUnit
+      });
+    }
+    return specs;
+  }, [detail.product.productType, displayCategory, displayPricePerBaseUnit, displaySubCategory, displayUnit, selectedVariant?.id, specificationLabels]);
+  const formatPrice = (value: number) =>
+    format.number(value, {
+      currency: "INR",
+      maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+      style: "currency"
+    });
   const cartQty = cartItems
     .filter((item) => item.id === detail.product.id && (item.variantId ?? null) === (selectedVariant?.id ?? null))
     .reduce((sum, item) => sum + item.qty, 0);
@@ -45,16 +112,32 @@ export function ShopProductDetailView({
     ? Math.round(((displayCompareAtPrice - displayPrice) / displayCompareAtPrice) * 100)
     : 0;
 
+  const visibleProductImages = useMemo(() => {
+    const productLevelImages = detail.product.images.filter((image) => (image.variantIds ?? []).length === 0);
+    if (!selectedVariant?.id) {
+      return productLevelImages.length ? productLevelImages : detail.product.images;
+    }
+
+    const selectedVariantImages = detail.product.images.filter((image) =>
+      (image.variantIds ?? []).includes(selectedVariant.id)
+    );
+    if (selectedVariantImages.length) {
+      return selectedVariantImages;
+    }
+
+    return productLevelImages.length ? productLevelImages : detail.product.images;
+  }, [detail.product.images, selectedVariant?.id]);
   const galleryImages = useMemo<ViewImageItem[]>(
-    () => detail.product.images.map((image) => ({
+    () => visibleProductImages.map((image) => ({
       id: image.id,
       src: image.url,
       alt: image.altText ?? detail.product.name,
       width: image.width,
       height: image.height
     })),
-    [detail.product.images, detail.product.name]
+    [detail.product.name, visibleProductImages]
   );
+  const galleryImageKey = useMemo(() => galleryImages.map((image) => image.id).join("|"), [galleryImages]);
 
   useEffect(() => {
     const eventId = typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -65,6 +148,16 @@ export function ShopProductDetailView({
       viewedAt: new Date().toISOString()
     });
   }, [detail.product.publicId]);
+
+  useEffect(() => {
+    if (!detail.product.variants.some((variant) => variant.id === selectedVariantId)) {
+      setSelectedVariantId(defaultVariantId);
+    }
+  }, [defaultVariantId, detail.product.variants, selectedVariantId]);
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [galleryImageKey, selectedVariant?.id]);
 
   const activeImage = galleryImages[activeImageIndex] ?? galleryImages[0];
 
@@ -78,10 +171,10 @@ export function ShopProductDetailView({
       shopId: detail.store.id,
       imageBg: "bg-slate-50 text-slate-900",
       imageInitials: detail.product.imageInitials,
-      imageUrl: detail.product.imageUrl ?? undefined,
-      unit: displayUnit,
-      unitDisplay: displayUnit,
-      pricePerBaseUnitDisplay: detail.product.pricePerBaseUnitDisplay
+      imageUrl: activeImage?.src ?? detail.product.imageUrl ?? undefined,
+      unit: rawDisplayUnit,
+      unitDisplay: rawDisplayUnit,
+      pricePerBaseUnitDisplay: displayPricePerBaseUnit
     });
   }
 
@@ -113,7 +206,7 @@ export function ShopProductDetailView({
           </button>
 
           {/* Thumbnails (Left on Desktop, Bottom on Mobile) */}
-          {galleryImages.length > 1 ? (
+          {galleryImages.length > 0 ? (
             <div className="scrollbar-hide flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-2 py-2 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0">
               {galleryImages.map((image, index) => (
                 <button
@@ -140,7 +233,7 @@ export function ShopProductDetailView({
             <div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="inline-flex max-w-full items-center truncate rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-black">
-                  {detail.product.subCategory || detail.product.category}
+                  {displayCategoryPill}
                 </span>
                 {discountPercent > 0 && (
                   <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 shrink-0">
@@ -156,11 +249,11 @@ export function ShopProductDetailView({
             {/* Price section */}
             <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
               <span className="text-3xl font-black tracking-tight text-black sm:text-4xl">
-                {formatCurrency(displayPrice)}
+                {formatPrice(displayPrice)}
               </span>
               {displayCompareAtPrice && displayCompareAtPrice > displayPrice ? (
                 <span className="mb-1 text-base font-bold text-slate-400 line-through sm:text-lg">
-                  {formatCurrency(displayCompareAtPrice)}
+                  {formatPrice(displayCompareAtPrice)}
                 </span>
               ) : null}
               <span className="mb-1 text-xs font-semibold text-slate-500 sm:mb-2 sm:ml-1 sm:text-sm">
@@ -182,7 +275,7 @@ export function ShopProductDetailView({
                       key={variant.id}
                       isActive={selectedVariantId === variant.id}
                       onClick={() => setSelectedVariantId(variant.id)}
-                      optionLabel={getVariantPackLabel(variant.unitDisplay, variant.name, tDetail("packSuffix"))}
+                      optionLabel={getVariantPackLabel(variant.unitDisplay, variant.name, packTypeLabels)}
                     />
                   ))}
                 </div>
@@ -201,11 +294,11 @@ export function ShopProductDetailView({
               <div className="hidden items-center gap-3 md:flex lg:gap-4">
                 {cartQty > 0 ? (
                   <div className="flex h-14 w-40 items-center justify-between rounded-2xl bg-slate-100 px-2 text-slate-900 border border-slate-200">
-                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label="Decrease quantity" onClick={() => updateQty(detail.product.id, -1)}>
+                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(detail.product.id, -1)}>
                       <Minus size={18} className="text-slate-600" />
                     </button>
                     <span className="text-lg font-black w-8 text-center">{cartQty}</span>
-                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label="Increase quantity" onClick={addCurrentVariantToCart}>
+                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label={tDetail("increaseQuantity")} onClick={addCurrentVariantToCart}>
                       <Plus size={18} className="text-slate-600" />
                     </button>
                   </div>
@@ -219,7 +312,7 @@ export function ShopProductDetailView({
                     {tDetail("addToCart")}
                   </button>
                 )}
-                <button type="button" className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-600 transition-colors">
+                <button type="button" aria-label={tDetail("favorite")} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-600 transition-colors">
                   <Heart size={22} />
                 </button>
               </div>
@@ -241,12 +334,12 @@ export function ShopProductDetailView({
             </section>
           )}
 
-          {detail.product.specifications.length > 0 && (
+          {displaySpecifications.length > 0 && (
             <section>
               <h2 className="mb-4 text-xl font-black text-black sm:mb-6 sm:text-2xl">{tDetail("specifications")}</h2>
               <div className="divide-y divide-slate-100 border-y border-slate-100">
-                {detail.product.specifications.map((spec) => (
-                  <div key={spec.label} className="flex py-4">
+                {displaySpecifications.map((spec) => (
+                  <div key={spec.key} className="flex py-4">
                     <dt className="w-[42%] pr-4 text-sm font-bold text-slate-500 break-words sm:w-1/4">
                       {spec.label}
                     </dt>
@@ -290,7 +383,7 @@ export function ShopProductDetailView({
                       {item.name}
                     </h3>
                     <p className="text-sm font-black text-black">
-                      {formatCurrency(item.price)}
+                      {formatPrice(item.price)}
                     </p>
                   </div>
                 </Link>
@@ -305,16 +398,16 @@ export function ShopProductDetailView({
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="flex-shrink-0 min-w-0">
             <p className="text-xs font-bold text-slate-500 truncate">{displayUnit}</p>
-            <p className="text-lg font-black text-black truncate">{formatCurrency(displayPrice)}</p>
+            <p className="text-lg font-black text-black truncate">{formatPrice(displayPrice)}</p>
           </div>
           <div className="flex min-w-0 flex-1 justify-end">
             {cartQty > 0 ? (
               <div className="flex h-12 w-full max-w-[13rem] items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-1.5 text-slate-900">
-                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label="Decrease quantity" onClick={() => updateQty(detail.product.id, -1)}>
+                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(detail.product.id, -1)}>
                   <Minus size={16} className="text-slate-600" />
                 </button>
                 <span className="text-base font-black truncate px-1">{cartQty}</span>
-                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label="Increase quantity" onClick={addCurrentVariantToCart}>
+                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label={tDetail("increaseQuantity")} onClick={addCurrentVariantToCart}>
                   <Plus size={16} className="text-slate-600" />
                 </button>
               </div>
@@ -345,14 +438,6 @@ export function ShopProductDetailView({
   );
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    currency: "INR",
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-    style: "currency"
-  }).format(value);
-}
-
 function VariantOptionButton({
   isActive,
   onClick,
@@ -377,18 +462,62 @@ function VariantOptionButton({
   );
 }
 
-function getVariantPackLabel(unitDisplay: string, variantName: string, packSuffix: string) {
-  const suffix = packSuffix.trim() || "Pack";
-  const unitMatch = extractMeasurement(unitDisplay);
-  if (unitMatch) {
-    return `${unitMatch} ${suffix}`;
+const PACK_TYPE_SUFFIX_KEYS = {
+  bag: "bag",
+  bottle: "bottle",
+  box: "box",
+  bunch: "bunch",
+  bundle: "bundle",
+  can: "can",
+  carton: "carton",
+  jar: "jar",
+  pack: "pack",
+  packet: "packet",
+  pouch: "pouch",
+  sachet: "sachet",
+  set: "set",
+  strip: "strip",
+  tray: "tray",
+  unit: "unit"
+} as const;
+
+type PackTypeKey = typeof PACK_TYPE_SUFFIX_KEYS[keyof typeof PACK_TYPE_SUFFIX_KEYS];
+type PackTypeLabels = Record<PackTypeKey, string>;
+
+type SpecificationLabels = {
+  category: string;
+  pricePerBaseUnit: string;
+  subcategory: string;
+  type: string;
+  unit: string;
+};
+
+function getVariantPackLabel(unitDisplay: string, variantName: string, labels: PackTypeLabels) {
+  const localizedUnit = localizeUnitDisplay(unitDisplay, labels);
+  if (localizedUnit) {
+    return localizedUnit;
   }
   const nameMatch = extractMeasurement(variantName);
   if (nameMatch) {
-    return `${nameMatch} ${suffix}`;
+    return `${nameMatch} ${labels.pack}`;
   }
-  const fallback = unitDisplay.trim() || variantName.trim();
-  return fallback ? `${fallback} ${suffix}` : suffix;
+  const fallback = variantName.trim();
+  return fallback ? `${fallback} ${labels.pack}` : labels.pack;
+}
+
+function localizeUnitDisplay(value: string, labels: PackTypeLabels) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const match = trimmed.match(/^(.*\S)\s+(Unit|Pack|Packet|Box|Carton|Bottle|Pouch|Jar|Can|Sachet|Strip|Bag|Tray|Bunch|Bundle|Set)$/i);
+  if (!match?.[1] || !match[2]) {
+    return trimmed;
+  }
+
+  const key = PACK_TYPE_SUFFIX_KEYS[match[2].toLowerCase() as keyof typeof PACK_TYPE_SUFFIX_KEYS];
+  return key ? `${match[1]} ${labels[key]}` : trimmed;
 }
 
 function extractMeasurement(value: string) {

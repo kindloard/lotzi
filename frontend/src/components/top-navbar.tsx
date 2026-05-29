@@ -277,10 +277,10 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   const tAria = useTranslations("common.aria");
   const tBrand = useTranslations("common.brand");
   const tCart = useTranslations("cart");
-  const tMarketplace = useTranslations("marketplace.home");
   const tNav = useTranslations("common.navigation");
   const isCartPage = pathname === "/cart";
   const isShopPage = pathname.includes("/shop/");
+  const isCheckoutPage = pathname.startsWith("/checkout");
   const { session, clearSession } = useAuthSession();
   const profileUser = session?.user;
   const isLoggedIn = Boolean(profileUser);
@@ -314,7 +314,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   const [savedAddressLabels, setSavedAddressLabels] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCheckoutPage) return;
     let cancelled = false;
     fetchCustomerAddresses()
       .then(({ addresses }) => {
@@ -329,7 +329,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
       })
       .catch(() => undefined); // non-critical — silently ignore
     return () => { cancelled = true; };
-  }, [isLoggedIn]);
+  }, [isCheckoutPage, isLoggedIn]);
 
   const { ticks, activeIndex: locationIndex, isResetting: locationResetting, gpsStatus } =
     useLocationTicker({ brandName: tBrand("name"), savedAddresses: savedAddressLabels });
@@ -452,13 +452,6 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   if (isCartPage) {
     return (
       <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 animate-fade-in">
-        <a
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-slate-950 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
-          href="#main-content"
-        >
-          {tActions("skipToContent")}
-        </a>
-
         <nav
           aria-label={tAria("navigation")}
           className="mx-auto flex h-[64px] w-full max-w-[1600px] items-center px-3 sm:px-6 lg:px-8"
@@ -478,13 +471,6 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   return (
     <>
       <header className={`sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 ${isShopPage ? "hidden md:block" : ""}`}>
-      <a
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-slate-950 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
-        href="#main-content"
-      >
-        {tActions("skipToContent")}
-      </a>
-
       <nav
         aria-label={tAria("navigation")}
         className="mx-auto grid h-[64px] w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(320px,520px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(420px,600px)_minmax(0,1fr)] lg:gap-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_minmax(460px,640px)_minmax(0,1fr)]"
@@ -496,7 +482,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
             className="group flex min-w-0 max-w-full items-center gap-3 rounded-xl focus:outline-none md:w-full"
             href="/"
           >
-            <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-900 text-white transition-all duration-200">
+            <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black text-white transition-all duration-200">
               <ShoppingBag aria-hidden="true" size={16} strokeWidth={2.4} />
             </span>
             {/* Location ticker OR fallback brand name */}
@@ -520,7 +506,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
         {/* Middle Side: Premium Search with hotkeys & smart suggestion panel */}
         <div className="relative hidden w-full max-w-[520px] justify-self-center md:flex lg:max-w-[576px]" ref={searchContainerRef}>
-          {!isShopPage && (
+          {!isShopPage && !isCheckoutPage && (
             <>
               <div 
                 onClick={() => searchInputRef.current?.focus()}
@@ -626,7 +612,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                         className="w-full flex items-center justify-between p-2.5 rounded-2xl hover:bg-slate-50 transition-all text-left cursor-pointer"
                       >
                         <div className="flex items-center gap-3.5">
-                          <span className="flex size-11 items-center justify-center rounded-xl bg-[#0f172a] text-xs font-bold text-white tracking-wide">
+                          <span className="flex size-11 items-center justify-center rounded-xl bg-black text-xs font-bold text-white tracking-wide">
                             {store.image}
                           </span>
                           <div>
@@ -663,7 +649,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
             >
               <ShoppingCart size={16} strokeWidth={2.2} />
               {cartItemCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-slate-900 px-1 text-[9px] font-bold text-white shadow-md animate-scale-up">
+                <span className="absolute -top-1.5 -right-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-black px-1 text-[9px] font-bold text-white shadow-md animate-scale-up">
                   {cartItemCount}
                 </span>
               )}
@@ -725,7 +711,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       <Link
                         href="/cart"
                         onClick={() => setIsCartOpen(false)}
-                        className="flex h-9 w-full items-center justify-center rounded-xl bg-slate-900 text-xs font-bold text-white shadow-sm hover:bg-slate-800 transition-all duration-200 hover:-translate-y-0.5"
+                        className="flex h-9 w-full items-center justify-center rounded-xl bg-black text-xs font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90"
                       >
                         {tCart("summary.checkout")}
                       </Link>
@@ -735,12 +721,13 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <div className="py-8 text-center">
                     <ShoppingCart className="mx-auto text-slate-300 mb-2.5" size={24} />
                     <p className="text-xs text-slate-400 font-medium">{tCart("emptyTitle")}</p>
-                    <button
+                    <Link
+                      href="/"
                       onClick={() => setIsCartOpen(false)}
                       className="mt-3 inline-flex px-3 py-1.5 rounded-lg border border-slate-250 hover:border-slate-300 text-[10px] font-bold text-slate-650 transition-all cursor-pointer"
                     >
-                      {tMarketplace("nearYou")}
-                    </button>
+                      {tCart("browseProducts")}
+                    </Link>
                   </div>
                 )}
               </div>
@@ -757,23 +744,23 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 aria-expanded={isProfileOpen}
                 aria-haspopup="true"
               >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-inner">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black text-xs font-bold text-white shadow-inner">
                   {initials}
                 </span>
                 <ChevronDown className="text-slate-400 mr-1 hidden sm:block" size={12} strokeWidth={2.5} />
               </button>
             ) : (
-              <div className="hidden sm:flex items-center gap-2.5">
+              <div className="hidden sm:flex shrink-0 items-center gap-2.5">
                 <LanguageSwitcher compact />
                 <AuthNavigationLink
                   href="/auth/login"
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-900/5 cursor-pointer"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-900/5 cursor-pointer"
                 >
                   {tNav("login")}
                 </AuthNavigationLink>
                 <AuthNavigationLink
                   href="/auth/signup"
-                  className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm hover:bg-slate-850 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-900/10 cursor-pointer"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-xl bg-black px-5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90 focus:outline-none focus:ring-4 focus:ring-black/10 cursor-pointer"
                 >
                   {tNav("signup")}
                 </AuthNavigationLink>
@@ -842,7 +829,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
       </header>
 
       {/* Mobile Search Below Navbar */}
-      {!isShopPage && (
+      {!isShopPage && !isCheckoutPage && (
         <div className="bg-white px-3 pb-2.5 pt-2.5 md:hidden">
           <div className="mx-auto w-full max-w-[1600px]">
             <div className="flex h-[46px] items-center gap-3 rounded-2xl border border-slate-300 bg-white px-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.055),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all focus-within:border-slate-900 focus-within:shadow-[0_14px_30px_rgba(15,23,42,0.09),0_0_0_3px_rgba(15,23,42,0.04)]">
@@ -890,14 +877,14 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
             onClick={() => {
               setIsMobileMenuOpen(false);
             }}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm animate-fade-in"
           />
 
           {/* Drawer Body */}
           <div className="relative z-10 flex h-full w-[84vw] min-w-[300px] max-w-[360px] flex-col overflow-hidden bg-white px-5 py-4 shadow-2xl animate-slide-in-right">
             <div className="flex items-center justify-between border-b border-slate-150 pb-4">
               <span className="flex items-center gap-3 text-lg font-black text-slate-950 [font-weight:950]">
-                <span className="flex size-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+                <span className="flex size-11 items-center justify-center rounded-2xl bg-black text-white shadow-sm">
                   <ShoppingBag size={18} strokeWidth={2.4} />
                 </span>
               <span>{tBrand("name")}</span>
@@ -960,7 +947,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       <span>{tNav("cart")}</span>
                     </span>
                     {cartItemCount > 0 && (
-                      <span className="rounded-full bg-slate-950 px-2.5 py-1 text-xs font-extrabold text-white">
+                      <span className="rounded-full bg-black px-2.5 py-1 text-xs font-extrabold text-white">
                         {cartItemCount}
                       </span>
                     )}
@@ -984,7 +971,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 {isLoggedIn ? (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-3 rounded-[20px] border border-slate-200 bg-slate-50 px-3.5 py-3.5">
-                      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-extrabold text-white">
+                      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-xs font-extrabold text-white">
                         {initials}
                       </span>
                       <div className="min-w-0">
@@ -1051,7 +1038,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <AuthNavigationLink
                       href="/auth/signup"
                       onNavigateStart={() => setIsMobileMenuOpen(false)}
-                      className="flex h-12 w-full items-center justify-center gap-3 rounded-[18px] bg-slate-950 text-[15px] font-extrabold text-white shadow-sm"
+                      className="flex h-12 w-full items-center justify-center gap-3 rounded-[18px] bg-black text-[15px] font-extrabold text-white shadow-sm"
                     >
                       <Sparkles size={18} strokeWidth={2.45} />
                       {tNav("signup")}

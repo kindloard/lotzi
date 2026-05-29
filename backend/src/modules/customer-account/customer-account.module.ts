@@ -7,6 +7,7 @@ import { AuthModule } from "../auth/auth.module";
 import { MailModule } from "../mail/mail.module";
 import { RateLimitModule } from "../rate-limit/rate-limit.module";
 import { RbacModule } from "../rbac/rbac.module";
+import { CheckoutAddressController } from "./checkout-address.controller";
 import { CustomerAccountController } from "./customer-account.controller";
 import { CustomerAccountService } from "./customer-account.service";
 
@@ -21,7 +22,7 @@ import { CustomerAccountService } from "./customer-account.service";
     RbacModule,
     SecurityModule
   ],
-  controllers: [CustomerAccountController],
+  controllers: [CustomerAccountController, CheckoutAddressController],
   providers: [CustomerAccountService],
   exports: [CustomerAccountService]
 })

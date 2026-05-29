@@ -43,10 +43,14 @@ function serviceWithTx(tx: Record<string, unknown>) {
   const authStateInvalidator = {
     invalidateUserVersions: jest.fn()
   };
+  const shops = {
+    invalidateShopCaches: jest.fn()
+  };
   return {
     prisma,
     authStateInvalidator,
-    service: new AdminApprovalsService(prisma as never, authStateInvalidator as never)
+    shops,
+    service: new AdminApprovalsService(prisma as never, authStateInvalidator as never, shops as never)
   };
 }
 

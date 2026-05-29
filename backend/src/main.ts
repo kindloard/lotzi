@@ -44,7 +44,7 @@ function isAllowedDevOrigin(origin: string) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   const config = app.get(ConfigService);
   logAuthInfrastructure(config, app.get(RedisService));
   const allowedOrigins = config.get<string[]>("ALLOWED_ORIGINS", [
@@ -97,10 +97,14 @@ async function bootstrap() {
             "https://*.googleapis.com",
             "https://*.firebaseio.com",
             "https://identitytoolkit.googleapis.com",
-            "https://securetoken.googleapis.com"
+            "https://securetoken.googleapis.com",
+            "https://sdk.cashfree.com",
+            "https://sandbox.cashfree.com",
+            "https://api.cashfree.com"
           ],
+          frameSrc: ["'self'", "https://sandbox.cashfree.com", "https://api.cashfree.com"],
           imgSrc: ["'self'", "data:", "https:"],
-          scriptSrc: ["'self'"],
+          scriptSrc: ["'self'", "https://sdk.cashfree.com"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           upgradeInsecureRequests: isProduction ? [] : null
         }
@@ -132,7 +136,13 @@ async function bootstrap() {
   app.use(
     pinoHttp({
       genReqId: (request) => request.headers["x-request-id"]?.toString() ?? randomUUID(),
-      redact: ["req.headers.cookie", "req.headers.authorization"]
+      redact: [
+        "req.headers.cookie",
+        "req.headers.authorization",
+        "req.headers.x-client-secret",
+        "req.headers.x-webhook-signature",
+        "res.headers.x-client-secret"
+      ]
     })
   );
 

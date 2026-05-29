@@ -120,6 +120,8 @@ export interface ShopProduct {
     width: number | null;
     height: number | null;
     isPrimary: boolean;
+    variantIds: string[];
+    variantSkuIds: string[];
   }>;
   variants: ShopProductVariant[];
 }

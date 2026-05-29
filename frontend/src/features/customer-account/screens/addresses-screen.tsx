@@ -19,7 +19,7 @@ import { errorMessage } from "../lib/account-utils";
 export function AddressesScreen() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const query = useQuery({ queryKey: accountAddressesKey, queryFn: fetchCustomerAddresses });
+  const query = useQuery({ queryKey: accountAddressesKey, queryFn: () => fetchCustomerAddresses() });
   const [formOpen, setFormOpen] = useState(false);
 
   const createMutation = useMutation({
@@ -220,10 +220,10 @@ async function optimisticAddressCreate(queryClient: QueryClient, input: AddressI
     id: `optimistic-${Date.now()}`,
     isDefault: input.isDefault ?? false,
     label: input.label ?? null,
-    latitude: null,
+    latitude: input.latitude ?? null,
     line1: input.line1,
     line2: input.line2 ?? null,
-    longitude: null,
+    longitude: input.longitude ?? null,
     pincode: input.pincode,
     recipientName: input.recipientName ?? null,
     recipientPhone: input.recipientPhone ?? null,

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type {
   DealProduct,
   Shop,
@@ -8,7 +9,8 @@ import type {
   ShopProductSort
 } from "../shops-api";
 
-const SERVER_FETCH_TIMEOUT_MS = 2_500;
+const REQUIRED_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_FETCH_TIMEOUT_MS", 10_000);
+const OPTIONAL_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_OPTIONAL_FETCH_TIMEOUT_MS", 4_000);
 const DEFAULT_CATALOG_LIMIT = 24;
 
 type NextServerFetchInit = RequestInit & {
@@ -18,11 +20,15 @@ type NextServerFetchInit = RequestInit & {
 };
 
 export class ShopPageFetchError extends Error {
+  readonly retryable: boolean;
+
   constructor(
     readonly status: number,
     message: string
   ) {
     super(message);
+    this.name = "ShopPageFetchError";
+    this.retryable = status === 408 || status === 429 || status >= 500;
   }
 }
 
@@ -34,17 +40,20 @@ export async function getDealProductsForLanding(): Promise<DealProduct[]> {
   return serverFetchJson<DealProduct[]>("/v1/shops/products", []);
 }
 
-export async function getShopDetailForPage(publicId: string, publicSlug: string): Promise<ShopDetail> {
+export const getShopDetailForPage = cache(async function getShopDetailForPage(
+  publicId: string,
+  publicSlug: string
+): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}`, {
     next: { revalidate: 300 }
   });
-}
+});
 
-export async function getLegacyShopDetailForRedirect(slug: string): Promise<ShopDetail> {
+export const getLegacyShopDetailForRedirect = cache(async function getLegacyShopDetailForRedirect(slug: string): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(slug)}`, {
     next: { revalidate: 300 }
   });
-}
+});
 
 export async function getShopProductsForPage(
   publicId: string,
@@ -68,7 +77,7 @@ export async function getShopProductsForPage(
   }
 }
 
-export async function getShopProductDetailForPage(
+export const getShopProductDetailForPage = cache(async function getShopProductDetailForPage(
   publicId: string,
   publicSlug: string,
   productRef: string
@@ -77,9 +86,9 @@ export async function getShopProductDetailForPage(
     `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}`,
     { next: { revalidate: 120 } }
   );
-}
+});
 
-export async function getProductRouteForShortLink(productPublicId: string) {
+export const getProductRouteForShortLink = cache(async function getProductRouteForShortLink(productPublicId: string) {
   return serverFetchRequired<{
     productPublicId: string;
     productSlug: string;
@@ -90,7 +99,7 @@ export async function getProductRouteForShortLink(productPublicId: string) {
   }>(`/v1/products/${encodeURIComponent(productPublicId)}/route`, {
     next: { revalidate: 120 }
   });
-}
+});
 
 async function serverFetchJson<T>(path: string, fallback: T): Promise<T> {
   try {
@@ -99,7 +108,7 @@ async function serverFetchJson<T>(path: string, fallback: T): Promise<T> {
       headers: {
         accept: "application/json"
       },
-      signal: AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS)
+      signal: AbortSignal.timeout(OPTIONAL_SERVER_FETCH_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -115,20 +124,21 @@ async function serverFetchJson<T>(path: string, fallback: T): Promise<T> {
 async function serverFetchRequired<T>(path: string, init?: NextServerFetchInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(apiUrl(path), {
+    const url = apiUrl(path);
+    response = await fetch(url, {
       ...init,
       headers: {
         accept: "application/json",
         ...Object.fromEntries(new Headers(init?.headers))
       },
-      signal: AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS)
+      signal: AbortSignal.timeout(REQUIRED_SERVER_FETCH_TIMEOUT_MS)
     });
   } catch (error) {
-    throw new ShopPageFetchError(503, error instanceof Error ? error.message : "Shop API request failed.");
+    throw new ShopPageFetchError(503, apiUnavailableMessage(error));
   }
 
   if (!response.ok) {
-    throw new ShopPageFetchError(response.status, `Shop API request failed: ${response.status}`);
+    throw new ShopPageFetchError(response.status, `Shop API request failed with status ${response.status}.`);
   }
 
   return (await response.json()) as T;
@@ -150,14 +160,9 @@ function serverApiBaseUrl() {
     return ensureApiBase(publicApiBase);
   }
 
-  const frontendOrigin = productionFrontendOrigin();
-  if (frontendOrigin) {
-    return `${frontendOrigin}${normalizeRelativeBase(publicApiBase)}`;
-  }
-
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "Shop API URL is not configured for server rendering. Set INTERNAL_API_URL, API_PROXY_URL, BACKEND_URL, or NEXT_PUBLIC_APP_URL."
+      "Shop API URL is not configured for server rendering. Set INTERNAL_API_URL, API_PROXY_URL, BACKEND_URL, or an absolute NEXT_PUBLIC_API_URL."
     );
   }
 
@@ -168,49 +173,24 @@ function firstConfiguredValue(...values: Array<string | undefined>) {
   return values.map((value) => value?.trim()).find((value): value is string => Boolean(value));
 }
 
+function apiUnavailableMessage(error: unknown) {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return "Shop API request timed out.";
+  }
+  if (error instanceof Error && error.message) {
+    return `Shop API is unavailable: ${error.message}`;
+  }
+  return "Shop API is unavailable.";
+}
+
+function positiveIntegerFromEnv(key: string, fallback: number) {
+  const value = Number(process.env[key]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 function ensureApiBase(value: string) {
   const base = value.replace(/\/$/, "");
   return base.endsWith("/api") ? base : `${base}/api`;
-}
-
-function normalizeRelativeBase(value: string) {
-  const base = value.trim() || "/api";
-  const withLeadingSlash = base.startsWith("/") ? base : `/${base}`;
-  return withLeadingSlash.replace(/\/$/, "") || "/api";
-}
-
-function productionFrontendOrigin() {
-  if (process.env.NODE_ENV !== "production") {
-    return null;
-  }
-
-  for (const value of [
-    process.env.NEXT_PUBLIC_APP_URL,
-    process.env.FRONTEND_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.VERCEL_URL
-  ]) {
-    const origin = normalizeOrigin(value);
-    if (origin) {
-      return origin;
-    }
-  }
-
-  return null;
-}
-
-function normalizeOrigin(value: string | undefined) {
-  const raw = value?.trim();
-  if (!raw) {
-    return null;
-  }
-
-  const withProtocol = isAbsoluteUrl(raw) ? raw : `https://${raw}`;
-  try {
-    return new URL(withProtocol).origin;
-  } catch {
-    return null;
-  }
 }
 
 function isAbsoluteUrl(value: string) {

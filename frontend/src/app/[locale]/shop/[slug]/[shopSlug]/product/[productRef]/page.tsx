@@ -62,8 +62,16 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   try {
     detail = await getShopProductDetailForPage(slug, shopSlug, productRef);
   } catch (error) {
-    if (error instanceof ShopPageFetchError && (error.status === 404 || error.status === 410)) {
-      notFound();
+    if (error instanceof ShopPageFetchError) {
+      if (error.status === 404 || error.status === 410) {
+        notFound();
+      }
+      return (
+        <ProductTemporarilyUnavailable
+          retryHref={`/${locale}/shop/${slug}/${shopSlug}/product/${productRef}`}
+          storeHref={`/shop/${slug}/${shopSlug}`}
+        />
+      );
     }
     throw error;
   }
@@ -174,6 +182,40 @@ function ProductJsonLd({
       type="application/ld+json"
       dangerouslySetInnerHTML={{ __html: JSON.stringify(payload) }}
     />
+  );
+}
+
+function ProductTemporarilyUnavailable({
+  retryHref,
+  storeHref
+}: {
+  retryHref: string;
+  storeHref: string;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-white px-4 text-center text-slate-950">
+      <div className="max-w-md">
+        <p className="text-sm font-black uppercase tracking-wide text-slate-400">Product temporarily unavailable</p>
+        <h1 className="mt-3 text-3xl font-black tracking-tight">We're reconnecting to this product</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          The store API is taking longer than usual. Your page is okay, and a retry should load it once the backend responds.
+        </p>
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <a
+            href={retryHref}
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-black px-5 text-sm font-black text-white"
+          >
+            Retry product
+          </a>
+          <Link
+            href={storeHref}
+            className="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-950"
+          >
+            Back to store
+          </Link>
+        </div>
+      </div>
+    </main>
   );
 }
 
