@@ -498,9 +498,6 @@ function retryAfterSecondsValue(body: unknown): number | undefined {
   return undefined;
 }
 
-async function sha256File(file: File) {
-  return digestHex(await file.arrayBuffer());
-}
 
 async function sha256Text(value: string) {
   return digestHex(new TextEncoder().encode(value));

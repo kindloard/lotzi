@@ -218,6 +218,7 @@ export function getMeasurementPreset(context: MeasurementContext): MeasurementPr
   if (!match) {
     return genericPreset;
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { match: _match, ...preset } = match;
   return preset;
 }
