@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
-const apiProxyOrigin = (process.env.API_PROXY_URL ?? process.env.BACKEND_URL ?? "http://127.0.0.1:4000").replace(/\/$/, "");
+const apiProxyOrigin = (
+  process.env.API_PROXY_URL ??
+  process.env.BACKEND_URL ??
+  process.env.INTERNAL_API_URL ??
+  "http://127.0.0.1:4000"
+).replace(/\/$/, "");
 
 const devOrigins = [
   "127.0.0.1",

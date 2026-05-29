@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { MapPin, Info, Star, Check, Lock, AlarmClock } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import {
   getShopDetailForPage,
@@ -11,7 +10,6 @@ import {
   ShopPageFetchError
 } from "@/features/shops/api/server-shops";
 import { ShopCatalog } from "@/features/shops/components/shop-catalog";
-import { blurDataUrl, optimizedCloudinaryUrl } from "@/features/shops/lib/image-utils";
 import { ShopsQueryProvider } from "@/features/shops/providers/shops-query-provider";
 import type { ShopDetail, ShopProductsFilters, ShopProductsResponse } from "@/features/shops/shops-api";
 

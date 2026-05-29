@@ -12,6 +12,9 @@ Recommended production shape:
 
 - Set `DATABASE_URL` to the pooled runtime URL and `DIRECT_URL` to the direct migration URL.
 - Configure exact `ALLOWED_ORIGINS`; never use wildcard CORS with credentials.
+- Set the frontend server-render API target to an absolute backend origin with `INTERNAL_API_URL`
+  or `API_PROXY_URL`. Browser requests can keep `NEXT_PUBLIC_API_URL=/api`, but Server Components
+  cannot resolve that relative proxy without a production origin.
 - Configure Resend, Firebase Admin, JWT Ed25519 key pair, token peppers, and admin allowlist in a secret manager.
 - Run `npx prisma migrate deploy` before starting backend instances.
 - Run `npm run auth:bootstrap-admin` once after deploy when creating first admins.

@@ -238,12 +238,19 @@ Frontend environment:
 
 ```env
 NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+INTERNAL_API_URL=http://localhost:4000
 NEXT_PUBLIC_FIREBASE_API_KEY=
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
 NEXT_PUBLIC_RAZORPAY_KEY_ID=
 ```
+
+In production, keep `NEXT_PUBLIC_API_URL=/api` for browser requests, but set `INTERNAL_API_URL`
+to the absolute backend origin, for example `https://api.example.com`. The shop pages render on
+the server and need an absolute API target; otherwise they cannot use the client-side `/api` proxy
+reliably.
 
 For mobile GPS testing, open the frontend over HTTPS. Mobile browsers will not show GPS permission prompts on plain `http://192.168.x.x:3000`. Use the frontend HTTPS dev script and keep `NEXT_PUBLIC_API_URL=/api` so API calls stay on the same origin:
 

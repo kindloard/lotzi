@@ -135,17 +135,86 @@ async function serverFetchRequired<T>(path: string, init?: NextServerFetchInit):
 }
 
 function apiUrl(path: string) {
-  const rawBase =
-    process.env.INTERNAL_API_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    "http://127.0.0.1:4000";
+  return `${serverApiBaseUrl()}${path}`;
+}
 
-  const absoluteBase = rawBase.startsWith("/")
-    ? "http://127.0.0.1:4000"
-    : rawBase.replace(/\/$/, "");
-  const apiBase = absoluteBase.endsWith("/api") ? absoluteBase : `${absoluteBase}/api`;
+function serverApiBaseUrl() {
+  const directBackend =
+    firstConfiguredValue(process.env.INTERNAL_API_URL, process.env.API_PROXY_URL, process.env.BACKEND_URL);
+  if (directBackend) {
+    return ensureApiBase(directBackend);
+  }
 
-  return `${apiBase}${path}`;
+  const publicApiBase = firstConfiguredValue(process.env.NEXT_PUBLIC_API_URL) ?? "/api";
+  if (isAbsoluteUrl(publicApiBase)) {
+    return ensureApiBase(publicApiBase);
+  }
+
+  const frontendOrigin = productionFrontendOrigin();
+  if (frontendOrigin) {
+    return `${frontendOrigin}${normalizeRelativeBase(publicApiBase)}`;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Shop API URL is not configured for server rendering. Set INTERNAL_API_URL, API_PROXY_URL, BACKEND_URL, or NEXT_PUBLIC_APP_URL."
+    );
+  }
+
+  return ensureApiBase("http://127.0.0.1:4000");
+}
+
+function firstConfiguredValue(...values: Array<string | undefined>) {
+  return values.map((value) => value?.trim()).find((value): value is string => Boolean(value));
+}
+
+function ensureApiBase(value: string) {
+  const base = value.replace(/\/$/, "");
+  return base.endsWith("/api") ? base : `${base}/api`;
+}
+
+function normalizeRelativeBase(value: string) {
+  const base = value.trim() || "/api";
+  const withLeadingSlash = base.startsWith("/") ? base : `/${base}`;
+  return withLeadingSlash.replace(/\/$/, "") || "/api";
+}
+
+function productionFrontendOrigin() {
+  if (process.env.NODE_ENV !== "production") {
+    return null;
+  }
+
+  for (const value of [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.FRONTEND_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL
+  ]) {
+    const origin = normalizeOrigin(value);
+    if (origin) {
+      return origin;
+    }
+  }
+
+  return null;
+}
+
+function normalizeOrigin(value: string | undefined) {
+  const raw = value?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  const withProtocol = isAbsoluteUrl(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(withProtocol).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isAbsoluteUrl(value: string) {
+  return /^https?:\/\//i.test(value);
 }
 
 export function normalizeProductFilters(filters: Partial<ShopProductsFilters> = {}): ShopProductsFilters {
