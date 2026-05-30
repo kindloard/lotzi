@@ -22,6 +22,7 @@
     "test:auth": "jest --runInBand src/tests/auth",
     "perf:auth": "ts-node -r tsconfig-paths/register src/scripts/auth-performance-smoke.ts",
     "perf:product-save": "ts-node --files -r tsconfig-paths/register src/scripts/product-save-latency-smoke.ts",
+    "auth:cleanup-checkout-onboarding": "ts-node -r tsconfig-paths/register src/scripts/cleanup-checkout-onboarding.ts",
     "auth:bootstrap-admin": "ts-node -r tsconfig-paths/register src/scripts/auth-bootstrap-admin.ts"
   },
   "dependencies": {

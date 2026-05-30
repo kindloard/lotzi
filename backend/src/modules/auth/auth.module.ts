@@ -15,6 +15,8 @@ import { AuthPerformanceService } from "./auth-performance.service";
 import { AuthStateRepository } from "./auth-state.repository";
 import { AuthRepository } from "./auth.repository";
 import { AuthService } from "./auth.service";
+import { Fast2SmsOtpProvider } from "./fast2sms-otp.provider";
+import { PhoneAuthController } from "./phone-auth.controller";
 import { AccessTokenGuard } from "./guards/access-token.guard";
 import { CsrfGuard } from "./guards/csrf.guard";
 import { JwtHintGuard } from "./guards/jwt-hint.guard";
@@ -36,12 +38,13 @@ import { SessionService } from "./session.service";
     UsersModule,
     StoresModule
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, PhoneAuthController],
   providers: [
     AuthService,
     AuthPerformanceService,
     AuthStateRepository,
     AuthRepository,
+    Fast2SmsOtpProvider,
     SessionRepository,
     SessionCacheService,
     SessionService,

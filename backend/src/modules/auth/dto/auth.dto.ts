@@ -1,7 +1,11 @@
 import {
+  Type
+} from "class-transformer";
+import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   ValidateIf,
@@ -58,7 +62,7 @@ export class ResendOtpDto {
 }
 
 export class LoginDto {
-  @IsEmail()
+  @IsString()
   @MaxLength(320)
   email!: string;
 
@@ -70,6 +74,101 @@ export class LoginDto {
   @IsOptional()
   @IsBoolean()
   remember?: boolean;
+}
+
+export class CheckoutOnboardingStartDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  label?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  recipientName?: string;
+
+  @IsString()
+  @MaxLength(32)
+  recipientPhone!: string;
+
+  @IsString()
+  @Length(2, 180)
+  line1!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  line2?: string;
+
+  @IsString()
+  @Length(2, 80)
+  city!: string;
+
+  @IsString()
+  @Length(2, 80)
+  state!: string;
+
+  @IsString()
+  @Matches(/^[1-9][0-9]{5}$/, { message: "Enter a valid 6-digit pincode." })
+  pincode!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  deliveryInstructions?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 7 })
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 7 })
+  longitude?: number;
+
+  @IsString()
+  @MaxLength(2048)
+  nextPath!: string;
+}
+
+export class SendPhoneOtpDto {
+  @IsString()
+  @MaxLength(32)
+  phoneNumber!: string;
+
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  flowToken!: string;
+}
+
+export class VerifyPhoneOtpDto extends SendPhoneOtpDto {
+  @IsString()
+  @Matches(/^\d{6}$/)
+  otp!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  otpRequestId?: string;
+}
+
+export class PhoneSignupDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  flowToken!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(PASSWORD_NUMBER_OR_SYMBOL_PATTERN, { message: PASSWORD_POLICY_MESSAGE })
+  password!: string;
 }
 
 export class GoogleLoginDto {

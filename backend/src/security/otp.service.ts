@@ -21,4 +21,12 @@ export class OtpService {
       pepper
     );
   }
+
+  hashPhone(code: string, phoneNumber: string, nonce: string): string {
+    const pepper = this.crypto.pepper("OTP_PEPPER");
+    return this.crypto.hmac(
+      ["PHONE_CHECKOUT", phoneNumber, nonce, code].join(":"),
+      pepper
+    );
+  }
 }

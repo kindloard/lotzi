@@ -97,6 +97,11 @@ function serviceWith(overrides: {
         ...overrides.password
       } as never,
       {} as never,
+      {
+        normalizeIndianMobile: jest.fn((value: string) => value),
+        toFast2SmsMobile: jest.fn((value: string) => value.replace(/^\+91/, "")),
+        mask: jest.fn((value: string) => value)
+      } as never,
       crypto,
       {
         hashRefreshToken: jest.fn((token: string) => `hash:${token}`),
@@ -120,6 +125,7 @@ function serviceWith(overrides: {
         ...overrides.tokens
       } as never,
       { enforce: jest.fn() } as never,
+      { sendOtp: jest.fn() } as never,
       {
         sendPasswordChangedNotice: jest.fn(),
         ...overrides.mail

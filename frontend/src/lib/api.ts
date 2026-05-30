@@ -97,6 +97,7 @@ function setJsonContentTypeWhenNeeded(headers: Headers, init?: RequestInit) {
 function sendApiRequest(path: string, init: RequestInit | undefined, headers: Headers) {
   return fetch(`${resolveApiBaseUrl()}${path}`, {
     ...init,
+    cache: init?.cache ?? "no-store",
     credentials: "include",
     headers
   });
@@ -140,7 +141,7 @@ function isPublicAuthPath(path: string) {
     "/auth/password-reset/request",
     "/auth/password-reset/confirm",
     "/auth/redirect/rejected"
-  ].includes(path);
+  ].includes(path) || path.startsWith("/v1/auth/");
 }
 
 function shouldRefreshAfterUnauthorized(path: string) {

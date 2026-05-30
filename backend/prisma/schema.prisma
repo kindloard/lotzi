@@ -31,6 +31,28 @@ enum OtpPurpose {
   EMAIL_CHANGE
 }
 
+enum PhoneOtpStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  FAILED
+  BLOCKED
+  CONSUMED
+}
+
+enum CheckoutOnboardingFlowStatus {
+  ADDRESS_COLLECTED
+  OTP_SENT
+  PHONE_VERIFIED
+  COMPLETED
+  EXPIRED
+  ABANDONED
+}
+
+enum OtpProviderName {
+  FAST2SMS
+}
+
 enum SessionRevokedReason {
   LOGOUT
   USER_REVOKED
@@ -344,6 +366,7 @@ model User {
   avatarUrl         String?          @map("avatar_url")
   status            UserStatus       @default(PENDING)
   phone             String?
+  phoneVerifiedAt   DateTime?        @map("phone_verified_at") @db.Timestamptz(3)
   loginCount        Int              @default(0) @map("login_count")
   failedAttempts    Int              @default(0) @map("failed_attempts")
   lockedUntil       DateTime?        @map("locked_until") @db.Timestamptz(3)
@@ -361,6 +384,7 @@ model User {
   stockReservations       StockReservation[]
   identityProviders       IdentityProvider[]
   otpVerifications        OtpVerification[]
+  phoneOtpVerifications   PhoneOtpVerification[]
   sessions                Session[]
   passwordResets          PasswordReset[]
   customerProfile         CustomerProfile?
@@ -379,6 +403,7 @@ model User {
   reviewedStoreApprovals  StoreApprovalReview[] @relation("StoreApprovalReviewedBy")
 
   @@index([email, status])
+  @@index([phone, status])
   @@index([status])
   @@map("users")
 }
@@ -421,6 +446,62 @@ model OtpVerification {
   @@index([email, purpose, createdAt])
   @@index([userId, purpose, verified, expiresAt])
   @@map("otp_verifications")
+}
+
+model CheckoutOnboardingFlow {
+  id                    String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  flowTokenHash         String                       @unique @map("flow_token_hash")
+  idempotencyKeyHash    String?                      @unique @map("idempotency_key_hash")
+  phoneNumber           String                       @map("phone_number")
+  phoneProofHash        String?                      @map("phone_proof_hash")
+  addressCiphertext     String                       @map("address_ciphertext")
+  addressNonce          String                       @map("address_nonce")
+  nextPath              String                       @map("next_path")
+  status                CheckoutOnboardingFlowStatus @default(ADDRESS_COLLECTED)
+  deviceFingerprintHash String                       @map("device_fingerprint_hash")
+  expiresAt             DateTime                     @map("expires_at") @db.Timestamptz(3)
+  phoneVerifiedAt       DateTime?                    @map("phone_verified_at") @db.Timestamptz(3)
+  consumedAt            DateTime?                    @map("consumed_at") @db.Timestamptz(3)
+  createdAt             DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  phoneOtpVerifications PhoneOtpVerification[]
+
+  @@index([phoneNumber, status, createdAt])
+  @@index([status, expiresAt])
+  @@map("checkout_onboarding_flows")
+}
+
+model PhoneOtpVerification {
+  id                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  flowId            String                  @map("flow_id") @db.Uuid
+  userId            String?                 @map("user_id") @db.Uuid
+  phoneNumber       String                  @map("phone_number")
+  otpHash           String                  @map("otp_hash")
+  otpNonce          String                  @map("otp_nonce")
+  otpReferenceId    String                  @unique @map("otp_reference_id")
+  provider          OtpProviderName         @default(FAST2SMS)
+  providerMessageId String?                 @map("provider_message_id")
+  providerRawStatus String?                 @map("provider_raw_status")
+  status            PhoneOtpStatus          @default(PENDING)
+  attemptCount      Int                     @default(0) @map("attempt_count")
+  sendCount         Int                     @default(1) @map("send_count")
+  lastAttemptAt     DateTime?               @map("last_attempt_at") @db.Timestamptz(3)
+  blockedUntil      DateTime?               @map("blocked_until") @db.Timestamptz(3)
+  expiresAt         DateTime                @map("expires_at") @db.Timestamptz(3)
+  cooldownUntil     DateTime?               @map("cooldown_until") @db.Timestamptz(3)
+  idempotencyKey    String?                 @map("idempotency_key")
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  flow              CheckoutOnboardingFlow  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  user              User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([flowId, idempotencyKey])
+  @@index([phoneNumber, status, createdAt])
+  @@index([flowId, status, createdAt])
+  @@index([status, expiresAt])
+  @@map("phone_otp_verifications")
 }
 
 model Session {

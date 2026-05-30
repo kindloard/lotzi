@@ -35,6 +35,8 @@ export const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     DATABASE_URL: z.string().min(1),
     DIRECT_URL: optionalString,
+    PRISMA_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().positive().default(10_000),
+    PRISMA_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
     SUPABASE_URL: optionalString.pipe(z.url().optional()),
     FRONTEND_URL: z.string().url().default("http://localhost:3000"),
     ALLOWED_ORIGINS: csv,
@@ -81,6 +83,27 @@ export const envSchema = z
     CASHFREE_WEBHOOK_SECRET: optionalString,
     CASHFREE_RETURN_URL: optionalString.pipe(z.url().optional()),
     CASHFREE_NOTIFY_URL: optionalString.pipe(z.url().optional()),
+    PHONE_CHECKOUT_ONBOARDING_ENABLED: booleanFromStringDefault(true),
+    FAST2SMS_API_KEY: optionalString,
+    FAST2SMS_OTP_MODE: z.enum(["BULKV2_OTP", "TEMPLATE_OTP", "DLT_SMS", "QUICK_SMS"]).default("BULKV2_OTP"),
+    FAST2SMS_OTP_TEMPLATE_ID: optionalString,
+    FAST2SMS_DLT_SENDER_ID: optionalString,
+    FAST2SMS_DLT_MESSAGE_ID: optionalString,
+    FAST2SMS_DLT_VARIABLES_TEMPLATE: z.string().default("{otp}"),
+    FAST2SMS_QUICK_SMS_TEMPLATE: z.string().default("Your Namastore verification code is {otp}. It expires in {minutes} minutes."),
+    FAST2SMS_BASE_URL: optionalString.pipe(z.url().optional()),
+    FAST2SMS_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+    FAST2SMS_RETRY_COUNT: z.coerce.number().int().min(0).default(1),
+    FAST2SMS_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
+    FAST2SMS_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(60_000),
+    PHONE_OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+    PHONE_OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+    PHONE_OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
+    PHONE_OTP_BLOCK_SECONDS: z.coerce.number().int().positive().default(900),
+    CHECKOUT_ONBOARDING_FLOW_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+    CHECKOUT_PHONE_PROOF_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+    CHECKOUT_ONBOARDING_ENCRYPTION_KEY: z.string().min(32).optional(),
+    CHECKOUT_PHONE_PROOF_PEPPER: z.string().min(32).optional(),
     UPLOAD_PROCESSING_CONCURRENCY: z.coerce.number().int().positive().default(2),
     TRUST_PROXY_HEADERS: booleanFromString,
     AUTH_REQUIRE_STRICT_SECRETS: booleanFromString,
@@ -112,6 +135,20 @@ export const envSchema = z
       "CASHFREE_APP_ID",
       "CASHFREE_SECRET_KEY"
     ];
+
+    if (value.PHONE_CHECKOUT_ONBOARDING_ENABLED) {
+      required.push(
+        "FAST2SMS_API_KEY",
+        "CHECKOUT_ONBOARDING_ENCRYPTION_KEY",
+        "CHECKOUT_PHONE_PROOF_PEPPER"
+      );
+      if (value.FAST2SMS_OTP_MODE === "TEMPLATE_OTP") {
+        required.push("FAST2SMS_OTP_TEMPLATE_ID");
+      }
+      if (value.FAST2SMS_OTP_MODE === "DLT_SMS") {
+        required.push("FAST2SMS_DLT_SENDER_ID", "FAST2SMS_DLT_MESSAGE_ID");
+      }
+    }
 
     for (const key of required) {
       if (!value[key]) {
@@ -164,6 +201,13 @@ export function validateEnv(config: Record<string, unknown>) {
       "local-dev-device-pepper-change-before-prod-000",
     CSRF_PEPPER:
       parsed.CSRF_PEPPER ?? "local-dev-csrf-pepper-change-before-prod-0000",
+    FAST2SMS_BASE_URL: parsed.FAST2SMS_BASE_URL ?? "https://www.fast2sms.com",
+    CHECKOUT_ONBOARDING_ENCRYPTION_KEY:
+      parsed.CHECKOUT_ONBOARDING_ENCRYPTION_KEY ??
+      "local-dev-checkout-onboarding-key-change-before-prod",
+    CHECKOUT_PHONE_PROOF_PEPPER:
+      parsed.CHECKOUT_PHONE_PROOF_PEPPER ??
+      "local-dev-checkout-phone-proof-change-before-prod",
     ADMIN_APPROVAL_SESSION_SECRET:
       parsed.ADMIN_APPROVAL_SESSION_SECRET ??
       "local-dev-admin-approval-session-secret-change-before-prod"

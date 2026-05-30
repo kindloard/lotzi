@@ -1,15 +1,22 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   AuditOutcome,
+  CheckoutOnboardingFlowStatus,
   IdentityProviderName,
   OtpPurpose,
+  OtpProviderName,
+  PhoneOtpStatus,
   Prisma,
   SessionRevokedReason,
   User,
@@ -17,11 +24,12 @@ import {
   UserStatus
 } from "@prisma/client";
 import { Response } from "express";
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { FirebaseAdminService } from "../../integrations/firebase/firebase-admin.service";
 import { CryptoService } from "../../security/crypto.service";
 import { OtpService } from "../../security/otp.service";
 import { PasswordService } from "../../security/password.service";
+import { PhoneNumberService } from "../../security/phone-number.service";
 import { TokenService } from "../../security/token.service";
 import {
   OTP_MAX_ATTEMPTS,
@@ -56,14 +64,20 @@ import { AuthenticatedPrincipal, AuthRouteState, RequestContext } from "./auth.t
 import {
   GoogleLinkDto,
   GoogleLoginDto,
+  CheckoutOnboardingStartDto,
   LoginDto,
   PasswordResetConfirmDto,
   PasswordResetRequestDto,
+  PhoneSignupDto,
   RejectedRedirectDto,
   ResendOtpDto,
+  SendPhoneOtpDto,
   SignupDto,
+  VerifyPhoneOtpDto,
   VerifySignupOtpDto
 } from "./dto/auth.dto";
+import { Fast2SmsOtpProvider } from "./fast2sms-otp.provider";
+import { OtpProviderError } from "./phone-otp.provider";
 import { SessionRepository } from "./repositories/session.repository";
 import { SessionCacheService } from "./session-cache.service";
 import { SessionService } from "./session.service";
@@ -74,6 +88,48 @@ interface SignupIntent {
   accountType: SignupAccountType;
   storeName?: string;
 }
+
+interface CheckoutAddressPayload {
+  label?: string;
+  recipientName?: string;
+  recipientPhone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  latitude?: number;
+  longitude?: number;
+  deliveryInstructions?: string;
+  isDefault?: boolean;
+}
+
+type LoginIdentifier =
+  | { kind: "email"; value: string }
+  | { kind: "phone"; value: string };
+
+type LockedCheckoutFlowRow = {
+  id: string;
+  phone_number: string;
+  phone_proof_hash: string | null;
+  phone_verified_at: Date | null;
+  address_ciphertext: string;
+  address_nonce: string;
+  next_path: string;
+  status: CheckoutOnboardingFlowStatus;
+  device_fingerprint_hash: string;
+  expires_at: Date;
+  consumed_at: Date | null;
+};
+
+type LockedPhoneOtpRow = {
+  id: string;
+  otp_hash: string;
+  otp_nonce: string;
+  attempt_count: number;
+  blocked_until: Date | null;
+  expires_at: Date;
+};
 
 const AUTH_TRANSACTION_OPTIONS = {
   maxWait: 10_000,
@@ -115,9 +171,11 @@ export class AuthService {
     private readonly sessionService: SessionService,
     private readonly password: PasswordService,
     private readonly otp: OtpService,
+    private readonly phones: PhoneNumberService,
     private readonly crypto: CryptoService,
     private readonly tokens: TokenService,
     private readonly rateLimit: RateLimitService,
+    private readonly fast2Sms: Fast2SmsOtpProvider,
     private readonly mail: MailService,
     private readonly audit: AuditService,
     private readonly firebaseAdmin: FirebaseAdminService,
@@ -128,6 +186,12 @@ export class AuthService {
     private readonly sessionCache: SessionCacheService,
     private readonly observability: ObservabilityService
   ) {}
+
+  checkoutPhoneProofCookieName(): string {
+    return this.config.get<string>("NODE_ENV") === "production" && !this.config.get<string>("COOKIE_DOMAIN")
+      ? "__Host-nama_checkout_phone_proof"
+      : "nama_checkout_phone_proof";
+  }
 
   async signup(dto: SignupDto, context: RequestContext, response?: Response) {
     const timer = this.performance.start("signup", response);
@@ -345,14 +409,595 @@ export class AuthService {
     }
   }
 
+  async startCheckoutOnboarding(
+    dto: CheckoutOnboardingStartDto,
+    context: RequestContext,
+    idempotencyKey?: string
+  ) {
+    this.assertPhoneCheckoutEnabled();
+    const phoneNumber = this.phones.normalizeIndianMobile(dto.recipientPhone);
+    await this.enforceCheckoutOnboardingStartLimits(phoneNumber, context);
+
+    const existingPhoneUser = await this.users.findByPhone(phoneNumber);
+    if (existingPhoneUser && existingPhoneUser.status !== UserStatus.DELETED) {
+      this.audit.record({
+        eventType: "auth.phone_recycle_or_duplicate_detected",
+        actorUserId: existingPhoneUser.id,
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: { phoneHash: this.phoneAuditHash(phoneNumber), stage: "start" }
+      });
+      throw new ConflictException({
+        code: "PHONE_ALREADY_REGISTERED",
+        message: "This phone number already has an account. Log in to continue checkout."
+      });
+    }
+
+    const normalizedAddress = this.checkoutAddressPayload(dto, phoneNumber);
+    const flowToken = idempotencyKey
+      ? this.checkoutDeterministicToken(idempotencyKey, phoneNumber, context)
+      : this.crypto.randomBase64Url(32);
+    const flowTokenHash = this.checkoutHash(flowToken);
+    const idempotencyKeyHash = idempotencyKey
+      ? this.checkoutHash(["checkout-start", context.deviceFingerprint, idempotencyKey].join(":"))
+      : undefined;
+    const existingFlow = idempotencyKeyHash
+      ? await this.repository.prisma.checkoutOnboardingFlow.findUnique({
+          where: { idempotencyKeyHash }
+        })
+      : null;
+
+    if (existingFlow && existingFlow.expiresAt > new Date()) {
+      return this.checkoutOnboardingStartResponse(flowToken, existingFlow.phoneNumber, existingFlow.expiresAt);
+    }
+
+    const encrypted = this.encryptCheckoutPayload(normalizedAddress);
+    const expiresAt = this.secondsFromNow(this.config.get<number>("CHECKOUT_ONBOARDING_FLOW_TTL_SECONDS", 900));
+    const flow = await this.repository.prisma.checkoutOnboardingFlow.upsert({
+      where: { flowTokenHash },
+      update: {
+        addressCiphertext: encrypted.ciphertext,
+        addressNonce: encrypted.nonce,
+        expiresAt,
+        nextPath: this.safeCheckoutNextPath(dto.nextPath),
+        phoneNumber,
+        status: CheckoutOnboardingFlowStatus.ADDRESS_COLLECTED
+      },
+      create: {
+        addressCiphertext: encrypted.ciphertext,
+        addressNonce: encrypted.nonce,
+        deviceFingerprintHash: this.checkoutHash(context.deviceFingerprint),
+        expiresAt,
+        flowTokenHash,
+        idempotencyKeyHash,
+        nextPath: this.safeCheckoutNextPath(dto.nextPath),
+        phoneNumber
+      }
+    });
+
+    return this.checkoutOnboardingStartResponse(flowToken, flow.phoneNumber, flow.expiresAt);
+  }
+
+  async checkoutOnboardingStatus(flowToken: string, context: RequestContext, proofCookie?: string) {
+    if (!flowToken || flowToken.length < 32) {
+      return { valid: false, status: "INVALID" as const };
+    }
+    const flow = await this.repository.prisma.checkoutOnboardingFlow.findUnique({
+      where: { flowTokenHash: this.checkoutHash(flowToken) },
+      select: {
+        id: true,
+        phoneNumber: true,
+        status: true,
+        nextPath: true,
+        expiresAt: true,
+        phoneProofHash: true,
+        phoneVerifiedAt: true,
+        consumedAt: true,
+        deviceFingerprintHash: true
+      }
+    });
+    if (!flow || flow.expiresAt <= new Date() || flow.consumedAt) {
+      return { valid: false, status: "EXPIRED" as const };
+    }
+    if (flow.deviceFingerprintHash !== this.checkoutHash(context.deviceFingerprint)) {
+      this.audit.record({
+        eventType: "otp.proof_failed",
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: { reason: "device_mismatch", flowId: flow.id }
+      });
+      return { valid: false, status: "BLOCKED" as const };
+    }
+
+    const phoneVerified = flow.status === CheckoutOnboardingFlowStatus.PHONE_VERIFIED;
+    const proofAlive = phoneVerified && flow.phoneVerifiedAt
+      ? flow.phoneVerifiedAt.getTime() +
+          this.config.get<number>("CHECKOUT_PHONE_PROOF_TTL_SECONDS", 600) * 1000 >
+        Date.now()
+      : false;
+    const proofValid = proofAlive && proofCookie && flow.phoneProofHash
+      ? this.crypto.timingSafeEqual(
+          this.checkoutProofHash(proofCookie, flow.id, flow.phoneNumber, context),
+          flow.phoneProofHash
+        )
+      : false;
+
+    return {
+      valid: true,
+      flowToken,
+      phoneNumber: flow.phoneNumber,
+      phoneMasked: this.phones.mask(flow.phoneNumber),
+      status: flow.status,
+      phoneVerified,
+      proofValid,
+      nextPath: flow.nextPath,
+      expiresAt: flow.expiresAt.toISOString()
+    };
+  }
+
+  async sendPhoneOtp(
+    dto: SendPhoneOtpDto,
+    context: RequestContext,
+    idempotencyKey?: string
+  ) {
+    this.assertPhoneCheckoutEnabled();
+    const phoneNumber = this.phones.normalizeIndianMobile(dto.phoneNumber);
+    await this.enforcePhoneOtpSendLimits(phoneNumber, context);
+
+    const flow = await this.requireMutableCheckoutFlow(dto.flowToken, phoneNumber, context);
+    const now = new Date();
+    const idempotencyKeyHash = idempotencyKey
+      ? this.checkoutHash(["otp-send", flow.id, idempotencyKey].join(":"))
+      : undefined;
+
+    if (idempotencyKeyHash) {
+      const existing = await this.repository.prisma.phoneOtpVerification.findFirst({
+        where: { flowId: flow.id, idempotencyKey: idempotencyKeyHash },
+        orderBy: { createdAt: "desc" }
+      });
+      if (existing) {
+        this.observability.recordOtpIdempotentSend();
+        if (existing.status !== PhoneOtpStatus.FAILED) {
+          return this.phoneOtpResponse(
+            existing.otpReferenceId,
+            existing.expiresAt,
+            existing.cooldownUntil,
+            existing.providerMessageId,
+            existing.providerRawStatus
+          );
+        }
+        throw new ServiceUnavailableException({
+          code: "PHONE_OTP_SEND_ALREADY_FAILED",
+          message: "This OTP send attempt already failed. Use resend to request a new code."
+        });
+      }
+    }
+
+    const latest = await this.repository.prisma.phoneOtpVerification.findFirst({
+      where: {
+        flowId: flow.id,
+        phoneNumber,
+        status: { in: [PhoneOtpStatus.PENDING, PhoneOtpStatus.BLOCKED] }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (latest?.blockedUntil && latest.blockedUntil > now) {
+      this.observability.recordOtpBlocked("send");
+      throw this.tooManyOtpAttempts(latest.blockedUntil);
+    }
+    if (latest?.cooldownUntil && latest.cooldownUntil > now) {
+      return this.phoneOtpResponse(
+        latest.otpReferenceId,
+        latest.expiresAt,
+        latest.cooldownUntil,
+        latest.providerMessageId,
+        latest.providerRawStatus
+      );
+    }
+
+    const code = this.otp.generate();
+    const nonce = this.otp.nonce();
+    const expiresAt = this.secondsFromNow(this.config.get<number>("PHONE_OTP_TTL_SECONDS", 300));
+    const cooldownUntil = this.secondsFromNow(this.config.get<number>("PHONE_OTP_RESEND_COOLDOWN_SECONDS", 30));
+    const otpReferenceId = this.crypto.randomBase64Url(18);
+    let created;
+    try {
+      created = await this.repository.prisma.phoneOtpVerification.create({
+        data: {
+          cooldownUntil,
+          expiresAt,
+          flowId: flow.id,
+          idempotencyKey: idempotencyKeyHash,
+          otpHash: this.otp.hashPhone(code, phoneNumber, nonce),
+          otpNonce: nonce,
+          otpReferenceId,
+          phoneNumber,
+          provider: OtpProviderName.FAST2SMS
+        }
+      });
+    } catch (error) {
+      if (!idempotencyKeyHash || !this.isUniqueConstraintError(error)) {
+        throw error;
+      }
+      const replay = await this.repository.prisma.phoneOtpVerification.findFirst({
+        where: { flowId: flow.id, idempotencyKey: idempotencyKeyHash },
+        orderBy: { createdAt: "desc" }
+      });
+      if (replay && replay.status !== PhoneOtpStatus.FAILED) {
+        this.observability.recordOtpIdempotentSend();
+        return this.phoneOtpResponse(
+          replay.otpReferenceId,
+          replay.expiresAt,
+          replay.cooldownUntil,
+          replay.providerMessageId,
+          replay.providerRawStatus
+        );
+      }
+      throw new ServiceUnavailableException({
+        code: "PHONE_OTP_SEND_ALREADY_FAILED",
+        message: "This OTP send attempt already failed. Use resend to request a new code."
+      });
+    }
+
+    try {
+      const providerResult = await this.fast2Sms.sendOtp({
+        mobile: this.phones.toFast2SmsMobile(phoneNumber),
+        otp: code,
+        otpExpiryMinutes: Math.max(1, Math.ceil(this.config.get<number>("PHONE_OTP_TTL_SECONDS", 300) / 60)),
+        requestId: otpReferenceId
+      });
+      await this.repository.prisma.$transaction([
+        this.repository.prisma.phoneOtpVerification.update({
+          where: { id: created.id },
+          data: {
+            providerMessageId: providerResult.providerMessageId,
+            providerRawStatus: providerResult.rawStatus
+          }
+        }),
+        this.repository.prisma.checkoutOnboardingFlow.update({
+          where: { id: flow.id },
+          data: { status: CheckoutOnboardingFlowStatus.OTP_SENT }
+        })
+      ]);
+      this.observability.recordOtpSent("FAST2SMS", "accepted");
+      this.audit.record({
+        eventType: latest ? "otp.resent" : "otp.sent",
+        outcome: AuditOutcome.SUCCESS,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: {
+          flowId: flow.id,
+          otpReferenceId,
+          phoneHash: this.phoneAuditHash(phoneNumber),
+          provider: "FAST2SMS",
+          providerMessageId: providerResult.providerMessageId,
+          providerStatus: providerResult.rawStatus
+        } as Prisma.InputJsonObject
+      });
+      this.logger.log(JSON.stringify({
+        event: latest ? "otp.resent" : "otp.sent",
+        flowId: flow.id,
+        outcome: "accepted",
+        phoneHash: this.phoneAuditHash(phoneNumber),
+        provider: "FAST2SMS",
+        providerMessageId: providerResult.providerMessageId,
+        providerStatus: providerResult.rawStatus,
+        otpReferenceId,
+        requestId: context.requestId
+      }));
+      return this.phoneOtpResponse(
+        otpReferenceId,
+        expiresAt,
+        cooldownUntil,
+        providerResult.providerMessageId,
+        providerResult.rawStatus
+      );
+    } catch (error) {
+      await this.repository.prisma.phoneOtpVerification.update({
+        where: { id: created.id },
+        data: { status: PhoneOtpStatus.FAILED }
+      }).catch(() => undefined);
+      this.audit.record({
+        eventType: "otp.provider_failed",
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: {
+          flowId: flow.id,
+          otpReferenceId,
+          phoneHash: this.phoneAuditHash(phoneNumber),
+          reason: error instanceof OtpProviderError ? error.code : "OTP_PROVIDER_UNAVAILABLE"
+        } as Prisma.InputJsonObject
+      });
+      this.observability.recordOtpProviderFailure(
+        "FAST2SMS",
+        error instanceof OtpProviderError ? error.code : "unavailable"
+      );
+      this.logger.warn(JSON.stringify({
+        event: "otp.provider_failed",
+        flowId: flow.id,
+        outcome: "failure",
+        phoneHash: this.phoneAuditHash(phoneNumber),
+        provider: "FAST2SMS",
+        reason: error instanceof OtpProviderError ? error.code : "OTP_PROVIDER_UNAVAILABLE",
+        requestId: context.requestId
+      }));
+      throw this.providerHttpError(error);
+    }
+  }
+
+  async verifyPhoneOtp(
+    dto: VerifyPhoneOtpDto,
+    context: RequestContext,
+    response: Response
+  ) {
+    this.assertPhoneCheckoutEnabled();
+    const phoneNumber = this.phones.normalizeIndianMobile(dto.phoneNumber);
+    await this.enforcePhoneOtpVerifyLimits(phoneNumber, context);
+    const proof = this.crypto.randomBase64Url(32);
+    const result = await this.repository.prisma.$transaction(async (tx) => {
+      const flow = await this.lockCheckoutFlow(tx, dto.flowToken);
+      this.assertFlowUsableForOtp(flow, phoneNumber, context);
+      const otp = await this.lockPendingPhoneOtp(tx, flow.id, phoneNumber, dto.otpRequestId);
+      if (!otp) {
+        await this.password.verify(dto.otp, null);
+        return { ok: false as const, reason: "not_found", blockedUntil: null as Date | null };
+      }
+
+      const now = new Date();
+      if (otp.blocked_until && otp.blocked_until > now) {
+        return { ok: false as const, reason: "blocked", blockedUntil: otp.blocked_until };
+      }
+      if (otp.expires_at <= now) {
+        await tx.phoneOtpVerification.update({
+          where: { id: otp.id },
+          data: {
+            attemptCount: { increment: 1 },
+            lastAttemptAt: now,
+            status: PhoneOtpStatus.EXPIRED
+          }
+        });
+        return { ok: false as const, reason: "expired", blockedUntil: null };
+      }
+
+      const otpHash = this.otp.hashPhone(dto.otp, phoneNumber, otp.otp_nonce);
+      const nextAttemptCount = otp.attempt_count + 1;
+      const maxAttempts = this.config.get<number>("PHONE_OTP_MAX_ATTEMPTS", 5);
+      if (!this.crypto.timingSafeEqual(otpHash, otp.otp_hash)) {
+        const blocked = nextAttemptCount >= maxAttempts;
+        const blockedUntil = blocked
+          ? this.secondsFromNow(this.config.get<number>("PHONE_OTP_BLOCK_SECONDS", 900))
+          : null;
+        await tx.phoneOtpVerification.update({
+          where: { id: otp.id },
+          data: {
+            attemptCount: nextAttemptCount,
+            blockedUntil,
+            lastAttemptAt: now,
+            status: blocked ? PhoneOtpStatus.BLOCKED : PhoneOtpStatus.PENDING
+          }
+        });
+        return { ok: false as const, reason: blocked ? "blocked" : "invalid", blockedUntil };
+      }
+
+      await tx.phoneOtpVerification.update({
+        where: { id: otp.id },
+        data: {
+          attemptCount: nextAttemptCount,
+          lastAttemptAt: now,
+          status: PhoneOtpStatus.VERIFIED
+        }
+      });
+      await tx.checkoutOnboardingFlow.update({
+        where: { id: flow.id },
+        data: {
+          phoneProofHash: this.checkoutProofHash(proof, flow.id, phoneNumber, context),
+          phoneVerifiedAt: now,
+          status: CheckoutOnboardingFlowStatus.PHONE_VERIFIED
+        }
+      });
+      return { ok: true as const, flowId: flow.id };
+    }, AUTH_TRANSACTION_OPTIONS);
+
+    if (!result.ok) {
+      this.audit.record({
+        eventType: result.reason === "blocked" ? "otp.blocked" : result.reason === "expired" ? "otp.expired" : "otp.failed",
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: {
+          reason: result.reason,
+          phoneHash: this.phoneAuditHash(phoneNumber)
+        } as Prisma.InputJsonObject
+      });
+      if (result.reason === "blocked" && result.blockedUntil) {
+        this.observability.recordOtpBlocked("verify");
+        throw this.tooManyOtpAttempts(result.blockedUntil);
+      }
+      throw new UnauthorizedException({
+        code: result.reason === "expired" ? "PHONE_OTP_EXPIRED" : "PHONE_OTP_INVALID",
+        message: result.reason === "expired"
+          ? "The verification code expired. Request a new code."
+          : "That code is invalid. Check the SMS and try again."
+      });
+    }
+
+    this.setCheckoutPhoneProofCookie(response, proof);
+    this.observability.recordOtpVerified("FAST2SMS");
+    this.audit.record({
+      eventType: "otp.verified",
+      outcome: AuditOutcome.SUCCESS,
+      ip: context.ip,
+      requestId: context.requestId,
+      metadata: {
+        flowId: result.flowId,
+        phoneHash: this.phoneAuditHash(phoneNumber)
+      } as Prisma.InputJsonObject
+    });
+    this.logger.log(JSON.stringify({
+      event: "otp.verified",
+      flowId: result.flowId,
+      outcome: "success",
+      phoneHash: this.phoneAuditHash(phoneNumber),
+      provider: "FAST2SMS",
+      requestId: context.requestId
+    }));
+    return {
+      verified: true,
+      passwordSetupPath: `/auth/checkout-password?${new URLSearchParams({ flow: dto.flowToken }).toString()}`
+    };
+  }
+
+  async phoneSignup(
+    dto: PhoneSignupDto,
+    context: RequestContext,
+    proofCookie: string | undefined,
+    response: Response
+  ) {
+    this.assertPhoneCheckoutEnabled();
+    if (!proofCookie) {
+      this.recordProofFailure(context, "missing");
+      throw new ForbiddenException({
+        code: "PHONE_PROOF_REQUIRED",
+        message: "Verify your phone number before creating a password."
+      });
+    }
+
+    const passwordHash = await this.password.hash(dto.password);
+    let user: User;
+    try {
+      user = await this.repository.prisma.$transaction(async (tx) => {
+        const flow = await this.lockCheckoutFlow(tx, dto.flowToken);
+        this.assertFlowReadyForSignup(flow, proofCookie, context);
+        const address = this.decryptCheckoutPayload(flow.address_ciphertext, flow.address_nonce);
+        const existing = await tx.user.findFirst({
+          where: {
+            phone: flow.phone_number,
+            deletedAt: null,
+            status: { not: UserStatus.DELETED }
+          }
+        });
+        if (existing) {
+          this.audit.record({
+            eventType: "auth.phone_recycle_or_duplicate_detected",
+            actorUserId: existing.id,
+            outcome: AuditOutcome.FAILURE,
+            ip: context.ip,
+            requestId: context.requestId,
+            metadata: {
+              flowId: flow.id,
+              phoneHash: this.phoneAuditHash(flow.phone_number),
+              stage: "signup"
+            } as Prisma.InputJsonObject
+          });
+          throw new ConflictException({
+            code: "PHONE_ALREADY_REGISTERED",
+            message: "This phone number already has an account. Log in to continue checkout."
+          });
+        }
+
+        const created = await tx.user.create({
+          data: {
+            email: this.shadowEmailForPhone(flow.phone_number),
+            emailVerified: false,
+            fullName: this.sanitizeName(address.recipientName || "Namastore customer"),
+            passwordHash,
+            phone: flow.phone_number,
+            phoneVerifiedAt: new Date(),
+            providerType: UserProviderType.EMAIL,
+            status: UserStatus.ACTIVE
+          }
+        });
+        await this.customerCreation.ensureCustomer({
+          userId: created.id,
+          displayName: created.fullName,
+          phone: flow.phone_number
+        }, tx);
+        await tx.address.create({
+          data: {
+            userId: created.id,
+            label: address.label?.trim() || "Home",
+            recipientName: address.recipientName?.trim() || created.fullName,
+            recipientPhone: flow.phone_number,
+            line1: address.line1.trim(),
+            line2: address.line2?.trim() || null,
+            city: address.city.trim(),
+            state: address.state.trim(),
+            pincode: address.pincode.trim(),
+            latitude: address.latitude,
+            longitude: address.longitude,
+            deliveryInstructions: address.deliveryInstructions?.trim() || null,
+            isDefault: true
+          }
+        });
+        await tx.phoneOtpVerification.updateMany({
+          where: { flowId: flow.id, status: PhoneOtpStatus.VERIFIED },
+          data: { status: PhoneOtpStatus.CONSUMED, userId: created.id }
+        });
+        await tx.checkoutOnboardingFlow.update({
+          where: { id: flow.id },
+          data: {
+            consumedAt: new Date(),
+            status: CheckoutOnboardingFlowStatus.COMPLETED
+          }
+        });
+        return created;
+      }, AUTH_TRANSACTION_OPTIONS);
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) {
+        throw error;
+      }
+      const flow = await this.repository.prisma.checkoutOnboardingFlow.findUnique({
+        where: { flowTokenHash: this.checkoutHash(dto.flowToken) },
+        select: { id: true, phoneNumber: true }
+      });
+      this.audit.record({
+        eventType: "auth.phone_recycle_or_duplicate_detected",
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: {
+          flowId: flow?.id,
+          phoneHash: flow?.phoneNumber ? this.phoneAuditHash(flow.phoneNumber) : undefined,
+          stage: "signup_unique_constraint"
+        } as Prisma.InputJsonObject
+      });
+      throw new ConflictException({
+        code: "PHONE_ALREADY_REGISTERED",
+        message: "This phone number already has an account. Log in to continue checkout."
+      });
+    }
+
+    const session = await this.createSession(user, context, response, undefined, [ROLE_CODES.CUSTOMER]);
+    this.clearCheckoutPhoneProofCookie(response);
+    this.audit.record({
+      eventType: "auth.phone_signup.created",
+      actorUserId: user.id,
+      outcome: AuditOutcome.SUCCESS,
+      ip: context.ip,
+      requestId: context.requestId,
+      sessionId: session.sessionId,
+      metadata: { phoneHash: this.phoneAuditHash(user.phone ?? "") } as Prisma.InputJsonObject
+    });
+    return session;
+  }
+
   async login(dto: LoginDto, context: RequestContext, response: Response) {
     const timer = this.performance.start("login", response);
-    const email = this.normalizeEmail(dto.email);
+    const identifier = this.normalizeLoginIdentifier(dto.email);
+    const actor = identifier.kind === "phone" ? `phone:${this.phoneAuditHash(identifier.value)}` : identifier.value;
     let actorUserId: string | undefined;
     try {
-      await timer.time("rate_limit", () => this.enforceLoginLimits(email, context));
+      await timer.time("rate_limit", () => this.enforceLoginLimits(identifier.value, context));
 
-      const user = await timer.time("user_lookup", () => this.users.findByEmail(email));
+      const user = await timer.time("user_lookup", () =>
+        identifier.kind === "phone"
+          ? this.users.findByPhone(identifier.value)
+          : this.users.findByEmail(identifier.value)
+      );
       actorUserId = user?.id;
       const validPassword = await timer.time("password_verify", () =>
         this.password.verify(dto.password, user?.passwordHash)
@@ -370,7 +1015,7 @@ export class AuthService {
         }
         this.audit.record({
           eventType: "auth.login.failed",
-          actor: email,
+          actor,
           actorUserId: user?.id,
           outcome: AuditOutcome.FAILURE,
           ip: context.ip,
@@ -405,7 +1050,7 @@ export class AuthService {
       );
       this.audit.record({
         eventType: "auth.login.succeeded",
-        actor: email,
+        actor,
         actorUserId: updated.id,
         outcome: AuditOutcome.SUCCESS,
         ip: context.ip,
@@ -418,7 +1063,7 @@ export class AuthService {
       });
       return session;
     } finally {
-      timer.end({ email, actorUserId });
+      timer.end({ actor, actorUserId });
     }
   }
 
@@ -1186,6 +1831,416 @@ export class AuthService {
       this.authState.cacheRouteState(routeState),
       this.rbac.platformAuthorization(routeState.user.id, routeState.user.authzVersion)
     ]);
+  }
+
+  private assertPhoneCheckoutEnabled() {
+    if (!this.config.get<boolean>("PHONE_CHECKOUT_ONBOARDING_ENABLED", true)) {
+      throw new ServiceUnavailableException({
+        code: "PHONE_CHECKOUT_ONBOARDING_DISABLED",
+        message: "Phone checkout onboarding is not enabled."
+      });
+    }
+  }
+
+  private async enforceCheckoutOnboardingStartLimits(phoneNumber: string, context: RequestContext) {
+    const phoneHash = this.phoneAuditHash(phoneNumber);
+    await Promise.all([
+      this.rateLimit.enforce(`checkout-onboarding:start:phone:${phoneHash}`, 5, 60 * 60),
+      this.rateLimit.enforce(`checkout-onboarding:start:device:${context.deviceFingerprint}`, 10, 60 * 60),
+      this.rateLimit.enforce(`checkout-onboarding:start:ip:${context.ip ?? "unknown"}`, 40, 60 * 60)
+    ]);
+  }
+
+  private async enforcePhoneOtpSendLimits(phoneNumber: string, context: RequestContext) {
+    const phoneHash = this.phoneAuditHash(phoneNumber);
+    await Promise.all([
+      this.rateLimit.enforce(`otp:send:phone:${phoneHash}`, 5, 15 * 60),
+      this.rateLimit.enforce(`otp:send:device:${context.deviceFingerprint}`, 12, 15 * 60),
+      this.rateLimit.enforce(`otp:send:ip:${context.ip ?? "unknown"}`, 40, 15 * 60)
+    ]);
+  }
+
+  private async enforcePhoneOtpVerifyLimits(phoneNumber: string, context: RequestContext) {
+    const phoneHash = this.phoneAuditHash(phoneNumber);
+    await Promise.all([
+      this.rateLimit.enforce(`otp:verify:phone:${phoneHash}`, 12, 15 * 60),
+      this.rateLimit.enforce(`otp:verify:device:${context.deviceFingerprint}`, 25, 15 * 60),
+      this.rateLimit.enforce(`otp:verify:ip:${context.ip ?? "unknown"}`, 80, 15 * 60)
+    ]);
+  }
+
+  private checkoutAddressPayload(dto: CheckoutOnboardingStartDto, phoneNumber: string): CheckoutAddressPayload {
+    return {
+      label: dto.label?.trim() || "Home",
+      recipientName: dto.recipientName?.trim().replace(/\s+/g, " "),
+      recipientPhone: phoneNumber,
+      line1: dto.line1.trim(),
+      line2: dto.line2?.trim() || undefined,
+      city: dto.city.trim(),
+      state: dto.state.trim(),
+      pincode: dto.pincode.trim(),
+      latitude: typeof dto.latitude === "number" && Number.isFinite(dto.latitude) ? dto.latitude : undefined,
+      longitude: typeof dto.longitude === "number" && Number.isFinite(dto.longitude) ? dto.longitude : undefined,
+      deliveryInstructions: dto.deliveryInstructions?.trim() || undefined,
+      isDefault: dto.isDefault ?? true
+    };
+  }
+
+  private encryptCheckoutPayload(payload: CheckoutAddressPayload): { ciphertext: string; nonce: string } {
+    const nonce = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", this.checkoutEncryptionKey(), nonce);
+    const encrypted = Buffer.concat([
+      cipher.update(JSON.stringify(payload), "utf8"),
+      cipher.final()
+    ]);
+    return {
+      ciphertext: `${encrypted.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}`,
+      nonce: nonce.toString("base64url")
+    };
+  }
+
+  private decryptCheckoutPayload(ciphertext: string, nonce: string): CheckoutAddressPayload {
+    const [body, tag] = ciphertext.split(".");
+    if (!body || !tag) {
+      throw new ForbiddenException({
+        code: "CHECKOUT_FLOW_CORRUPT",
+        message: "The checkout onboarding flow is invalid."
+      });
+    }
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      this.checkoutEncryptionKey(),
+      Buffer.from(nonce, "base64url")
+    );
+    decipher.setAuthTag(Buffer.from(tag, "base64url"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(body, "base64url")),
+      decipher.final()
+    ]);
+    return JSON.parse(decrypted.toString("utf8")) as CheckoutAddressPayload;
+  }
+
+  private checkoutEncryptionKey(): Buffer {
+    return createHash("sha256")
+      .update(this.config.get<string>("CHECKOUT_ONBOARDING_ENCRYPTION_KEY", "local-dev-checkout-flow-key-change-before-prod-0000"))
+      .digest();
+  }
+
+  private safeCheckoutNextPath(nextPath: string): string {
+    const fallback = "/cart";
+    const trimmed = nextPath.trim();
+    if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("://")) {
+      return fallback;
+    }
+    try {
+      const parsed = new URL(trimmed, "https://namastore.local");
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private checkoutOnboardingStartResponse(flowToken: string, phoneNumber: string, expiresAt: Date) {
+    const query = new URLSearchParams({ flow: flowToken }).toString();
+    return {
+      flowToken,
+      verifyPhonePath: `/auth/verify-phone?${query}`,
+      phoneMasked: this.phones.mask(phoneNumber),
+      expiresAt: expiresAt.toISOString()
+    };
+  }
+
+  private checkoutDeterministicToken(
+    idempotencyKey: string,
+    phoneNumber: string,
+    context: RequestContext
+  ): string {
+    return this.crypto.hmac(
+      ["checkout-flow", idempotencyKey, phoneNumber, context.deviceFingerprint].join(":"),
+      this.crypto.pepper("CHECKOUT_PHONE_PROOF_PEPPER")
+    );
+  }
+
+  private checkoutHash(value: string): string {
+    return this.crypto.hmac(value, this.crypto.pepper("CHECKOUT_PHONE_PROOF_PEPPER"));
+  }
+
+  private checkoutProofHash(
+    proof: string,
+    flowId: string,
+    phoneNumber: string,
+    context: RequestContext
+  ): string {
+    return this.crypto.hmac(
+      ["phone-proof", proof, flowId, phoneNumber, context.deviceFingerprint].join(":"),
+      this.crypto.pepper("CHECKOUT_PHONE_PROOF_PEPPER")
+    );
+  }
+
+  private phoneAuditHash(phoneNumber: string): string {
+    return this.crypto.hmac(
+      ["phone", phoneNumber].join(":"),
+      this.crypto.pepper("CHECKOUT_PHONE_PROOF_PEPPER")
+    );
+  }
+
+  private async requireMutableCheckoutFlow(
+    flowToken: string,
+    phoneNumber: string,
+    context: RequestContext
+  ) {
+    const flow = await this.repository.prisma.checkoutOnboardingFlow.findUnique({
+      where: { flowTokenHash: this.checkoutHash(flowToken) }
+    });
+    if (!flow || flow.expiresAt <= new Date() || flow.consumedAt) {
+      throw new UnauthorizedException({
+        code: "CHECKOUT_FLOW_EXPIRED",
+        message: "This checkout onboarding flow expired. Start again from the address step."
+      });
+    }
+    if (flow.deviceFingerprintHash !== this.checkoutHash(context.deviceFingerprint)) {
+      this.recordProofFailure(context, "device_mismatch");
+      throw new ForbiddenException({
+        code: "CHECKOUT_FLOW_DEVICE_MISMATCH",
+        message: "This checkout flow must be completed from the same browser session."
+      });
+    }
+    if (flow.phoneNumber !== phoneNumber) {
+      this.recordProofFailure(context, "phone_mismatch");
+      throw new ForbiddenException({
+        code: "CHECKOUT_FLOW_PHONE_MISMATCH",
+        message: "Verify the phone number used for this checkout flow."
+      });
+    }
+    return flow;
+  }
+
+  private async lockCheckoutFlow(
+    tx: Prisma.TransactionClient,
+    flowToken: string
+  ): Promise<LockedCheckoutFlowRow> {
+    const rows = await tx.$queryRaw<LockedCheckoutFlowRow[]>`
+      SELECT
+        id,
+        phone_number,
+        phone_proof_hash,
+        phone_verified_at,
+        address_ciphertext,
+        address_nonce,
+        next_path,
+        status,
+        device_fingerprint_hash,
+        expires_at,
+        consumed_at
+      FROM checkout_onboarding_flows
+      WHERE flow_token_hash = ${this.checkoutHash(flowToken)}
+      FOR UPDATE
+    `;
+    const flow = rows[0];
+    if (!flow) {
+      throw new UnauthorizedException({
+        code: "CHECKOUT_FLOW_NOT_FOUND",
+        message: "This checkout onboarding flow is invalid."
+      });
+    }
+    return flow;
+  }
+
+  private assertFlowUsableForOtp(
+    flow: LockedCheckoutFlowRow,
+    phoneNumber: string,
+    context: RequestContext
+  ) {
+    if (flow.expires_at <= new Date() || flow.consumed_at) {
+      throw new UnauthorizedException({
+        code: "CHECKOUT_FLOW_EXPIRED",
+        message: "This checkout onboarding flow expired. Start again from the address step."
+      });
+    }
+    if (flow.device_fingerprint_hash !== this.checkoutHash(context.deviceFingerprint)) {
+      this.recordProofFailure(context, "device_mismatch");
+      throw new ForbiddenException({
+        code: "CHECKOUT_FLOW_DEVICE_MISMATCH",
+        message: "This checkout flow must be completed from the same browser session."
+      });
+    }
+    if (flow.phone_number !== phoneNumber) {
+      this.recordProofFailure(context, "phone_mismatch");
+      throw new ForbiddenException({
+        code: "CHECKOUT_FLOW_PHONE_MISMATCH",
+        message: "Verify the phone number used for this checkout flow."
+      });
+    }
+  }
+
+  private async lockPendingPhoneOtp(
+    tx: Prisma.TransactionClient,
+    flowId: string,
+    phoneNumber: string,
+    otpRequestId?: string
+  ): Promise<LockedPhoneOtpRow | null> {
+    const rows = await tx.$queryRaw<LockedPhoneOtpRow[]>(Prisma.sql`
+      SELECT id, otp_hash, otp_nonce, attempt_count, blocked_until, expires_at
+      FROM phone_otp_verifications
+      WHERE flow_id = ${flowId}::uuid
+        AND phone_number = ${phoneNumber}
+        AND status IN (${PhoneOtpStatus.PENDING}::"PhoneOtpStatus", ${PhoneOtpStatus.BLOCKED}::"PhoneOtpStatus")
+        ${otpRequestId ? Prisma.sql`AND otp_reference_id = ${otpRequestId}` : Prisma.empty}
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `);
+    return rows[0] ?? null;
+  }
+
+  private assertFlowReadyForSignup(
+    flow: LockedCheckoutFlowRow,
+    proofCookie: string,
+    context: RequestContext
+  ) {
+    this.assertFlowUsableForOtp(flow, flow.phone_number, context);
+    if (flow.status !== CheckoutOnboardingFlowStatus.PHONE_VERIFIED || !flow.phone_proof_hash || !flow.phone_verified_at) {
+      this.recordProofFailure(context, "not_verified");
+      throw new ForbiddenException({
+        code: "PHONE_NOT_VERIFIED",
+        message: "Verify your phone number before creating a password."
+      });
+    }
+    const proofExpiresAt =
+      flow.phone_verified_at.getTime() +
+      this.config.get<number>("CHECKOUT_PHONE_PROOF_TTL_SECONDS", 600) * 1000;
+    if (proofExpiresAt <= Date.now()) {
+      this.recordProofFailure(context, "expired");
+      throw new ForbiddenException({
+        code: "PHONE_PROOF_EXPIRED",
+        message: "Phone verification expired. Verify your phone again."
+      });
+    }
+    const expected = this.checkoutProofHash(proofCookie, flow.id, flow.phone_number, context);
+    if (!this.crypto.timingSafeEqual(expected, flow.phone_proof_hash)) {
+      this.recordProofFailure(context, "mismatch");
+      throw new ForbiddenException({
+        code: "PHONE_PROOF_INVALID",
+        message: "Verify your phone number before creating a password."
+      });
+    }
+  }
+
+  private phoneOtpResponse(
+    otpRequestId: string,
+    expiresAt: Date,
+    cooldownUntil: Date | null,
+    providerRequestId?: string | null,
+    providerStatus?: string | null
+  ) {
+    return {
+      success: true,
+      otpRequestId,
+      expiresAt: expiresAt.toISOString(),
+      resendAfterSeconds: cooldownUntil ? Math.max(0, this.secondsUntil(cooldownUntil)) : 0,
+      providerRequestId: providerRequestId ?? undefined,
+      providerStatus: providerStatus ?? undefined
+    };
+  }
+
+  private tooManyOtpAttempts(blockedUntil: Date): HttpException {
+    return new HttpException(
+      {
+        code: "PHONE_OTP_BLOCKED",
+        message: "Too many verification attempts. Try again later.",
+        retryAfterSeconds: Math.max(0, this.secondsUntil(blockedUntil))
+      },
+      HttpStatus.TOO_MANY_REQUESTS
+    );
+  }
+
+  private providerHttpError(error: unknown): HttpException {
+    if (!(error instanceof OtpProviderError)) {
+      return new ServiceUnavailableException({
+        code: "OTP_PROVIDER_UNAVAILABLE",
+        message: "We could not send the verification code. Try again shortly."
+      });
+    }
+    const status = error.code === "OTP_PROVIDER_AUTH_FAILED" ||
+      error.code === "OTP_PROVIDER_ACCOUNT_NOT_READY" ||
+      error.code === "OTP_PROVIDER_BALANCE_LOW" ||
+      error.code === "OTP_PROVIDER_TEMPLATE_INVALID"
+      ? HttpStatus.FAILED_DEPENDENCY
+      : HttpStatus.SERVICE_UNAVAILABLE;
+    return new HttpException({ code: error.code, message: error.message }, status);
+  }
+
+  private setCheckoutPhoneProofCookie(response: Response, proof: string) {
+    const sameSite = this.config.get<"lax" | "strict" | "none">("COOKIE_SAME_SITE", "lax");
+    const domain = this.config.get<string>("COOKIE_DOMAIN");
+    const secure = this.config.get<string>("NODE_ENV") === "production" || sameSite === "none";
+    response.cookie(this.checkoutPhoneProofCookieName(), proof, {
+      httpOnly: true,
+      secure,
+      sameSite,
+      domain: this.checkoutPhoneProofCookieName().startsWith("__Host-") ? undefined : domain,
+      path: "/",
+      maxAge: this.config.get<number>("CHECKOUT_PHONE_PROOF_TTL_SECONDS", 600) * 1000
+    });
+  }
+
+  private clearCheckoutPhoneProofCookie(response: Response) {
+    const sameSite = this.config.get<"lax" | "strict" | "none">("COOKIE_SAME_SITE", "lax");
+    const domain = this.config.get<string>("COOKIE_DOMAIN");
+    const secure = this.config.get<string>("NODE_ENV") === "production" || sameSite === "none";
+    response.clearCookie(this.checkoutPhoneProofCookieName(), {
+      httpOnly: true,
+      secure,
+      sameSite,
+      domain: this.checkoutPhoneProofCookieName().startsWith("__Host-") ? undefined : domain,
+      path: "/"
+    });
+  }
+
+  private recordProofFailure(context: RequestContext, reason: string) {
+    this.observability.recordOtpProofFailed(reason);
+    this.logger.warn(JSON.stringify({
+      event: "otp.proof_failed",
+      outcome: "failure",
+      reason,
+      requestId: context.requestId
+    }));
+    this.audit.record({
+      eventType: "otp.proof_failed",
+      outcome: AuditOutcome.FAILURE,
+      ip: context.ip,
+      requestId: context.requestId,
+      metadata: { reason }
+    });
+  }
+
+  private shadowEmailForPhone(phoneNumber: string): string {
+    return `phone_${phoneNumber.replace(/\D/g, "")}@phone.namastore.local`;
+  }
+
+  private normalizeLoginIdentifier(raw: string): LoginIdentifier {
+    const value = raw.trim();
+    if (!value.includes("@")) {
+      try {
+        return { kind: "phone", value: this.phones.normalizeIndianMobile(value) };
+      } catch {
+        return { kind: "email", value: this.normalizeEmail(value) };
+      }
+    }
+    return { kind: "email", value: this.normalizeEmail(value) };
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return Boolean(
+      error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: unknown }).code === "P2002"
+    );
+  }
+
+  private secondsUntil(date: Date): number {
+    return Math.ceil((date.getTime() - Date.now()) / 1000);
   }
 
   private signupSessionRoleCodes(intent: SignupIntent) {

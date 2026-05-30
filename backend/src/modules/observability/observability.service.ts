@@ -46,6 +46,35 @@ export class ObservabilityService implements OnModuleInit {
     help: "OTP abuse signals",
     labelNames: ["kind"]
   });
+  readonly phoneOtpSendTotal = new client.Counter({
+    name: "namastore_phone_otp_send_total",
+    help: "Phone OTP sends by provider and outcome",
+    labelNames: ["provider", "outcome"]
+  });
+  readonly phoneOtpVerifyTotal = new client.Counter({
+    name: "namastore_phone_otp_verify_total",
+    help: "Phone OTP verify attempts by provider and outcome",
+    labelNames: ["provider", "outcome"]
+  });
+  readonly phoneOtpProviderFailures = new client.Counter({
+    name: "namastore_phone_otp_provider_failures_total",
+    help: "Phone OTP provider failures by provider and reason",
+    labelNames: ["provider", "reason"]
+  });
+  readonly phoneOtpIdempotentSends = new client.Counter({
+    name: "namastore_phone_otp_idempotent_send_hits_total",
+    help: "Phone OTP send requests served from idempotency or cooldown"
+  });
+  readonly phoneOtpProofFailures = new client.Counter({
+    name: "namastore_phone_otp_proof_failures_total",
+    help: "Phone OTP proof validation failures by reason",
+    labelNames: ["reason"]
+  });
+  readonly phoneOtpCircuitState = new client.Gauge({
+    name: "namastore_phone_otp_circuit_state",
+    help: "Phone OTP provider circuit state: 0 closed, 1 half-open, 2 open",
+    labelNames: ["provider"]
+  });
   readonly authStepDuration = new client.Histogram({
     name: "namastore_auth_step_duration_seconds",
     help: "Auth endpoint step duration in seconds",
@@ -147,6 +176,12 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.authSessionValidated);
     this.registry.registerMetric(this.authRefreshLatency);
     this.registry.registerMetric(this.otpAbuse);
+    this.registry.registerMetric(this.phoneOtpSendTotal);
+    this.registry.registerMetric(this.phoneOtpVerifyTotal);
+    this.registry.registerMetric(this.phoneOtpProviderFailures);
+    this.registry.registerMetric(this.phoneOtpIdempotentSends);
+    this.registry.registerMetric(this.phoneOtpProofFailures);
+    this.registry.registerMetric(this.phoneOtpCircuitState);
     this.registry.registerMetric(this.authStepDuration);
     this.registry.registerMetric(this.uploadRequests);
     this.registry.registerMetric(this.uploadStageDuration);
@@ -192,6 +227,35 @@ export class ObservabilityService implements OnModuleInit {
 
   observeAuthRefreshLatency(durationMs: number): void {
     this.authRefreshLatency.observe(durationMs / 1000);
+  }
+
+  recordOtpIdempotentSend(): void {
+    this.phoneOtpIdempotentSends.inc();
+  }
+
+  recordOtpBlocked(kind: string): void {
+    this.otpAbuse.inc({ kind });
+  }
+
+  recordOtpSent(provider: string, outcome: string): void {
+    this.phoneOtpSendTotal.inc({ provider, outcome });
+  }
+
+  recordOtpVerified(provider: string): void {
+    this.phoneOtpVerifyTotal.inc({ provider, outcome: "success" });
+  }
+
+  recordOtpProviderFailure(provider: string, reason: string): void {
+    this.phoneOtpProviderFailures.inc({ provider, reason });
+    this.phoneOtpSendTotal.inc({ provider, outcome: "provider_failed" });
+  }
+
+  recordOtpProofFailed(reason: string): void {
+    this.phoneOtpProofFailures.inc({ reason });
+  }
+
+  setPhoneOtpCircuitState(provider: string, state: "closed" | "half_open" | "open"): void {
+    this.phoneOtpCircuitState.set({ provider }, state === "open" ? 2 : state === "half_open" ? 1 : 0);
   }
 
   observeUploadStage(purpose: string, stage: string, format: string, durationMs: number): void {

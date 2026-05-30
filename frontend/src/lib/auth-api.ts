@@ -29,6 +29,50 @@ export interface SessionResponse {
   redirectTo: string;
 }
 
+export interface CheckoutOnboardingStartInput {
+  label?: string;
+  recipientName?: string;
+  recipientPhone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  latitude?: number;
+  longitude?: number;
+  deliveryInstructions?: string;
+  isDefault?: boolean;
+  nextPath: string;
+}
+
+export interface CheckoutOnboardingStartResponse {
+  flowToken: string;
+  verifyPhonePath: string;
+  phoneMasked: string;
+  expiresAt: string;
+}
+
+export interface CheckoutOnboardingStatusResponse {
+  valid: boolean;
+  flowToken?: string;
+  phoneNumber?: string;
+  phoneMasked?: string;
+  status?: string;
+  phoneVerified?: boolean;
+  proofValid?: boolean;
+  nextPath?: string;
+  expiresAt?: string;
+}
+
+export interface SendPhoneOtpResponse {
+  success: true;
+  otpRequestId: string;
+  expiresAt: string;
+  resendAfterSeconds: number;
+  providerRequestId?: string;
+  providerStatus?: string;
+}
+
 export function signup(
   input: {
     name: string;
@@ -40,6 +84,61 @@ export function signup(
   options: AuthRequestOptions = {}
 ) {
   return apiFetch<{ status: string; email: string; cooldownUntil?: string }>("/auth/signup", {
+    method: "POST",
+    signal: options.signal,
+    body: JSON.stringify(input)
+  });
+}
+
+export function startCheckoutOnboarding(
+  input: CheckoutOnboardingStartInput,
+  idempotencyKey: string,
+  options: AuthRequestOptions = {}
+) {
+  return apiFetch<CheckoutOnboardingStartResponse>("/v1/auth/checkout-onboarding/start", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    signal: options.signal,
+    body: JSON.stringify(input)
+  });
+}
+
+export function checkoutOnboardingStatus(flowToken: string, options: AuthRequestOptions = {}) {
+  return apiFetch<CheckoutOnboardingStatusResponse>(
+    `/v1/auth/checkout-onboarding/status?${new URLSearchParams({ flow: flowToken }).toString()}`,
+    { signal: options.signal }
+  );
+}
+
+export function sendPhoneOtp(
+  input: { phoneNumber: string; flowToken: string },
+  idempotencyKey: string,
+  options: AuthRequestOptions = {}
+) {
+  return apiFetch<SendPhoneOtpResponse>("/v1/auth/otp/send", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    signal: options.signal,
+    body: JSON.stringify(input)
+  });
+}
+
+export function verifyPhoneOtp(
+  input: { phoneNumber: string; flowToken: string; otp: string; otpRequestId?: string },
+  options: AuthRequestOptions = {}
+) {
+  return apiFetch<{ verified: true; passwordSetupPath: string }>("/v1/auth/otp/verify", {
+    method: "POST",
+    signal: options.signal,
+    body: JSON.stringify(input)
+  });
+}
+
+export function phoneSignup(
+  input: { flowToken: string; password: string },
+  options: AuthRequestOptions = {}
+) {
+  return apiFetch<SessionResponse>("/v1/auth/phone/signup", {
     method: "POST",
     signal: options.signal,
     body: JSON.stringify(input)

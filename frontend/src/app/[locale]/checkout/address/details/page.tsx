@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent, HTMLAttributes, ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { FormEvent, InputHTMLAttributes, ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { useToast } from "@/components/toast/toast-context";
@@ -18,7 +18,12 @@ import {
   safeNextPath
 } from "@/features/checkout/address-draft";
 import { ApiError } from "@/lib/api";
+import { startCheckoutOnboarding } from "@/lib/auth-api";
 import { useCart } from "@/lib/cart-context";
+import { formatIndianPhoneNumber, isValidIndianPhoneNumber } from "@/features/customer-account/lib/account-utils";
+
+type AddressFormErrorKey = "recipientName" | "recipientPhone" | "line1" | "city" | "state" | "pincode";
+type AddressFormErrors = Partial<Record<AddressFormErrorKey, string>>;
 
 export default function CheckoutAddressDetailsPage() {
   const router = useRouter();
@@ -31,9 +36,11 @@ export default function CheckoutAddressDetailsPage() {
     () => `/checkout/address?next=${encodeURIComponent(nextPath)}`,
     [nextPath]
   );
+  const checkoutStartKeyRef = useRef<string | null>(null);
 
   const [draft, setDraft] = useState<AddressDraft>(() => emptyAddressDraft());
   const [draftHydrated, setDraftHydrated] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<AddressFormErrors>({});
   const [formSaving, setFormSaving] = useState(false);
   const cartItemLabel = `${cartItemCount} cart ${cartItemCount === 1 ? "item" : "items"}`;
 
@@ -54,36 +61,83 @@ export default function CheckoutAddressDetailsPage() {
 
   function setDraftValue(key: keyof AddressDraft, value: string | boolean | number | undefined) {
     setDraft((current) => ({ ...current, [key]: value }));
+    if (isAddressFormErrorKey(key)) {
+      setFieldErrors((current) => clearFieldError(current, key));
+    }
   }
+
+  function validateField(key: AddressFormErrorKey) {
+    setFieldErrors((current) => {
+      const next = { ...current };
+      const message = validateAddressField(key, draft);
+      if (message) {
+        next[key] = message;
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
+  }
+
+  const saveNormalizedAddress = useCallback(
+    async (normalizedDraft: AddressDraft) => {
+      setFormSaving(true);
+      try {
+        const response = await createCustomerAddress({
+          ...normalizedDraft,
+          isDefault: true,
+          label: normalizedDraft.label?.trim() || "Home"
+        });
+        persistSelectedAddress(response.address.id);
+        clearAddressDraft();
+        toast.success("Delivery address saved.");
+        router.replace(nextPath);
+      } catch (error) {
+        toast.error(errorMessage(error, "Address could not be saved."));
+      } finally {
+        setFormSaving(false);
+      }
+    },
+    [nextPath, router, toast]
+  );
 
   async function saveAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session) {
-      persistAddressDraft(draft);
-      router.push(`/auth/login?next=${encodeURIComponent(`/checkout/address/details?next=${encodeURIComponent(nextPath)}`)}`);
+    const normalizedDraft = normalizeAddressDraft(draft);
+    const errors = validateAddressDraft(normalizedDraft);
+    if (Object.keys(errors).length > 0) {
+      setDraft(normalizedDraft);
+      setFieldErrors(errors);
+      toast.error("Please fix the highlighted address details.");
+      queueMicrotask(() => {
+        document.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus();
+      });
       return;
     }
 
-    setFormSaving(true);
-    try {
-      const response = await createCustomerAddress({
-        ...draft,
-        isDefault: true,
-        label: draft.label?.trim() || "Home",
-        line1: draft.line1.trim(),
-        city: draft.city.trim(),
-        state: draft.state.trim(),
-        pincode: draft.pincode.trim()
-      });
-      persistSelectedAddress(response.address.id);
-      clearAddressDraft();
-      toast.success("Delivery address saved.");
-      router.push(nextPath);
-    } catch (error) {
-      toast.error(errorMessage(error, "Address could not be saved."));
-    } finally {
-      setFormSaving(false);
+    if (!session) {
+      persistAddressDraft(normalizedDraft);
+      setFormSaving(true);
+      checkoutStartKeyRef.current ??= crypto.randomUUID();
+      try {
+        const flow = await startCheckoutOnboarding(
+          {
+            ...normalizedDraft,
+            recipientPhone: normalizedDraft.recipientPhone ?? "",
+            nextPath
+          },
+          checkoutStartKeyRef.current
+        );
+        router.push(flow.verifyPhonePath);
+      } catch (error) {
+        checkoutStartKeyRef.current = null;
+        setFormSaving(false);
+        toast.error(errorMessage(error, "Secure checkout setup could not be started."));
+      }
+      return;
     }
+
+    await saveNormalizedAddress(normalizedDraft);
   }
 
   if (!isSessionReady) {
@@ -114,7 +168,7 @@ export default function CheckoutAddressDetailsPage() {
           </p>
         </div>
 
-        <form className="mt-8 grid gap-4 sm:grid-cols-2" onSubmit={saveAddress}>
+        <form className="mt-8 grid gap-4 sm:grid-cols-2" noValidate onSubmit={saveAddress}>
           {/* Label selector as pill buttons */}
           <div className="mb-2 sm:col-span-2">
             <span className="mb-3 block text-[12px] font-bold uppercase tracking-wider text-zinc-500">Save address as</span>
@@ -153,25 +207,85 @@ export default function CheckoutAddressDetailsPage() {
             )}
           </div>
 
-          <TextInput className="sm:col-span-2" label="Recipient name" onChange={(value) => setDraftValue("recipientName", value)} value={draft.recipientName ?? ""} />
-          <TextInput label="Recipient phone" onChange={(value) => setDraftValue("recipientPhone", value)} value={draft.recipientPhone ?? ""} />
-          <TextInput inputMode="numeric" label="Pincode" onChange={(value) => setDraftValue("pincode", value)} required value={draft.pincode} />
+          <TextInput
+            autoComplete="name"
+            className="sm:col-span-2"
+            error={fieldErrors.recipientName}
+            label="Recipient name"
+            onBlur={() => validateField("recipientName")}
+            onChange={(value) => setDraftValue("recipientName", value)}
+            required
+            value={draft.recipientName ?? ""}
+          />
+          <TextInput
+            autoComplete="tel"
+            error={fieldErrors.recipientPhone}
+            inputMode="tel"
+            label="Recipient phone"
+            maxLength={15}
+            onBlur={() => validateField("recipientPhone")}
+            onChange={(value) => setDraftValue("recipientPhone", formatIndianPhoneNumber(value))}
+            placeholder="+91 98765 43210"
+            required
+            value={draft.recipientPhone ?? ""}
+          />
           
-          <TextInput className="sm:col-span-2" label="House, flat, building, street" onChange={(value) => setDraftValue("line1", value)} required value={draft.line1} />
-          <TextInput className="sm:col-span-2" label="Area, landmark" onChange={(value) => setDraftValue("line2", value)} value={draft.line2 ?? ""} />
+          <TextInput
+            autoComplete="address-line1"
+            className="sm:col-span-2"
+            error={fieldErrors.line1}
+            label="House, flat, building, street"
+            onBlur={() => validateField("line1")}
+            onChange={(value) => setDraftValue("line1", value)}
+            required
+            value={draft.line1}
+          />
+          <TextInput autoComplete="address-line2" className="sm:col-span-2" label="Area, landmark" onChange={(value) => setDraftValue("line2", value)} value={draft.line2 ?? ""} />
           
-          <TextInput label="City" onChange={(value) => setDraftValue("city", value)} required value={draft.city} />
-          <TextInput label="State" onChange={(value) => setDraftValue("state", value)} required value={draft.state} />
+          <TextInput
+            autoComplete="address-level2"
+            error={fieldErrors.city}
+            label="City"
+            onBlur={() => validateField("city")}
+            onChange={(value) => setDraftValue("city", value)}
+            required
+            value={draft.city}
+          />
+          <TextInput
+            autoComplete="address-level1"
+            error={fieldErrors.state}
+            label="State"
+            onBlur={() => validateField("state")}
+            onChange={(value) => setDraftValue("state", value)}
+            required
+            value={draft.state}
+          />
+          <TextInput
+            autoComplete="postal-code"
+            error={fieldErrors.pincode}
+            inputMode="numeric"
+            label="Pincode"
+            maxLength={6}
+            onBlur={() => validateField("pincode")}
+            onChange={(value) => setDraftValue("pincode", value.replace(/\D/g, "").slice(0, 6))}
+            required
+            value={draft.pincode}
+          />
           
-          <TextInput className="sm:col-span-2" label="Delivery instructions" onChange={(value) => setDraftValue("deliveryInstructions", value)} value={draft.deliveryInstructions ?? ""} />
+          <TextInput className="sm:col-span-2" label="Delivery instructions (optional)" onChange={(value) => setDraftValue("deliveryInstructions", value)} value={draft.deliveryInstructions ?? ""} />
 
           <button
-            className="mt-4 flex h-14 items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-zinc-900 hover:shadow-lg disabled:opacity-50 sm:col-span-2"
+            className="group relative mt-4 flex h-14 items-center justify-center overflow-hidden rounded-2xl bg-black text-[15px] font-bold text-white shadow-lg transition-colors hover:bg-zinc-900 active:scale-[0.99] disabled:opacity-50 sm:col-span-2"
             disabled={formSaving}
             type="submit"
           >
-            {formSaving ? <Loader2 className="size-5 animate-spin" /> : <Save size={18} />}
-            {formSaving ? "Saving address..." : session ? "Save and continue" : "Continue to login"}
+            <div className="absolute inset-0 flex h-full w-full justify-center [transform:skew(-12deg)_translateX(-100%)] group-hover:duration-1000 group-hover:[transform:skew(-12deg)_translateX(100%)]">
+              <div className="relative h-full w-8 bg-white/20" />
+            </div>
+            <span className="relative z-10 flex items-center gap-2">
+              {formSaving ? <Loader2 className="size-5 animate-spin" /> : null}
+              {formSaving ? "Saving address..." : session ? "Save and continue" : "Verify phone and continue"}
+            </span>
           </button>
         </form>
       </section>
@@ -199,35 +313,171 @@ function LoadingPanel({ label }: { label: string }) {
 }
 
 function TextInput({
+  autoComplete,
   className = "",
+  error,
   inputMode,
   label,
+  maxLength,
+  onBlur,
   onChange,
+  placeholder,
   required,
-  value,
-  placeholder
+  value
 }: {
+  autoComplete?: InputHTMLAttributes<HTMLInputElement>["autoComplete"];
   className?: string;
-  inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
+  error?: string;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   label: string;
+  maxLength?: number;
+  onBlur?: () => void;
   onChange: (value: string) => void;
+  placeholder?: string;
   required?: boolean;
   value: string;
-  placeholder?: string;
 }) {
+  const inputId = useId();
+  const errorId = `${inputId}-error`;
   return (
     <label className={`block ${className}`}>
       <span className="mb-1.5 block text-[12px] font-bold uppercase tracking-wider text-zinc-500">{label}</span>
       <input
-        className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 text-[15px] font-medium text-black outline-none transition-all placeholder:text-zinc-400 hover:border-zinc-300 focus:border-black focus:ring-1 focus:ring-black"
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
+        autoComplete={autoComplete}
+        className={`h-12 w-full rounded-xl border bg-white px-4 text-[15px] font-medium text-black outline-none transition-all placeholder:text-zinc-400 ${
+          error
+            ? "border-rose-400 bg-rose-50/30 hover:border-rose-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-200"
+            : "border-zinc-200 hover:border-zinc-300 focus:border-black focus:ring-1 focus:ring-black"
+        }`}
+        id={inputId}
         inputMode={inputMode}
+        maxLength={maxLength}
+        onBlur={onBlur}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         required={required}
         value={value}
-        placeholder={placeholder}
       />
+      {error ? (
+        <p className="mt-1.5 text-xs font-semibold text-rose-600" id={errorId}>
+          {error}
+        </p>
+      ) : null}
     </label>
   );
+}
+
+function normalizeAddressDraft(draft: AddressDraft): AddressDraft {
+  return {
+    ...draft,
+    city: draft.city.trim(),
+    deliveryInstructions: draft.deliveryInstructions?.trim() ?? "",
+    label: draft.label?.trim() || "Home",
+    line1: draft.line1.trim(),
+    line2: draft.line2?.trim() ?? "",
+    pincode: draft.pincode.replace(/\D/g, "").slice(0, 6),
+    recipientName: draft.recipientName?.trim() ?? "",
+    recipientPhone: formatIndianPhoneNumber(draft.recipientPhone ?? ""),
+    state: draft.state.trim()
+  };
+}
+
+function validateAddressDraft(draft: AddressDraft): AddressFormErrors {
+  const errors: AddressFormErrors = {};
+  for (const key of ADDRESS_FORM_ERROR_KEYS) {
+    const message = validateAddressField(key, draft);
+    if (message) {
+      errors[key] = message;
+    }
+  }
+  return errors;
+}
+
+const ADDRESS_FORM_ERROR_KEYS: AddressFormErrorKey[] = [
+  "recipientName",
+  "recipientPhone",
+  "line1",
+  "city",
+  "state",
+  "pincode"
+];
+
+function validateAddressField(key: AddressFormErrorKey, draft: AddressDraft) {
+  if (key === "recipientName") {
+    const value = draft.recipientName?.trim() ?? "";
+    if (value.length < 2) {
+      return "Enter the recipient name.";
+    }
+    if (value.length > 80) {
+      return "Recipient name must be 80 characters or fewer.";
+    }
+    return undefined;
+  }
+
+  if (key === "recipientPhone") {
+    const value = draft.recipientPhone?.trim() ?? "";
+    if (!value) {
+      return "Enter a recipient phone number.";
+    }
+    if (!isValidIndianPhoneNumber(value)) {
+      return "Enter a valid 10-digit Indian mobile number.";
+    }
+    return undefined;
+  }
+
+  if (key === "line1") {
+    const value = draft.line1.trim();
+    if (value.length < 5) {
+      return "Enter house, building, and street details.";
+    }
+    if (value.length > 160) {
+      return "Address line must be 160 characters or fewer.";
+    }
+    return undefined;
+  }
+
+  if (key === "city") {
+    const value = draft.city.trim();
+    if (value.length < 2) {
+      return "Enter the city.";
+    }
+    if (value.length > 80) {
+      return "City must be 80 characters or fewer.";
+    }
+    return undefined;
+  }
+
+  if (key === "state") {
+    const value = draft.state.trim();
+    if (value.length < 2) {
+      return "Enter the state.";
+    }
+    if (value.length > 80) {
+      return "State must be 80 characters or fewer.";
+    }
+    return undefined;
+  }
+
+  const pincode = draft.pincode.replace(/\D/g, "");
+  if (!/^[1-9]\d{5}$/.test(pincode)) {
+    return "Enter a valid 6-digit pincode.";
+  }
+  return undefined;
+}
+
+function isAddressFormErrorKey(key: keyof AddressDraft): key is AddressFormErrorKey {
+  return ADDRESS_FORM_ERROR_KEYS.includes(key as AddressFormErrorKey);
+}
+
+function clearFieldError(errors: AddressFormErrors, key: AddressFormErrorKey) {
+  if (!errors[key]) {
+    return errors;
+  }
+  const next = { ...errors };
+  delete next[key];
+  return next;
 }
 
 function errorMessage(error: unknown, fallback: string) {

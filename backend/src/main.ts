@@ -73,6 +73,9 @@ async function bootstrap() {
       "x-csrf-token",
       "x-admin-csrf",
       "x-request-id",
+      "idempotency-key",
+      "cache-control",
+      "pragma",
       "x-store-id",
       "x-device-timezone",
       "x-device-screen",
@@ -157,7 +160,8 @@ async function bootstrap() {
   app.useGlobalFilters(new ApiExceptionFilter());
 
   const port = Number(config.get<number | string>("PORT", 4000));
-  const host = config.get<string>("HOST", "0.0.0.0");
+  const configuredHost = config.get<string>("HOST");
+  const host = configuredHost?.trim() || "0.0.0.0";
   await listenOrReportPortConflict(app, port, host);
 }
 

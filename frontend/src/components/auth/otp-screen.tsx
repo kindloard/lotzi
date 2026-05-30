@@ -7,13 +7,14 @@ import {
   KeyboardEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { ApiError } from "@/lib/api";
-import { defaultAuthRedirect } from "@/lib/auth-redirect";
+import { defaultAuthRedirect, validateInternalRedirect } from "@/lib/auth-redirect";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { resendSignupOtp, verifySignup } from "@/lib/auth-api";
@@ -64,6 +65,10 @@ export function OtpScreen() {
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
   const lastAutoSubmittedOtpRef = useRef<string | null>(null);
+  const redirectValidation = useMemo(
+    () => validateInternalRedirect(searchParams.get("next")),
+    [searchParams]
+  );
 
   useEffect(() => {
     const nextEmail = searchParams.get("email") ?? localStorage.getItem("namastore:pending-signup-email") ?? "";
@@ -75,9 +80,12 @@ export function OtpScreen() {
     setEmail(nextEmail.trim().toLowerCase());
     localStorage.setItem("namastore:pending-signup-email", nextEmail.trim().toLowerCase());
     router.prefetch("/");
+    if (redirectValidation.path) {
+      router.prefetch(redirectValidation.path);
+    }
     router.prefetch("/merchant/onboarding");
     router.prefetch("/auth/signup");
-  }, [router, searchParams, t, toastWarning]);
+  }, [redirectValidation.path, router, searchParams, t, toastWarning]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
@@ -172,7 +180,7 @@ export function OtpScreen() {
       toastSuccess(t("otp.success"));
       navigated = true;
       markAuthEvent("auth:otp:redirect-start");
-      router.replace(defaultAuthRedirect(session));
+      router.replace(redirectValidation.path ?? defaultAuthRedirect(session));
     } catch (apiError) {
       const message = translateApiError(apiError, "AUTH_OTP_INVALID") || mapOtpError(apiError);
       if (message) {
@@ -185,7 +193,7 @@ export function OtpScreen() {
         abortRef.current = null;
       }
     }
-  }, [email, otp, router, setSession, t, toastError, toastSuccess, translateApiError]);
+  }, [email, otp, redirectValidation.path, router, setSession, t, toastError, toastSuccess, translateApiError]);
 
   const handleResend = async () => {
     if (resending || cooldownSeconds > 0 || !email) {

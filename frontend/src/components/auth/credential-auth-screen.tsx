@@ -96,7 +96,7 @@ function mapAuthError(error: unknown, mode: CredentialMode) {
   if (error instanceof ApiError) {
     if (error.status === 401 || error.status === 403) {
       return mode === "login"
-        ? "Email or password is incorrect."
+        ? "Email, phone, or password is incorrect."
         : "We could not complete that request. Check the details and try again.";
     }
 
@@ -530,16 +530,16 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
                 />
               )}
               <AuthInput
-                autoComplete="email"
+                autoComplete={isRegistration ? "email" : "username"}
                 error={fieldErrors.email}
-                label={t("fields.email.label")}
+                label={isRegistration ? t("fields.email.label") : "Email or phone"}
                 name="email"
                 onBlur={touchField}
                 onChange={updateField}
-                placeholder={t("fields.email.placeholder")}
+                placeholder={isRegistration ? t("fields.email.placeholder") : "you@example.com or +91 98765 43210"}
                 required
                 touched={touched.email}
-                type="email"
+                type={isRegistration ? "email" : "text"}
                 value={values.email}
               />
               <AuthInput

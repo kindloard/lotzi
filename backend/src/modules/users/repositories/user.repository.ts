@@ -10,6 +10,15 @@ export class UserRepository {
     return tx.user.findUnique({ where: { email } });
   }
 
+  findByPhone(phone: string, tx: Prisma.TransactionClient = this.prisma) {
+    return tx.user.findFirst({
+      where: {
+        phone,
+        deletedAt: null
+      }
+    });
+  }
+
   findById(id: string, tx: Prisma.TransactionClient = this.prisma) {
     return tx.user.findUnique({ where: { id } });
   }

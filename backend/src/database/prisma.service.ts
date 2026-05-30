@@ -13,6 +13,15 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  constructor() {
+    super({
+      transactionOptions: {
+        maxWait: positiveIntFromEnv("PRISMA_TRANSACTION_MAX_WAIT_MS", 10_000),
+        timeout: positiveIntFromEnv("PRISMA_TRANSACTION_TIMEOUT_MS", 30_000)
+      }
+    });
+  }
+
   async onModuleInit() {
     await this.$connect();
     await this.assertSchemaCompatibility();
@@ -125,4 +134,13 @@ export class PrismaService
     const present = new Set(rows.map((row) => `${row.table_name}.${row.column_name}`));
     return required.filter((name) => !present.has(name));
   }
+}
+
+function positiveIntFromEnv(key: string, fallback: number) {
+  const raw = process.env[key];
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }

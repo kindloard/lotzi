@@ -192,7 +192,6 @@ export default function CheckoutAddressPage() {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19
       }).addTo(map);
-      L.control.zoom({ position: "bottomright" }).addTo(map);
       L.control.attribution({ prefix: false, position: "bottomleft" }).addTo(map);
 
       map.on("click", (event) => {
@@ -355,7 +354,7 @@ export default function CheckoutAddressPage() {
         <div className="relative flex-1 min-h-[50vh] overflow-hidden rounded-[32px] border border-zinc-200/60 bg-zinc-50 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
           {/* Map Container */}
           <div className="absolute inset-0 h-full w-full bg-zinc-100">
-            <div ref={mapContainerRef} className="absolute inset-0 z-0" />
+            <div ref={mapContainerRef} className="checkout-address-map absolute inset-0 z-0" />
             {!mapReady ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-zinc-50/80 backdrop-blur-md text-sm font-medium text-zinc-500">
                 <Loader2 className="size-6 animate-spin text-black" />
@@ -364,8 +363,8 @@ export default function CheckoutAddressPage() {
             ) : null}
 
             {/* Floating Search Bar */}
-            <div className="absolute left-4 right-4 top-4 z-[450] sm:left-6 sm:right-6 max-w-2xl mx-auto">
-              <div className="group relative flex h-14 items-center gap-3 rounded-2xl border border-white/60 bg-white/90 px-4 shadow-lg backdrop-blur-xl transition-all focus-within:bg-white focus-within:shadow-xl focus-within:ring-2 focus-within:ring-black">
+            <div className="absolute left-4 right-4 top-4 z-[1100] sm:left-6 sm:right-6 max-w-2xl mx-auto">
+              <div className="group relative flex h-14 items-center gap-3 rounded-2xl border border-zinc-200/70 bg-white/90 px-4 shadow-lg backdrop-blur-xl transition-all focus-within:border-zinc-400 focus-within:bg-white focus-within:shadow-xl focus-within:ring-1 focus-within:ring-zinc-300">
                 <Search className="size-5 shrink-0 text-zinc-400 transition-colors group-focus-within:text-black" />
                 <input
                   aria-label="Search delivery location"
@@ -452,7 +451,7 @@ export default function CheckoutAddressPage() {
 
             {/* GPS Button */}
             <button
-              className={`absolute right-4 z-[450] flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/90 text-black shadow-lg backdrop-blur-xl transition-all hover:scale-105 hover:bg-white disabled:opacity-50 sm:right-6 ${
+              className={`absolute right-4 z-[900] flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/90 text-black shadow-lg backdrop-blur-xl transition-all hover:scale-105 hover:bg-white disabled:opacity-50 sm:right-6 ${
                 hasSelectedPin ? "bottom-32 sm:bottom-36" : "bottom-6"
               }`}
               disabled={locationState === "loading"}

@@ -4,6 +4,7 @@ type TranslationFn = (key: string, values?: Record<string, number | string>) => 
 
 const englishAuthMessages: Record<string, string> = {
   "validation.emailInvalid": "Enter a valid email address.",
+  "validation.identifierInvalid": "Enter a valid email or Indian mobile number.",
   "validation.nameRequired": "Enter your name.",
   "validation.otpLength": "Enter the {length}-digit code.",
   "validation.passwordMin": "Password must be at least {min} characters.",
@@ -36,7 +37,11 @@ export function createPasswordSchema(t: TranslationFn = defaultT) {
 
 export function createLoginSchema(t: TranslationFn = defaultT) {
   return z.object({
-    email: z.email(t("validation.emailInvalid")).transform((value) => value.trim().toLowerCase()),
+    email: z
+      .string()
+      .trim()
+      .refine((value) => isEmail(value) || isIndianLoginPhone(value), t("validation.identifierInvalid"))
+      .transform((value) => value.includes("@") ? value.trim().toLowerCase() : value.trim()),
     password: z.string().min(1, t("validation.passwordRequired")),
     remember: z.boolean()
   });
@@ -96,6 +101,16 @@ export const signupSchema = createSignupSchema();
 export const otpSchema = createOtpSchema();
 export const resetRequestSchema = createResetRequestSchema();
 export const resetConfirmSchema = createResetConfirmSchema();
+
+function isEmail(value: string) {
+  return z.email().safeParse(value.trim().toLowerCase()).success;
+}
+
+function isIndianLoginPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const mobile = digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
+  return /^[6-9]\d{9}$/.test(mobile);
+}
 
 export type PasswordStrength = {
   score: 0 | 1 | 2 | 3 | 4;
