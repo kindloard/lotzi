@@ -196,7 +196,7 @@ function ProductTemporarilyUnavailable({
     <main className="flex min-h-screen items-center justify-center bg-white px-4 text-center text-slate-950">
       <div className="max-w-md">
         <p className="text-sm font-black uppercase tracking-wide text-slate-400">Product temporarily unavailable</p>
-        <h1 className="mt-3 text-3xl font-black tracking-tight">We're reconnecting to this product</h1>
+        <h1 className="mt-3 text-3xl font-black tracking-tight">We&apos;re reconnecting to this product</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           The store API is taking longer than usual. Your page is okay, and a retry should load it once the backend responds.
         </p>

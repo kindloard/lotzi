@@ -252,7 +252,7 @@ function ShopTemporarilyUnavailable({
     <main className="flex min-h-screen items-center justify-center bg-white px-4 text-center text-slate-950">
       <div className="max-w-md">
         <p className="text-sm font-black uppercase tracking-wide text-slate-400">Store temporarily unavailable</p>
-        <h1 className="mt-3 text-3xl font-black tracking-tight">We're reconnecting to this store</h1>
+        <h1 className="mt-3 text-3xl font-black tracking-tight">We&apos;re reconnecting to this store</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           The store API is taking longer than usual. This keeps the page from crashing while the backend catches up.
         </p>
