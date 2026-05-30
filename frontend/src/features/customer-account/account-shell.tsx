@@ -1,13 +1,12 @@
 "use client";
 
-import { ArrowLeft, ChevronRight, LogOut, Store } from "lucide-react";
+import { ArrowLeft, LogOut } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { AccountQueryProvider } from "./account-query-provider";
 import { CartProvider } from "@/lib/cart-context";
 import {
-  accountHomeNav,
   accountSectionFromPath,
   accountSections,
   getAccountSection,

@@ -90,7 +90,7 @@ export function pointFromDraft(draft: Partial<AddressDraft>): DeliveryPoint | nu
     : null;
 }
 
-export function addressDraftFromNominatim(result: ReverseGeocodeResult): Partial<AddressDraft> {
+export function addressDraftFromNominatim(): Partial<AddressDraft> {
   // FAANG standard: Do NOT auto-fill ANY text fields from reverse geocoding.
   // We capture the GPS coordinates under the hood, but force the user to 
   // manually type their exact House, Area, City, State, and Pincode 

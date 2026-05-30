@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import type { ChangeEvent, Dispatch, DragEvent, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useToast } from "@/components/toast/toast-context";
 import { ApiError } from "@/lib/api";
@@ -858,14 +859,8 @@ function SortableImageTile({
     transition
   };
 
-  // ✅ FIX: Track image load errors so broken Cloudinary URLs (404) show a
-  // visible error state instead of an invisible blank tile.
-  // The old CSS background-image approach silently shows nothing on 404 —
-  // this happens for images uploaded by older code that stored renditions
-  // with their kind as the publicId (e.g. stores/.../card.webp instead of
-  // stores/.../original + eager transform). Without this, users have no
-  // idea whether the image is blank or broken.
   const [imgError, setImgError] = useState(false);
+  const bypassImageOptimization = isLocalPreviewUrl(image.url);
   useEffect(() => {
     // Reset error state when the URL changes (e.g. after a successful re-upload)
     setImgError(false);
@@ -880,11 +875,11 @@ function SortableImageTile({
       ref={setNodeRef}
       style={style}
     >
-      <div className="relative overflow-hidden rounded-xl border border-zinc-100 bg-zinc-100">
+      <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-zinc-100 bg-zinc-100">
         {imgError ? (
           <div
             aria-label={image.name}
-            className="flex aspect-[4/3] items-center justify-center bg-zinc-100"
+            className="flex h-full w-full items-center justify-center bg-zinc-100"
             role="img"
           >
             <div className="flex flex-col items-center gap-1.5 text-zinc-300">
@@ -893,11 +888,14 @@ function SortableImageTile({
             </div>
           </div>
         ) : (
-          <img
+          <Image
             alt={image.name}
-            className="aspect-[4/3] w-full object-cover"
+            className="object-cover"
+            fill
             onError={() => setImgError(true)}
+            sizes="(max-width: 640px) 50vw, 220px"
             src={image.url}
+            unoptimized={bypassImageOptimization}
           />
         )}
         {image.isPrimary && (
@@ -1179,6 +1177,10 @@ function imageScopeFor(image: ProductImage): MediaScope {
 
 function sameStringList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isLocalPreviewUrl(value: string) {
+  return value.startsWith("blob:") || value.startsWith("data:");
 }
 
 function formatSpeed(value: number) {

@@ -7,10 +7,10 @@ import {
   type CustomerProfile,
   updateCustomerProfile
 } from "../customer-account-api";
-import { Avatar, Button, Panel, SectionError, SectionSkeleton, TextField } from "../components/account-ui";
+import { Button, Panel, SectionError, SectionSkeleton, TextField } from "../components/account-ui";
 import { useAccountIdentity } from "../providers/account-identity-provider";
 import { accountProfileKey } from "../lib/account-query-keys";
-import { errorMessage, formatIndianPhoneNumber, initialsFor, isValidIndianPhoneNumber } from "../lib/account-utils";
+import { errorMessage, formatIndianPhoneNumber, isValidIndianPhoneNumber } from "../lib/account-utils";
 
 export function ProfileScreen() {
   const identity = useAccountIdentity();

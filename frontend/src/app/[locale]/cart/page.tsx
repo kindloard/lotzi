@@ -10,7 +10,6 @@ import {
   ShoppingBag,
   Plus,
   Minus,
-  Check,
   Tag,
   Clock,
   CreditCard,
@@ -31,17 +30,6 @@ import {
 import { ApiError } from "@/lib/api";
 import { useCart, CartItem, cartLineKey } from "@/lib/cart-context";
 import { formatIndianRupees } from "@/lib/currency";
-
-interface PlacedOrderDetails {
-  orderId: string;
-  items: CartItem[];
-  subtotal: number;
-  discount: number;
-  tax: number;
-  deliveryFee: number;
-  grandTotal: number;
-  speed: string;
-}
 
 const SHOW_PROMO_CODE_SECTION = false;
 const SHOW_BASKET_TIMING = false;
@@ -138,7 +126,6 @@ export default function CartPage() {
     cartSubtotal,
     updateQty,
     removeFromCart,
-    clearCart,
     isCartReady
   } = useCart();
 
@@ -147,13 +134,13 @@ export default function CartPage() {
   const [promoError, setPromoError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; discountPercent: number } | null>(null);
   const [deliverySpeed, setDeliverySpeed] = useState<"standard" | "priority">("standard");
-  const [checkoutStep, setCheckoutStep] = useState<"idle" | "verifying" | "securing" | "processing" | "success">("idle");
-  const [placedOrderDetails, setPlacedOrderDetails] = useState<PlacedOrderDetails | null>(null);
+  const [checkoutStep, setCheckoutStep] = useState<"idle" | "verifying" | "securing" | "processing">("idle");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [isSelectedAddressLoaded, setIsSelectedAddressLoaded] = useState(false);
   const [checkoutAddress, setCheckoutAddress] = useState<{ id: string } | null>(null);
   const [addressLookupState, setAddressLookupState] = useState<AddressLookupState>("idle");
+  const currentSessionId = session?.sessionId ?? null;
 
   // Pricing calculations
   const subtotal = cartSubtotal;
@@ -183,7 +170,7 @@ export default function CartPage() {
       return;
     }
 
-    if (!session) {
+    if (!currentSessionId) {
       setCheckoutAddress(null);
       setAddressLookupState("idle");
       return;
@@ -236,7 +223,7 @@ export default function CartPage() {
       isCurrent = false;
       window.clearTimeout(retryTimer);
     };
-  }, [isSelectedAddressLoaded, isSessionReady, selectedAddressId, session?.sessionId]);
+  }, [currentSessionId, isSelectedAddressLoaded, isSessionReady, selectedAddressId]);
 
   // Promo code validation
   const handleApplyPromo = (e: React.FormEvent) => {
@@ -364,7 +351,7 @@ export default function CartPage() {
           </p>
         </div>
 
-        {cartItems.length === 0 && checkoutStep !== "success" ? (
+        {cartItems.length === 0 ? (
           /* Empty Basket State */
           <div className="text-center py-20 bg-white border border-slate-200 rounded-[32px] shadow-sm max-w-xl mx-auto p-8 animate-scale-up">
             <span className="flex size-16 items-center justify-center rounded-full bg-slate-100 mx-auto text-slate-400 mb-5">
@@ -695,112 +682,6 @@ export default function CartPage() {
         )}
 
       </div>
-
-      {/* Celebratory Checkout Success Modal */}
-      {checkoutStep === "success" && placedOrderDetails && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          
-          {/* Backdrop Blur */}
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md animate-fade-in" />
-          
-          {/* Modal Container */}
-          <div className="relative z-10 w-full max-w-lg bg-white rounded-[32px] border border-slate-100 p-8 shadow-2xl overflow-hidden animate-scale-up max-h-[90vh] overflow-y-auto scrollbar-hide">
-            
-            {/* Celebration Visuals */}
-            <div className="text-center pb-6">
-              <span className="relative flex size-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mx-auto mb-4 border border-emerald-100">
-                <Check size={26} strokeWidth={3} className="animate-scale-up" />
-                <span className="absolute -inset-1 rounded-full border border-emerald-400/30 animate-ping" />
-              </span>
-              <h2 className="text-xl font-black text-slate-900 tracking-tight">Order Placed Successfully!</h2>
-              <p className="text-xs text-slate-450 mt-1">Thank you for ordering on Namastore</p>
-              
-              <div className="mt-3.5 inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1 text-[11px] font-bold text-slate-650">
-                ID: <span className="text-slate-900">{placedOrderDetails.orderId}</span>
-              </div>
-            </div>
-
-            {/* Logistics Tracking Simulation */}
-            <div className="border-y border-slate-100 py-6 my-2 space-y-4">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4">Live Tracking</p>
-              
-              <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
-                
-                {/* Stepper item 1: Order Confirmed */}
-                <div className="relative flex gap-3.5 items-start">
-                  <span className="absolute -left-[22px] flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white ring-4 ring-white">
-                    <Check size={9} strokeWidth={3.5} />
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">Order Confirmed</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Booking allocated and sent to sellers</p>
-                  </div>
-                </div>
-
-                {/* Stepper item 2: Preparing */}
-                <div className="relative flex gap-3.5 items-start">
-                  <span className="absolute -left-[22px] flex size-4 items-center justify-center rounded-full bg-black text-white ring-4 ring-white">
-                    <Loader2 size={9} className="animate-spin" />
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      Preparing Basket
-                      <span className="bg-amber-100 text-amber-800 text-[8px] font-bold px-1 py-0.2 rounded-md">LIVE</span>
-                    </p>
-                    <p className="text-[10px] text-slate-450 mt-0.5">Sellers are wrapping items at store</p>
-                  </div>
-                </div>
-
-                {/* Stepper item 3: Out for Delivery */}
-                <div className="relative flex gap-3.5 items-start">
-                  <span className="absolute -left-[22px] flex size-4 items-center justify-center rounded-full bg-slate-100 text-slate-300 ring-4 ring-white border border-slate-200">
-                    •
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold text-slate-400">Out for Delivery</p>
-                    <p className="text-[10px] text-slate-350 mt-0.5">Courier delivery agent picks up cargo</p>
-                  </div>
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* Order Items & Receipt Summary */}
-            <div className="py-4 space-y-3">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Receipt Summary</p>
-              
-              <div className="max-h-28 overflow-y-auto scrollbar-hide divide-y divide-slate-100 pr-1">
-                {placedOrderDetails.items.map((item) => (
-                  <div key={cartLineKey(item)} className="py-2 flex items-center justify-between text-xs font-semibold">
-                    <span className="text-slate-650 truncate max-w-[280px]">
-                      {item.qty}x {item.name}{item.unitDisplay ? ` ${item.unitDisplay}` : ""}
-                    </span>
-                    <span className="text-slate-900">{formatIndianRupees(item.price * item.qty)}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-slate-100 pt-3 flex justify-between items-center font-bold text-xs">
-                <span className="text-slate-900 font-extrabold">Amount Paid</span>
-                <span className="text-slate-950 font-black text-sm">{formatIndianRupees(placedOrderDetails.grandTotal)}</span>
-              </div>
-            </div>
-
-            {/* Checkout Action Button */}
-            <button
-              onClick={() => {
-                setCheckoutStep("idle");
-                router.push("/");
-              }}
-              className="w-full flex h-11 items-center justify-center rounded-xl bg-black text-xs font-bold text-white transition-all shadow-md hover:-translate-y-0.5 hover:opacity-90 mt-4 cursor-pointer"
-            >
-              Continue Shopping
-            </button>
-
-          </div>
-        </div>
-      )}
 
     </main>
   );

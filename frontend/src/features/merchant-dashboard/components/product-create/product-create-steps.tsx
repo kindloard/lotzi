@@ -201,7 +201,7 @@ export function DetailsStep({
           ...variant,
           measurement,
           name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-            ? variantNameFromProductName(current.name, fallbackName, measurement)
+            ? variantNameFromProductName(current.name, fallbackName)
             : variant.name
         };
       })
@@ -222,7 +222,7 @@ export function DetailsStep({
           ...variant,
           measurement,
           name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-            ? variantNameFromProductName(current.name, fallbackName, measurement)
+            ? variantNameFromProductName(current.name, fallbackName)
             : variant.name
         };
       })
@@ -241,7 +241,7 @@ export function DetailsStep({
           ...variant,
           measurement,
           name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-            ? variantNameFromProductName(current.name, fallbackName, measurement)
+            ? variantNameFromProductName(current.name, fallbackName)
             : variant.name
         };
       })
@@ -272,7 +272,7 @@ export function DetailsStep({
             ...variant,
             measurement: nextMeasurement,
             name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-              ? variantNameFromProductName(current.name, fallbackName, nextMeasurement)
+              ? variantNameFromProductName(current.name, fallbackName)
               : variant.name
           };
         })
@@ -444,7 +444,7 @@ export function PricingStep({
             ...variant,
             measurement: nextMeasurement,
             name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-              ? variantNameFromProductName(current.name, fallbackName, nextMeasurement)
+              ? variantNameFromProductName(current.name, fallbackName)
               : variant.name
           };
         })
@@ -468,7 +468,7 @@ export function PricingStep({
             ...variant,
             measurement: nextMeasurement,
             name: shouldSyncVariantName(variant.name, current.name, fallbackName, variant.measurement)
-              ? variantNameFromProductName(current.name, fallbackName, nextMeasurement)
+              ? variantNameFromProductName(current.name, fallbackName)
               : variant.name
           };
         })
@@ -731,7 +731,7 @@ function newVariantDraft(current: ProductDraft, fallbackName: string) {
   const normalized = normalizeMeasurement(measurement, current.price);
   return {
     id: uid(),
-    name: variantNameFromProductName(current.name, fallbackName, measurement),
+    name: variantNameFromProductName(current.name, fallbackName),
     sku: current.sku.trim().toUpperCase(),
     price: current.price,
     mrp: current.compareAtPrice,
@@ -753,7 +753,7 @@ function sameMeasurement(left: ProductMeasurement, right: ProductMeasurement) {
   );
 }
 
-function variantNameFromProductName(productName: string, fallbackName: string, _measurement?: ProductMeasurement) {
+function variantNameFromProductName(productName: string, fallbackName: string) {
   return productName.trim() || fallbackName;
 }
 
@@ -783,7 +783,7 @@ function shouldSyncVariantName(
 ) {
   const normalized = variantName.trim();
   const currentName = currentProductName.trim();
-  const generatedName = variantNameFromProductName(currentProductName, fallbackName, measurement);
+  const generatedName = variantNameFromProductName(currentProductName, fallbackName);
   const legacyGeneratedName = legacyMeasuredVariantName(currentProductName, fallbackName, measurement);
   if (!normalized) {
     return true;

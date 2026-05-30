@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, HTMLAttributes, ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, MapPin, Save } from "lucide-react";
+import { ArrowLeft, Loader2, Save } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { useToast } from "@/components/toast/toast-context";
@@ -14,7 +14,6 @@ import {
   emptyAddressDraft,
   persistAddressDraft,
   persistSelectedAddress,
-  pointFromDraft,
   readAddressDraft,
   safeNextPath
 } from "@/features/checkout/address-draft";
@@ -36,7 +35,6 @@ export default function CheckoutAddressDetailsPage() {
   const [draft, setDraft] = useState<AddressDraft>(() => emptyAddressDraft());
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [formSaving, setFormSaving] = useState(false);
-  const selectedPoint = pointFromDraft(draft);
   const cartItemLabel = `${cartItemCount} cart ${cartItemCount === 1 ? "item" : "items"}`;
 
   useEffect(() => {

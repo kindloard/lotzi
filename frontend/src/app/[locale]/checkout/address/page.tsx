@@ -7,11 +7,9 @@ import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
   Loader2,
   LocateFixed,
   MapPin,
-  Navigation,
   Search,
   X
 } from "lucide-react";
@@ -28,7 +26,6 @@ import {
   safeNextPath,
   withoutEmpty
 } from "@/features/checkout/address-draft";
-import { useCart } from "@/lib/cart-context";
 
 const DEFAULT_POINT: DeliveryPoint = { latitude: 8.7139, longitude: 77.7567 };
 const SEARCH_DEBOUNCE_MS = 350;
@@ -47,7 +44,6 @@ interface PlaceSearchResult extends ReverseGeocodeResult {
 export default function CheckoutAddressPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { cartItemCount } = useCart();
   const nextPath = safeNextPath(searchParams.get("next"));
   const detailsPath = useMemo(
     () => `/checkout/address/details?next=${encodeURIComponent(nextPath)}`,
@@ -72,7 +68,6 @@ export default function CheckoutAddressPage() {
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
 
   const hasSelectedPin = Boolean(selectedPoint);
-  const cartItemLabel = `${cartItemCount} cart ${cartItemCount === 1 ? "item" : "items"}`;
   const pinSummary = useMemo(() => {
     if (!selectedPoint) {
       return "Search a place, use GPS, or tap the map.";
@@ -142,7 +137,7 @@ export default function CheckoutAddressPage() {
       setSelectedLabel(result.display_name?.split(",").slice(0, 3).join(", ") || "Selected delivery location");
       setDraft((current) => ({
         ...current,
-        ...withoutEmpty(addressDraftFromNominatim(result)),
+        ...withoutEmpty(addressDraftFromNominatim()),
         latitude: point.latitude,
         longitude: point.longitude
       }));
@@ -331,7 +326,7 @@ export default function CheckoutAddressPage() {
     setLocationState("idle");
     await applyPoint(point, {
       label: placeTitle(result),
-      patch: addressDraftFromNominatim(result),
+      patch: addressDraftFromNominatim(),
       reverseLookup: false
     });
   }
@@ -567,16 +562,6 @@ function LocationHint({ state, accuracy }: { state: LocationState; accuracy: num
       {copy[state]}
     </p>
   );
-}
-
-function currentPosition() {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      maximumAge: 15_000,
-      timeout: 12_000
-    });
-  });
 }
 
 async function searchPlaces(query: string, signal: AbortSignal) {

@@ -1,13 +1,8 @@
 import {
-  Clock3,
-  CreditCard,
   Heart,
   Home,
   MapPin,
   Package,
-  Settings,
-  ShieldCheck,
-  Sparkles,
   User
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
