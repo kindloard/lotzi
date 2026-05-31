@@ -4,6 +4,7 @@ import { DatabaseModule } from "../../database/database.module";
 import { SecurityModule } from "../../security/security.module";
 import { AuthModule } from "../auth/auth.module";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
+import { InventoryModule } from "../inventory/inventory.module";
 import { PaymentsModule } from "../payments/payments.module";
 import { RateLimitModule } from "../rate-limit/rate-limit.module";
 import { RbacModule } from "../rbac/rbac.module";
@@ -16,6 +17,7 @@ import { CheckoutService } from "./checkout.service";
     CashfreeModule,
     DatabaseModule,
     IdempotencyModule,
+    InventoryModule,
     PaymentsModule,
     RateLimitModule,
     RbacModule,

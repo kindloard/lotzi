@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { WebhookEventStatus } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
-import { ProductInventoryService } from "../products/product-inventory.service";
+import { InventoryService } from "../inventory/inventory.service";
 import { ReconciliationService } from "./reconciliation.service";
 import { WebhookService } from "./webhook.service";
+
+const STALE_WEBHOOK_PROCESSING_MS = 2 * 60 * 1000;
 
 @Injectable()
 export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
@@ -13,7 +15,7 @@ export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly inventory: ProductInventoryService,
+    private readonly inventory: InventoryService,
     private readonly reconciliation: ReconciliationService,
     private readonly webhooks: WebhookService
   ) {}
@@ -22,6 +24,7 @@ export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
     if (process.env.PAYMENT_WORKERS_DISABLED === "true") {
       return;
     }
+    void this.tick();
     this.timer = setInterval(() => {
       void this.tick();
     }, 30_000);
@@ -42,10 +45,20 @@ export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.inventory.expireReservations(100);
       await this.reconciliation.runDue(25);
+      const now = new Date();
+      const staleProcessingBefore = new Date(Date.now() - STALE_WEBHOOK_PROCESSING_MS);
       const webhooks = await this.prisma.webhookEvent.findMany({
         where: {
-          status: { in: [WebhookEventStatus.RECEIVED, WebhookEventStatus.FAILED] },
-          nextRunAt: { lte: new Date() }
+          OR: [
+            {
+              status: { in: [WebhookEventStatus.RECEIVED, WebhookEventStatus.FAILED] },
+              nextRunAt: { lte: now }
+            },
+            {
+              status: WebhookEventStatus.PROCESSING,
+              updatedAt: { lte: staleProcessingBefore }
+            }
+          ]
         },
         orderBy: { nextRunAt: "asc" },
         take: 25,

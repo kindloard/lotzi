@@ -40,7 +40,9 @@ export const orderStatusValues: Array<OrderStatus | "All"> = [
   "Packed",
   "Shipped",
   "Delivered",
-  "Refund review"
+  "Refund review",
+  "Failed",
+  "Cancelled"
 ];
 
 export function dashboardStatusKey(status: ProductStatus | OrderStatus | PaymentStatus | "All" | string) {
@@ -63,11 +65,15 @@ export function dashboardStatusTone(status: ProductStatus | OrderStatus | Paymen
 export function timelineEventKey(label: string) {
   const normalized = label.toLowerCase();
   if (normalized.includes("created") || normalized.includes("placed")) return "orders.timeline.created";
+  if (normalized.includes("failed")) return "orders.timeline.paymentFailed";
   if (normalized.includes("payment")) return "orders.timeline.paymentConfirmed";
+  if (normalized.includes("inventory")) return "orders.timeline.inventoryReview";
   if (normalized.includes("packed")) return "orders.timeline.packed";
   if (normalized.includes("shipped")) return "orders.timeline.shipped";
   if (normalized.includes("delivered")) return "orders.timeline.delivered";
   if (normalized.includes("refund")) return "orders.timeline.refundRequested";
+  if (normalized.includes("cancelled")) return "orders.timeline.cancelled";
+  if (normalized.includes("expired")) return "orders.timeline.expired";
   return "orders.timeline.default";
 }
 

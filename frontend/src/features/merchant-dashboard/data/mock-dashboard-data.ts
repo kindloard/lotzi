@@ -1,8 +1,5 @@
 import type {
   MerchantChrome,
-  Order,
-  OrderStatus,
-  PaymentStatus,
   Product,
   ProductDraft,
   ProductStatus
@@ -19,21 +16,6 @@ export const initialProducts: Product[] = [
   product("p-6", "Organic Turmeric Powder", "TRM-200", "Grocery", 129, 46, 14, "Draft", 0, 0, 0, "Spices & Masala", "Turmeric"),
   product("p-7", "Stone Ground Wheat Flour", "WHT-5K", "Grocery", 385, 28, 22, "Published", 95, 36575, 4.2, "Staples", "Wheat"),
   product("p-8", "Festival Gift Hamper", "GFT-01", "Snacks", 1199, 6, 10, "Paused", 41, 49159, 8.1, "Namkeen", "Mixture")
-];
-
-export const initialOrders: Order[] = [
-  order("NS-10482", "Aarav Mehta", "aarav@example.com", 2487, 6, "New", "Paid", "Storefront", "Chennai", "2026-05-23T10:40:00.000Z"),
-  order("NS-10481", "Nisha Rao", "nisha@example.com", 1199, 1, "Processing", "Paid", "Mobile", "Bengaluru", "2026-05-23T09:54:00.000Z"),
-  order("NS-10480", "Ishaan Pillai", "ishaan@example.com", 642, 3, "Packed", "Authorized", "Storefront", "Kochi", "2026-05-23T08:18:00.000Z"),
-  order("NS-10479", "Maya Krishnan", "maya@example.com", 558, 2, "Refund review", "Paid", "Instagram", "Coimbatore", "2026-05-22T18:42:00.000Z"),
-  order("NS-10478", "Rohan Iyer", "rohan@example.com", 349, 1, "Shipped", "Paid", "Storefront", "Hyderabad", "2026-05-22T15:05:00.000Z"),
-  order("NS-10477", "Diya Shah", "diya@example.com", 1845, 4, "Delivered", "Paid", "Mobile", "Mumbai", "2026-05-22T12:34:00.000Z"),
-  order("NS-10476", "Vikram S", "vikram@example.com", 734, 2, "Processing", "Paid", "Storefront", "Pune", "2026-05-22T11:04:00.000Z"),
-  order("NS-10475", "Anika Das", "anika@example.com", 3297, 7, "New", "Authorized", "Storefront", "Kolkata", "2026-05-22T09:14:00.000Z"),
-  order("NS-10474", "Kabir Khan", "kabir@example.com", 998, 3, "Packed", "Paid", "Mobile", "Delhi", "2026-05-21T20:09:00.000Z"),
-  order("NS-10473", "Sana Ahmed", "sana@example.com", 129, 1, "Delivered", "Paid", "Storefront", "Lucknow", "2026-05-21T16:12:00.000Z"),
-  order("NS-10472", "Pranav Nair", "pranav@example.com", 2294, 5, "Shipped", "Paid", "Storefront", "Kochi", "2026-05-21T13:28:00.000Z"),
-  order("NS-10471", "Meera Jain", "meera@example.com", 728, 2, "Delivered", "Paid", "Mobile", "Jaipur", "2026-05-21T10:31:00.000Z")
 ];
 
 export const defaultDraft: ProductDraft = {
@@ -142,34 +124,4 @@ function product(
   };
 }
 
-function order(
-  id: string,
-  customer: string,
-  email: string,
-  total: number,
-  items: number,
-  status: OrderStatus,
-  payment: PaymentStatus,
-  channel: string,
-  city: string,
-  placedAt: string
-): Order {
-  return {
-    id,
-    customer,
-    email,
-    total,
-    items,
-    status,
-    payment,
-    channel,
-    city,
-    placedAt,
-    timeline: [
-      { label: "Order created", at: placedAt },
-      { label: payment === "Paid" ? "Payment captured" : "Payment authorized", at: placedAt },
-      { label: status, at: new Date(Date.parse(placedAt) + 1800000).toISOString() }
-    ]
-  };
-}
 

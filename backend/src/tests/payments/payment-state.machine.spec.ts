@@ -11,6 +11,35 @@ describe("payment state machine", () => {
       /Payment cannot move/
     );
   });
+
+  it("routes late gateway success after released terminal states to refund reconciliation", () => {
+    expect(() => assertPaymentTransition(
+      PaymentStatus.FAILED,
+      PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND
+    )).not.toThrow();
+    expect(() => assertPaymentTransition(
+      PaymentStatus.EXPIRED,
+      PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND
+    )).not.toThrow();
+    expect(() => assertPaymentTransition(PaymentStatus.FAILED, PaymentStatus.PAID)).toThrow(
+      /Payment cannot move/
+    );
+  });
+
+  it("routes paid webhooks with inactive reservations to inventory review", () => {
+    expect(() => assertPaymentTransition(
+      PaymentStatus.PENDING_GATEWAY,
+      PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
+    )).not.toThrow();
+    expect(() => assertPaymentTransition(
+      PaymentStatus.UNKNOWN_GATEWAY,
+      PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
+    )).not.toThrow();
+    expect(() => assertPaymentTransition(
+      PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+      PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND
+    )).not.toThrow();
+  });
 });
 
 describe("order state machine", () => {
@@ -22,5 +51,16 @@ describe("order state machine", () => {
     expect(() => assertOrderTransition(OrderStatus.PENDING_PAYMENT, OrderStatus.FULFILLMENT_READY)).toThrow(
       /Order cannot move/
     );
+  });
+
+  it("allows pending payment orders to enter inventory review", () => {
+    expect(() => assertOrderTransition(
+      OrderStatus.PENDING_PAYMENT,
+      OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
+    )).not.toThrow();
+    expect(() => assertOrderTransition(
+      OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+      OrderStatus.REFUND_PENDING
+    )).not.toThrow();
   });
 });

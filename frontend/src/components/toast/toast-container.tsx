@@ -24,8 +24,7 @@ export function ToastContainer({
 
   return createPortal(
     <div
-      aria-label="Notifications"
-      className="pointer-events-none fixed left-1/2 top-3 z-[1000] flex w-[calc(100%-24px)] max-w-[420px] -translate-x-1/2 flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-[380px] sm:translate-x-0"
+      className="pointer-events-none fixed left-1/2 top-3 z-[1000] flex w-[calc(100%-24px)] max-w-[256px] -translate-x-1/2 flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-[224px] sm:translate-x-0"
     >
       {toasts.map((toast) => (
         <ToastItem dismiss={dismiss} key={toast.id} toast={toast} />

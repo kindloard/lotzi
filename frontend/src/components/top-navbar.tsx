@@ -31,6 +31,7 @@ import { logout } from "@/lib/auth-api";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { useLocationTicker } from "@/lib/use-location-ticker";
 import { fetchCustomerAddresses } from "@/features/customer-account/customer-account-api";
+import { useDealProducts } from "@/features/shops/hooks/use-deal-products";
 
 const mockRecentSearches = [
   "Whole wheat bread",
@@ -50,6 +51,8 @@ const mockStoreSuggestions = [
   { name: "Daily Bakery", distance: "2.5 km away", rating: "4.9", image: "DB" },
   { name: "Fresh Veg Shop", distance: "2.0 km away", rating: "4.6", image: "FV" }
 ];
+
+
 
 const searchPlaceholderTerms = [
   "products",
@@ -202,7 +205,7 @@ function AnimatedLocationTicker({
 
   return (
     <div
-      className={`group inline-flex min-w-0 max-w-full items-center gap-1.5 ${
+      className={`group flex max-w-full min-w-0 items-center gap-1.5 ${
         compact ? "" : ""
       }`}
       title={activeTick?.label}
@@ -211,7 +214,7 @@ function AnimatedLocationTicker({
       <div
         className={`relative overflow-hidden ${
           compact ? "h-[16px]" : "h-[28px]"
-        } min-w-0 max-w-[calc(100%-22px)]`}
+        } min-w-0 shrink`}
       >
         <div
           className={`flex flex-col will-change-transform ${
@@ -260,6 +263,8 @@ function AnimatedLocationTicker({
   );
 }
 
+import { ShopsQueryProvider } from "@/features/shops/providers/shops-query-provider";
+
 export function TopNavbar() {
   const pathname = usePathname();
 
@@ -267,7 +272,11 @@ export function TopNavbar() {
     return null;
   }
 
-  return <TopNavbarInner pathname={pathname} />;
+  return (
+    <ShopsQueryProvider>
+      <TopNavbarInner pathname={pathname} />
+    </ShopsQueryProvider>
+  );
 }
 
 function TopNavbarInner({ pathname }: { pathname: string }) {
@@ -291,6 +300,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPlaceholderIndex, setSearchPlaceholderIndex] = useState(0);
   const [isSearchRailResetting, setIsSearchRailResetting] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   
   // Dropdown states
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -302,6 +312,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
   // Global cart context state
   const { cartItems, cartSubtotal, cartItemCount, updateQty, removeFromCart } = useCart();
+
+  // Fetch real products for live search
+  const { data: realProducts = [] } = useDealProducts();
 
   // References for handling clicks outside dropdowns
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -321,7 +334,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
         if (cancelled) return;
         const labels = addresses
           .map((a) =>
-            [a.label, a.line1, a.city].filter(Boolean).join(" · ")
+            [a.label, a.city].filter(Boolean).join(" · ")
           )
           .filter(Boolean)
           .slice(0, 3); // show at most 3 saved addresses
@@ -454,15 +467,16 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
       <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 animate-fade-in">
         <nav
           aria-label={tAria("navigation")}
-          className="mx-auto flex h-[64px] w-full max-w-[1600px] items-center px-3 sm:px-6 lg:px-8"
+          className="mx-auto flex h-[64px] w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6 lg:px-8"
         >
           <Link
             href="/"
-            className="group inline-flex items-center gap-2 rounded-xl py-2 px-3.5 text-sm font-black text-slate-700 hover:text-slate-955 hover:bg-slate-50 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-950/5 cursor-pointer sm:text-[15px]"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-950/5 cursor-pointer"
+            aria-label="Go back"
           >
-            <ArrowLeft className="size-4 transition-transform duration-250 group-hover:-translate-x-1" strokeWidth={2.4} />
-            <span>{tCart("continueShopping")}</span>
+            <ArrowLeft className="size-4" strokeWidth={2.4} />
           </Link>
+          <h1 className="text-base font-black tracking-tight text-slate-900">Your Basket</h1>
         </nav>
       </header>
     );
@@ -473,7 +487,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
       <header className={`sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 ${isShopPage ? "hidden md:block" : ""}`}>
       <nav
         aria-label={tAria("navigation")}
-        className="mx-auto grid h-[64px] w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(320px,520px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(420px,600px)_minmax(0,1fr)] lg:gap-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_minmax(460px,640px)_minmax(0,1fr)]"
+        className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-3 px-3 py-2 sm:gap-x-4 sm:px-6 md:h-[64px] md:grid-cols-[minmax(0,1fr)_minmax(320px,520px)_minmax(0,1fr)] md:py-0 lg:grid-cols-[minmax(0,1fr)_minmax(420px,600px)_minmax(0,1fr)] lg:gap-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_minmax(460px,640px)_minmax(0,1fr)]"
       >
         {/* Left Side: Logo + Location Ticker */}
         <div className="flex min-w-0 items-center gap-2 justify-self-start sm:gap-4 lg:gap-6 md:w-full">
@@ -505,132 +519,184 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
         </div>
 
         {/* Middle Side: Premium Search with hotkeys & smart suggestion panel */}
-        <div className="relative hidden w-full max-w-[520px] justify-self-center md:flex lg:max-w-[576px]" ref={searchContainerRef}>
+        <div className="relative order-last col-span-full w-full justify-self-center md:order-none md:col-span-1 md:flex max-w-full md:max-w-[520px] lg:max-w-[576px]" ref={searchContainerRef}>
           {!isShopPage && !isCheckoutPage && (
             <>
+              {/* Mobile Overlay Backdrop */}
+              {isSearchFocused && (
+                <div 
+                  className="fixed inset-0 z-[90] bg-white md:hidden animate-fade-in" 
+                  onClick={() => setIsSearchFocused(false)} 
+                />
+              )}
+
               <div 
-                onClick={() => searchInputRef.current?.focus()}
-                className={`flex items-center gap-3 px-5 py-2.5 w-full rounded-full border border-black transition-all duration-200 bg-white cursor-text ${
-                  isSearchFocused ? "shadow-[0_4px_12px_rgba(0,0,0,0.05)]" : "hover:shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
+                className={`transition-all duration-300 w-full ${
+                  isSearchFocused 
+                    ? "fixed inset-x-0 top-0 z-[100] bg-white p-3 md:static md:z-auto md:bg-transparent md:p-0 md:animate-none" 
+                    : ""
                 }`}
               >
-                <Search className={`shrink-0 transition-colors duration-200 ${isSearchFocused ? "text-slate-900" : "text-slate-400"}`} size={18} strokeWidth={2.2} />
-            <div className="relative min-w-0 flex-1">
-              <AnimatedSearchPlaceholder
-                activeIndex={searchRailIndex}
-                disableTransition={isSearchRailResetting}
-                visible={!searchQuery}
-              />
-              <input
-                aria-label={`${tActions("search")} ${animatedSearchTerm}`}
-                ref={searchInputRef}
-                type="text"
-                placeholder=""
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setIsSearchFocused(true)}
-                className="relative z-10 w-full bg-transparent text-sm font-black text-slate-950 caret-slate-950 outline-none placeholder:text-slate-950"
-              />
-            </div>
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery("")} 
-                className="p-0.5 rounded-full hover:bg-slate-200/80 text-slate-450 hover:text-slate-600 transition-all cursor-pointer"
-              >
-                <X size={12} strokeWidth={2.2} />
-              </button>
-            )}
-          </div>
-
-          {/* Premium Search Overlay Dropdown */}
-          {isSearchFocused && (
-            <div className="absolute top-full mt-3 w-full left-0 bg-white border border-black rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.12)] animate-scale-up z-50 p-6">
-              <div className="max-h-[460px] overflow-y-auto scrollbar-hide space-y-6">
-                {/* Recent Searches */}
-                <div>
-                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase mb-3">
-                    <Clock size={14} strokeWidth={2.5} className="text-slate-400" />
-                    <span>Recent Searches</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {mockRecentSearches.map((term) => (
-                      <button
-                        key={term}
-                        onClick={() => {
-                          setSearchQuery(term);
+                <div 
+                  onClick={() => searchInputRef.current?.focus()}
+                  className={`flex items-center gap-3 w-full rounded-full transition-all duration-200 cursor-text ${
+                    isSearchFocused 
+                      ? "px-4 py-2 bg-slate-100 border border-transparent shadow-none md:bg-white md:border-slate-900 md:shadow-[0_4px_12px_rgba(0,0,0,0.05)] md:py-2" 
+                      : "px-4 py-2 border border-slate-300 md:border-black bg-slate-50 md:bg-white hover:shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
+                  }`}
+                >
+                  {isSearchFocused ? (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsSearchFocused(false);
+                      }}
+                      className="md:hidden p-1 -ml-2 text-slate-500 hover:text-slate-900 transition-colors"
+                      aria-label="Close search"
+                    >
+                      <ArrowLeft size={20} strokeWidth={2.5} />
+                    </button>
+                  ) : (
+                    <Search className="shrink-0 transition-colors duration-200 text-slate-400" size={18} strokeWidth={2.2} />
+                  )}
+                  
+                  {isSearchFocused && <Search className="hidden md:block shrink-0 transition-colors duration-200 text-slate-900" size={18} strokeWidth={2.2} />}
+                  
+                  <div className="relative min-w-0 flex-1">
+                    <AnimatedSearchPlaceholder
+                      activeIndex={searchRailIndex}
+                      disableTransition={isSearchRailResetting}
+                      visible={!searchQuery}
+                    />
+                    <input
+                      aria-label={`${tActions("search")} ${animatedSearchTerm}`}
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder=""
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && searchQuery.trim()) {
+                          setRecentSearches(prev => {
+                            const newSearches = [searchQuery.trim(), ...prev.filter(s => s !== searchQuery.trim())];
+                            return newSearches.slice(0, 2);
+                          });
                           setIsSearchFocused(false);
-                        }}
-                        className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-350 rounded-full transition-all duration-150 cursor-pointer"
-                      >
-                        {term}
-                      </button>
-                    ))}
+                        }
+                      }}
+                      onFocus={() => setIsSearchFocused(true)}
+                      className="relative z-10 w-full bg-transparent text-[15px] md:text-sm font-medium text-slate-950 caret-slate-950 outline-none placeholder:text-slate-500"
+                    />
                   </div>
+                  {searchQuery && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSearchQuery("");
+                        searchInputRef.current?.focus();
+                      }} 
+                      className="p-1 rounded-full text-slate-400 hover:text-slate-700 transition-all cursor-pointer bg-slate-200 md:bg-slate-100 md:bg-transparent"
+                    >
+                      <X size={14} strokeWidth={2.5} />
+                    </button>
+                  )}
                 </div>
 
-                {/* Popular Categories */}
-                <div>
-                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase mb-3">
-                    <Sparkles size={14} strokeWidth={2.5} className="text-slate-400" />
-                    <span>Popular Categories</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {mockCategories.map((cat) => {
-                      const IconComp = cat.icon;
-                      return (
-                        <button
-                          key={cat.name}
-                          onClick={() => {
-                            setSearchQuery(cat.name);
-                            setIsSearchFocused(false);
-                          }}
-                          className="flex flex-col items-center justify-center p-4 bg-white border border-black rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-                        >
-                          <IconComp size={20} strokeWidth={2} className="text-slate-800 mb-2" />
-                          <span className="text-xs font-bold text-slate-900">{cat.name}</span>
-                          <span className="text-[10px] text-slate-400 mt-1">{cat.count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                {/* Premium Search Overlay Dropdown (FAANG Grade) */}
+                {isSearchFocused && (
+                  <div className="absolute left-0 top-[100%] md:mt-3 w-full bg-white md:bg-white/90 md:backdrop-blur-xl border-t border-slate-100 md:border md:border-slate-200 md:rounded-[24px] shadow-none md:shadow-[0_30px_80px_rgba(0,0,0,0.12),0_4px_20px_rgba(0,0,0,0.04)] animate-scale-up z-50 p-0 md:p-2 overflow-hidden ring-0 md:ring-1 md:ring-slate-950/5 h-[calc(100vh-68px)] md:h-auto">
+                    <div className="h-full md:max-h-[460px] overflow-y-auto scrollbar-hide pb-20 md:pb-0">
+                      
+                      {!searchQuery && (
+                        <div className="p-2 mb-2 border-b border-slate-100 md:border-none">
+                          <div className="flex items-center gap-2 px-2 mb-3 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+                            <History size={14} strokeWidth={2.5} className="text-blue-500" />
+                            <span>Recent Searches</span>
+                          </div>
+                          {recentSearches.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 px-2">
+                              {recentSearches.slice(0, 2).map((search) => (
+                                <button
+                                  key={search}
+                                  onClick={() => {
+                                    setSearchQuery(search);
+                                  }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-full transition-colors"
+                                >
+                                  {search}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="px-2 py-3 text-[13px] text-slate-500 font-medium">
+                              No search history
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                {/* Nearby Stores suggestions */}
-                <div>
-                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase mb-3">
-                    <Store size={14} strokeWidth={2.5} className="text-slate-400" />
-                    <span>Recommended Local Shops</span>
-                  </div>
-                  <div className="space-y-2">
-                    {mockStoreSuggestions.map((store) => (
-                      <button
-                        key={store.name}
-                        onClick={() => {
-                          setSearchQuery(store.name);
-                          setIsSearchFocused(false);
-                        }}
-                        className="w-full flex items-center justify-between p-2.5 rounded-2xl hover:bg-slate-50 transition-all text-left cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3.5">
-                          <span className="flex size-11 items-center justify-center rounded-xl bg-black text-xs font-bold text-white tracking-wide">
-                            {store.image}
-                          </span>
-                          <div>
-                            <p className="text-sm font-bold text-slate-900">{store.name}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">{store.distance}</p>
+                      {/* Search Results (Live) */}
+                      {searchQuery && (
+                        <div className="p-2 space-y-1">
+                        <div className="flex items-center justify-between px-2 mb-3">
+                          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+                            <Sparkles size={14} strokeWidth={2.5} className="text-emerald-500" />
+                            <span>Top Results</span>
                           </div>
                         </div>
-                        <span className="flex items-center gap-1 text-[11px] font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2.5 py-1">
-                          ★ {store.rating}
-                        </span>
-                      </button>
-                    ))}
+                        {realProducts
+                          .filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.shop.toLowerCase().includes(searchQuery.toLowerCase()))
+                          .slice(0, 8)
+                          .map((product) => (
+                          <button
+                            key={product.id}
+                            onClick={() => {
+                              setSearchQuery(product.name);
+                              setRecentSearches(prev => {
+                                const newSearches = [product.name, ...prev.filter(s => s !== product.name)];
+                                return newSearches.slice(0, 2);
+                              });
+                              setIsSearchFocused(false);
+                            }}
+                            className="w-full flex items-center justify-between p-3 rounded-[18px] hover:bg-slate-50 md:hover:bg-white hover:shadow-sm transition-all text-left cursor-pointer border border-transparent hover:border-slate-200"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="relative flex size-14 shrink-0 overflow-hidden rounded-[14px] bg-slate-100 shadow-sm border border-slate-200/50">
+                                {product.imageUrl ? (
+                                  <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className={`flex h-full w-full items-center justify-center font-bold text-white ${product.imageBg}`}>
+                                    {product.imageInitials}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-[15px] font-semibold text-slate-900 leading-tight tracking-tight">{product.name}</p>
+                                <p className="text-[12px] font-medium text-slate-500 mt-0.5">{product.shop}</p>
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right ml-4">
+                              <span className="text-[15px] font-bold text-slate-900 tracking-tight">
+                                {money(product.price)}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                        
+                        {searchQuery && realProducts.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.shop.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                          <div className="p-12 text-center">
+                            <Search className="mx-auto text-slate-300 mb-3" size={36} strokeWidth={1.5} />
+                            <p className="text-base font-semibold text-slate-900">No products found</p>
+                            <p className="text-sm text-slate-500 mt-1">Try a different search term</p>
+                          </div>
+                        )}
+                      </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-            </div>
-          )}
-          </>
+            </>
           )}
         </div>
 
@@ -816,7 +882,13 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 </button>
               </div>
             )}
-          </div>            {/* Mobile hamburger menu drawer button */}
+          </div>
+
+          <div className="md:hidden flex items-center pr-1">
+            <LanguageSwitcher compact />
+          </div>
+          
+          {/* Mobile hamburger menu drawer button */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="flex size-11 items-center justify-center rounded-2xl bg-transparent text-slate-950 transition-all duration-200 hover:bg-slate-50 md:hidden cursor-pointer"
@@ -828,45 +900,6 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
         </nav>
       </header>
 
-      {/* Mobile Search Below Navbar */}
-      {!isShopPage && !isCheckoutPage && (
-        <div className="bg-white px-3 pb-2.5 pt-2.5 md:hidden">
-          <div className="mx-auto w-full max-w-[1600px]">
-            <div className="flex h-[46px] items-center gap-3 rounded-2xl border border-slate-300 bg-white px-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.055),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all focus-within:border-slate-900 focus-within:shadow-[0_14px_30px_rgba(15,23,42,0.09),0_0_0_3px_rgba(15,23,42,0.04)]">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500">
-                  <Search size={15} strokeWidth={2.3} />
-                </span>
-                <div className="relative min-w-0 flex-1">
-                  <AnimatedSearchPlaceholder
-                    compact
-                    activeIndex={searchRailIndex}
-                    disableTransition={isSearchRailResetting}
-                    visible={!searchQuery}
-                  />
-                  <input
-                    aria-label={`Search for ${animatedSearchTerm}`}
-                    ref={mobileSearchInputRef}
-                    type="text"
-                    placeholder=""
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="relative z-10 w-full bg-transparent text-[14px] font-black text-slate-950 caret-slate-950 outline-none placeholder:text-slate-950"
-                  />
-                </div>
-                {searchQuery && (
-                  <button
-                    aria-label="Clear search"
-                    className="rounded-full p-1 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
-                    onClick={() => setSearchQuery("")}
-                    type="button"
-                  >
-                    <X size={13} strokeWidth={2.3} />
-                  </button>
-                )}
-            </div>
-          </div>
-        </div>
-      )}
 
 
       {/* Mobile Sliding Navigation Drawer */}
@@ -881,173 +914,159 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
           />
 
           {/* Drawer Body */}
-          <div className="relative z-10 flex h-full w-[84vw] min-w-[300px] max-w-[360px] flex-col overflow-hidden bg-white px-5 py-4 shadow-2xl animate-slide-in-right">
-            <div className="flex items-center justify-between border-b border-slate-150 pb-4">
+          <div className="relative z-10 flex h-full w-[84vw] min-w-[300px] max-w-[360px] flex-col overflow-hidden bg-white px-5 py-4 shadow-2xl border-l border-slate-100 animate-slide-in-right">
+            <div className="flex items-center justify-between border-b border-slate-100/80 pb-4">
               <span className="flex items-center gap-3 text-lg font-black text-slate-950 [font-weight:950]">
-                <span className="flex size-11 items-center justify-center rounded-2xl bg-black text-white shadow-sm">
-                  <ShoppingBag size={18} strokeWidth={2.4} />
+                <span className="flex size-10 items-center justify-center rounded-xl bg-black text-white shadow-sm">
+                  <ShoppingBag size={16} strokeWidth={2.4} />
                 </span>
-              <span>{tBrand("name")}</span>
+                <span>{tBrand("name")}</span>
               </span>
               <button
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                 }}
-                className="flex size-10 items-center justify-center rounded-2xl text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-all cursor-pointer"
+                className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100/80 hover:text-slate-800 transition-all duration-200 cursor-pointer"
               >
-                <X size={21} strokeWidth={2.4} />
+                <X size={18} strokeWidth={2.4} />
               </button>
             </div>
 
             {/* Menu Items */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-4">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-hide py-4">
               {/* Navigation Section */}
               <div className="space-y-1.5 overflow-visible">
-                <p className="px-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">{tAria("navigation")}</p>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <Link
                     href="/"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-900 transition-all hover:bg-slate-50"
+                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
                   >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                      <ShoppingBag size={18} strokeWidth={2.45} />
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                      <ShoppingBag size={16} strokeWidth={2.2} />
                     </span>
                     <span>{tNav("home")}</span>
                   </Link>
-                  <Link
-                    href="#shops"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-900 transition-all hover:bg-slate-50"
-                  >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                      <Store size={18} strokeWidth={2.45} />
-                    </span>
-                    <span>Nearby Shops</span>
-                  </Link>
-                  <Link
-                    href="#deals"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-900 transition-all hover:bg-slate-50"
-                  >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                      <Sparkles size={18} strokeWidth={2.45} />
-                    </span>
-                    <span>Offers & Deals</span>
-                  </Link>
+
                   <Link
                     href="/cart"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-12 w-full items-center justify-between rounded-[18px] px-3 py-2 text-left text-[15px] font-extrabold text-slate-900 transition-all hover:bg-slate-50"
+                    className="flex min-h-11 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
                   >
-                    <span className="flex items-center gap-3">
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                        <ShoppingCart size={18} strokeWidth={2.45} />
+                    <span className="flex items-center gap-3.5">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                        <ShoppingCart size={16} strokeWidth={2.2} />
                       </span>
                       <span>{tNav("cart")}</span>
                     </span>
                     {cartItemCount > 0 && (
-                      <span className="rounded-full bg-black px-2.5 py-1 text-xs font-extrabold text-white">
+                      <span className="rounded-full bg-slate-950 px-2.5 py-0.5 text-[11px] font-extrabold text-white shadow-sm">
                         {cartItemCount}
                       </span>
                     )}
                   </Link>
+
+                  {isLoggedIn && profileUser?.roleCodes.includes("MERCHANT_OWNER") && (
+                    <Link
+                      href="/merchant/dashboard"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                        <Store size={16} strokeWidth={2.2} />
+                      </span>
+                      Manage Store
+                    </Link>
+                  )}
+
+                  {isLoggedIn && (
+                    <>
+                      <Link
+                        href="/account"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                          <UserIcon size={16} strokeWidth={2.2} />
+                        </span>
+                        My Profile
+                      </Link>
+                      <Link
+                        href="/account/orders"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                          <History size={16} strokeWidth={2.2} />
+                        </span>
+                        Order History
+                      </Link>
+                    </>
+                  )}
+
                   <Link
                     href="#support"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-900 transition-all hover:bg-slate-50"
+                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
                   >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                      <HelpCircle size={18} strokeWidth={2.45} />
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                      <HelpCircle size={16} strokeWidth={2.2} />
                     </span>
                     <span>Help & Support</span>
                   </Link>
-                </div>
-              </div>
 
-              {/* Account Section */}
-              <div className="mt-auto border-t border-slate-100 pt-4">
-                <p className="mb-2.5 px-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">{tNav("account")}</p>
-                {isLoggedIn ? (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-3 rounded-[20px] border border-slate-200 bg-slate-50 px-3.5 py-3.5">
-                      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-xs font-extrabold text-white">
-                        {initials}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-[15px] font-extrabold text-slate-950">
-                          {profileUser?.fullName || "Namastore user"}
-                        </p>
-                        <p className="truncate text-[11px] font-semibold text-slate-400">
-                          {profileUser?.email}
-                        </p>
-                      </div>
-                    </div>
-                    <Link
-                      href="/account"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-800 hover:bg-slate-50"
-                    >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                        <UserIcon size={18} strokeWidth={2.45} />
-                      </span>
-                      My Profile
-                    </Link>
-                    <Link
-                      href="/account/orders"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-800 hover:bg-slate-50"
-                    >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                        <History size={18} strokeWidth={2.45} />
-                      </span>
-                      Order History
-                    </Link>
-                    {profileUser?.roleCodes.includes("MERCHANT_OWNER") && (
-                      <Link
-                        href="/merchant/dashboard"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex min-h-12 items-center gap-3 rounded-[18px] px-3 py-2 text-[15px] font-extrabold text-slate-800 hover:bg-slate-50"
-                      >
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-950">
-                          <Store size={18} strokeWidth={2.45} />
-                        </span>
-                        Manage Store
-                      </Link>
-                    )}
+                  {isLoggedIn && (
                     <button
                       onClick={handleLogout}
-                      className="flex min-h-12 w-full items-center gap-3 rounded-[18px] px-3 py-2 text-left text-[15px] font-extrabold text-rose-650 hover:bg-rose-50"
+                      className="flex min-h-11 w-full items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-rose-600 hover:bg-rose-50/50 transition-all duration-200 group"
                     >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-650">
-                        <LogOut size={18} strokeWidth={2.45} />
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-rose-50/50 text-rose-600 transition-colors group-hover:bg-rose-100/50">
+                        <LogOut size={16} strokeWidth={2.2} />
                       </span>
                       Sign Out
                     </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Account Section / Bottom Footer */}
+              <div className="mt-auto border-t border-slate-100/80 pt-4">
+                {isLoggedIn ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3.5 py-3 shadow-[0_4px_12px_rgba(0,0,0,0.02)] my-1">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white shadow-inner">
+                      {initials}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-950 leading-tight">
+                        {profileUser?.fullName || "Namastore user"}
+                      </p>
+                      <p className="truncate text-[10px] font-medium text-slate-400 mt-0.5 leading-none">
+                        {profileUser?.email}
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex w-full flex-col gap-2.5">
+                  <div className="flex w-full flex-col gap-2 pt-1">
                     <AuthNavigationLink
                       href="/auth/login"
                       onNavigateStart={() => setIsMobileMenuOpen(false)}
-                      className="flex h-12 w-full items-center justify-center gap-3 rounded-[18px] border border-slate-200 bg-white text-[15px] font-extrabold text-slate-950 shadow-sm hover:bg-slate-50"
+                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-955 shadow-sm hover:bg-slate-50 transition-all duration-200"
                     >
-                      <UserIcon size={18} strokeWidth={2.45} />
+                      <UserIcon size={16} strokeWidth={2.2} />
                       {tNav("login")}
                     </AuthNavigationLink>
                     <AuthNavigationLink
                       href="/auth/signup"
                       onNavigateStart={() => setIsMobileMenuOpen(false)}
-                      className="flex h-12 w-full items-center justify-center gap-3 rounded-[18px] bg-black text-[15px] font-extrabold text-white shadow-sm"
+                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl bg-black text-sm font-bold text-white shadow-sm hover:opacity-90 transition-all duration-200"
                     >
-                      <Sparkles size={18} strokeWidth={2.45} />
+                      <Sparkles size={16} strokeWidth={2.2} />
                       {tNav("signup")}
                     </AuthNavigationLink>
                   </div>
                 )}
               </div>
             </div>
-            
           </div>
         </div>
       )}

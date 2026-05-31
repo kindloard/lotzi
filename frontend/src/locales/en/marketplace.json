@@ -11,6 +11,16 @@
     "emptyTitle": "No products found",
     "emptyDescription": "Try another search or category."
   },
+  "nearbyShops": {
+    "title": "Nearby Shops",
+    "subtitleLoading": "Getting your precise location for accurate shop distance",
+    "subtitleLoaded": "Discover and support top-rated stores in your neighborhood",
+    "statusLoading": "...",
+    "statusEmpty": "No Stores",
+    "statusCount": "{count} {count, plural, one {Store} other {Stores}} Available",
+    "noShopsTitle": "No Shops Found",
+    "noShopsDescription": "No approved shops are available for this category yet."
+  },
   "filters": {
     "all": "All",
     "grocery": "Grocery",
@@ -171,5 +181,45 @@
   "toasts": {
     "addedToCart": "{name} added to cart.",
     "removedFromCart": "{name} removed from cart."
+  },
+  "footer": {
+    "tagline": "Local commerce, elevated",
+    "description": "Premium neighborhood shopping for fresh groceries, warm bakery goods, daily essentials, and trusted local delivery across nearby Indian communities.",
+    "links": {
+      "marketplace": {
+        "title": "Marketplace",
+        "freshGroceries": "Fresh groceries",
+        "localBakeries": "Local bakeries",
+        "organicProduce": "Organic produce",
+        "dailyEssentials": "Daily essentials"
+      },
+      "customerCare": {
+        "title": "Customer Care",
+        "helpCenter": "Help center",
+        "trackOrder": "Track an order",
+        "refundPolicy": "Refund policy",
+        "deliverySupport": "Delivery support"
+      },
+      "company": {
+        "title": "Company",
+        "about": "About Namastore",
+        "trustSafety": "Trust & safety",
+        "localPartners": "Local partners",
+        "careers": "Careers"
+      }
+    },
+    "contact": {
+      "title": "Contact",
+      "support": "24/7 support",
+      "location": "Bengaluru, India"
+    },
+    "copyright": "© 2026 Namastore Technologies",
+    "mission": "Built for fast, local, rupee-first commerce.",
+    "legal": {
+      "terms": "Terms",
+      "privacy": "Privacy",
+      "security": "Security",
+      "accessibility": "Accessibility"
+    }
   }
 }

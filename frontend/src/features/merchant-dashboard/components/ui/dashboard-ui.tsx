@@ -77,17 +77,19 @@ export function Panel({
   children,
   className,
   eyebrow,
+  headerClassName,
   title
 }: {
   action?: ReactNode;
   children: ReactNode;
   className?: string;
   eyebrow?: string;
+  headerClassName?: string;
   title: string;
 }) {
   return (
     <section className={cx("min-w-0 overflow-hidden rounded-xl border border-zinc-200/70 bg-white p-4 shadow-sm sm:rounded-2xl sm:p-6 lg:p-8", className)}>
-      <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3 sm:mb-5">
+      <div className={cx("mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3 sm:mb-5", headerClassName)}>
         <div className="min-w-0">
           {eyebrow && <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400">{eyebrow}</p>}
           <h2 className="mt-1 text-base font-semibold tracking-tight text-zinc-950">{title}</h2>
@@ -650,3 +652,85 @@ function formatNumericValue(value: number, mode: NumberInputMode) {
   return String(Math.round(safeValue * 100) / 100);
 }
 
+/* ─── Recent Order Row ───────────────────────────────────── */
+
+export function RecentOrderRow({
+  customer,
+  total,
+  status,
+  placedAt,
+  items
+}: {
+  customer: string;
+  total: string;
+  status: string;
+  placedAt: string;
+  items: number;
+}) {
+  const format = useDashboardFormatters();
+  return (
+    <div className="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-3 transition hover:border-zinc-200 hover:bg-zinc-50/60">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-bold text-zinc-600 group-hover:bg-zinc-950 group-hover:text-white transition-colors">
+        {customer.split(/\s+/).map((w) => w[0]?.toUpperCase()).join("").slice(0, 2) || "?"}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold text-zinc-950">{customer}</p>
+        <p className="mt-0.5 text-[11px] text-zinc-400">{items} item{items !== 1 ? "s" : ""} · {format.relativeDate(placedAt)}</p>
+      </div>
+      <div className="text-right shrink-0">
+        <p className="text-[13px] font-semibold tabular-nums text-zinc-950">{total}</p>
+        <StatusBadge label={status} />
+      </div>
+    </div>
+  );
+}
+
+/* ─── Status Distribution Bar ────────────────────────────── */
+
+export function StatusDistributionBar({
+  data,
+}: {
+  data: Array<{ status: string; count: number; color: string }>;
+}) {
+  const total = data.reduce((s, d) => s + d.count, 0);
+  if (total === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* stacked bar */}
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-100">
+        {data.map((d) => (
+          <div
+            className="transition-all duration-500"
+            key={d.status}
+            style={{
+              width: `${(d.count / total) * 100}%`,
+              backgroundColor: d.color,
+              minWidth: d.count > 0 ? "4px" : "0"
+            }}
+            title={`${d.status}: ${d.count}`}
+          />
+        ))}
+      </div>
+      {/* legend */}
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {data.map((d) => (
+          <div className="flex items-center gap-2" key={d.status}>
+            <span
+              className="size-2.5 rounded-full"
+              style={{ backgroundColor: d.color }}
+            />
+            <span className="text-[11px] font-medium text-zinc-600">
+              {d.status}
+            </span>
+            <span className="text-[11px] font-bold tabular-nums text-zinc-950">
+              {d.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

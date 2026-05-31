@@ -187,17 +187,24 @@ export default function CartPage() {
           if (!isCurrent) {
             return;
           }
-          setCheckoutAddress(response.address);
-          setAddressLookupState("ready");
+          const isDefinitive = response.cacheStatus === "HIT" || response.address !== null;
+          if (isDefinitive) {
+            setCheckoutAddress(response.address);
+            setAddressLookupState("ready");
+          }
 
           if (response.cacheStatus && response.cacheStatus !== "HIT" && response.revalidateAfterMs !== null && retryCount < 6) {
             retryCount += 1;
             retryTimer = window.setTimeout(loadAddress, checkoutAddressRetryDelay(response));
+          } else if (!isDefinitive) {
+            setCheckoutAddress(null);
+            setAddressLookupState("ready");
           }
 
           try {
             if (response.address) {
               sessionStorage.setItem(CHECKOUT_SELECTED_ADDRESS_KEY, response.address.id);
+              setSelectedAddressId(response.address.id);
             } else if (response.cacheStatus === "HIT") {
               sessionStorage.removeItem(CHECKOUT_SELECTED_ADDRESS_KEY);
               setSelectedAddressId(null);
@@ -343,13 +350,8 @@ export default function CartPage() {
     <main className="min-h-screen overflow-x-hidden bg-slate-50/50 px-3 pb-12 pt-5 font-sans sm:px-6 sm:pt-6 lg:px-8" id="main-content">
       <div className="mx-auto w-full min-w-0 max-w-[1280px]">
         
-        {/* Navigation & Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Your Basket</h1>
-          <p className="text-xs text-slate-450 mt-0.5">
-            Review your selections from premium local neighborhood stores
-          </p>
-        </div>
+
+
 
         {cartItems.length === 0 ? (
           /* Empty Basket State */
@@ -359,7 +361,7 @@ export default function CartPage() {
             </span>
             <h2 className="text-lg font-bold text-slate-900">Your basket is empty</h2>
             <p className="text-xs text-slate-450 mt-2 max-w-sm mx-auto">
-              Explore outstanding local products, fresh vegetables, and organic groceries from nearby stores and add them to your cart.
+              Add items from nearby stores to get started.
             </p>
             <Link
               href="/"

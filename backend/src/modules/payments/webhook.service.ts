@@ -7,6 +7,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { PaymentsService } from "./payments.service";
 
 const WEBHOOK_SKEW_MS = 5 * 60 * 1000;
+const WEBHOOK_PROCESSING_STALE_MS = 2 * 60 * 1000;
 
 @Injectable()
 export class WebhookService {
@@ -62,7 +63,8 @@ export class WebhookService {
           signatureHash: createHash("sha256").update(signature).digest("hex"),
           headers: safeHeaders(request) as Prisma.InputJsonValue,
           rawPayload: payload as Prisma.InputJsonValue,
-          status: WebhookEventStatus.RECEIVED
+          status: WebhookEventStatus.RECEIVED,
+          nextRunAt: new Date()
         },
         select: { id: true }
       });
@@ -87,10 +89,24 @@ export class WebhookService {
     if (!event || event.status === WebhookEventStatus.PROCESSED || event.status === WebhookEventStatus.DLQ) {
       return;
     }
-    await this.prisma.webhookEvent.update({
-      where: { id: event.id },
-      data: { status: WebhookEventStatus.PROCESSING, attempts: { increment: 1 } }
+    const staleProcessingBefore = new Date(Date.now() - WEBHOOK_PROCESSING_STALE_MS);
+    const claimed = await this.prisma.webhookEvent.updateMany({
+      where: {
+        id: event.id,
+        OR: [
+          { status: { in: [WebhookEventStatus.RECEIVED, WebhookEventStatus.FAILED] } },
+          { status: WebhookEventStatus.PROCESSING, updatedAt: { lte: staleProcessingBefore } }
+        ]
+      },
+      data: {
+        status: WebhookEventStatus.PROCESSING,
+        attempts: { increment: 1 },
+        nextRunAt: new Date(Date.now() + WEBHOOK_PROCESSING_STALE_MS)
+      }
     });
+    if (claimed.count !== 1) {
+      return;
+    }
     const payload = event.rawPayload as Record<string, unknown>;
     const cashfreeOrderId = cashfreeOrderIdFromPayload(payload);
     try {

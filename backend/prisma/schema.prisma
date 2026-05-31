@@ -175,6 +175,7 @@ enum OrderStatus {
   PENDING_PAYMENT
   PAYMENT_CONFIRMED
   PAYMENT_FAILED
+  INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   FULFILLMENT_READY
   ACCEPTED
   REJECTED
@@ -207,6 +208,7 @@ enum PaymentStatus {
   REFUNDED
   CHARGEBACK_OPENED
   DUPLICATE_SUCCESS_REQUIRES_REFUND
+  INVENTORY_CONFIRMATION_REQUIRES_REVIEW
 }
 
 enum PaymentProvider {
@@ -224,6 +226,7 @@ enum PaymentAttemptStatus {
   EXPIRED
   UNKNOWN_GATEWAY
   DUPLICATE_SUCCESS_REQUIRES_REFUND
+  INVENTORY_CONFIRMATION_REQUIRES_REVIEW
 }
 
 enum WebhookEventStatus {
@@ -354,6 +357,34 @@ enum StockReservationStatus {
   RELEASED
   FINALIZED
   EXPIRED
+}
+
+enum InventoryLocationType {
+  STORE
+  WAREHOUSE
+  FULFILLMENT_CENTER
+}
+
+enum InventoryReservationStatus {
+  ACTIVE
+  CONFIRMED
+  RELEASED
+  EXPIRED
+}
+
+enum InventoryLedgerType {
+  RESERVED
+  RELEASED
+  SOLD
+  REFUNDED
+  RESTOCKED
+  MANUAL_ADJUSTMENT
+}
+
+enum InventoryOperationStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }
 
 model User {
@@ -826,6 +857,10 @@ model Store {
   uploadAssets        UploadAsset[]
   idempotencyKeys     IdempotencyKey[]
   approvalReviews     StoreApprovalReview[]
+  inventoryLocations  InventoryLocation[]
+  inventoryItems      InventoryItem[]
+  inventoryReservations InventoryReservation[]
+  inventoryLedgerEntries InventoryLedger[]
   createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1098,6 +1133,9 @@ model ProductVariant {
   cartItems        CartItem[]
   orderItems       OrderItem[]
   reservations     StockReservation[]
+  inventoryItems   InventoryItem[]
+  inventoryReservations InventoryReservation[]
+  inventoryLedgerEntries InventoryLedger[]
 
   @@unique([productId, sku])
   @@index([productId])
@@ -1272,6 +1310,8 @@ model Order {
   refunds       Refund[]
   checkoutSession CheckoutSession?
   reservations  StockReservation[]
+  inventoryReservations InventoryReservation[]
+  inventoryLedgerEntries InventoryLedger[]
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1331,6 +1371,128 @@ model StockReservation {
   @@index([status, expiresAt])
   @@index([userId, status])
   @@map("stock_reservations")
+}
+
+model InventoryLocation {
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId     String                @map("store_id") @db.Uuid
+  name        String
+  type        InventoryLocationType @default(STORE)
+  isDefault   Boolean               @default(false) @map("is_default")
+  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  items       InventoryItem[]
+  reservations InventoryReservation[]
+  ledgerEntries InventoryLedger[]
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([storeId, isDefault])
+  @@map("inventory_locations")
+}
+
+model InventoryItem {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String            @map("store_id") @db.Uuid
+  productVariantId  String            @map("product_variant_id") @db.Uuid
+  locationId        String            @map("location_id") @db.Uuid
+  availableStock    Int               @default(0) @map("available_stock")
+  reservedStock     Int               @default(0) @map("reserved_stock")
+  soldStock         Int               @default(0) @map("sold_stock")
+  lowStockThreshold Int               @default(0) @map("low_stock_threshold")
+  version           Int               @default(1)
+  store             Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant           ProductVariant    @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  location          InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([storeId, productVariantId, locationId])
+  @@index([storeId, availableStock])
+  @@index([locationId, availableStock])
+  @@index([productVariantId, locationId])
+  @@map("inventory_items")
+}
+
+model InventoryReservation {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String                     @map("store_id") @db.Uuid
+  orderId          String                     @map("order_id") @db.Uuid
+  productVariantId String                     @map("product_variant_id") @db.Uuid
+  locationId       String                     @map("location_id") @db.Uuid
+  quantity         Int
+  status           InventoryReservationStatus @default(ACTIVE)
+  reason           String?
+  expiresAt        DateTime                   @map("expires_at") @db.Timestamptz(3)
+  confirmedAt      DateTime?                  @map("confirmed_at") @db.Timestamptz(3)
+  releasedAt       DateTime?                  @map("released_at") @db.Timestamptz(3)
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store            Store                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order            Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant          ProductVariant             @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  location         InventoryLocation          @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  ledgerEntries    InventoryLedger[]
+
+  @@index([storeId, status, expiresAt])
+  @@index([orderId, status])
+  @@index([productVariantId, locationId, status])
+  @@map("inventory_reservations")
+}
+
+model InventoryLedger {
+  id                    String              @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schemaVersion         Int                 @default(1) @map("schema_version")
+  storeId               String              @map("store_id") @db.Uuid
+  productVariantId      String              @map("product_variant_id") @db.Uuid
+  locationId            String              @map("location_id") @db.Uuid
+  orderId               String?             @map("order_id") @db.Uuid
+  reservationId         String?             @map("reservation_id") @db.Uuid
+  returnId              String?             @map("return_id") @db.Uuid
+  type                  InventoryLedgerType
+  quantity              Int
+  beforeAvailableStock  Int                 @map("before_available_stock")
+  afterAvailableStock   Int                 @map("after_available_stock")
+  beforeReservedStock   Int                 @map("before_reserved_stock")
+  afterReservedStock    Int                 @map("after_reserved_stock")
+  beforeSoldStock       Int                 @map("before_sold_stock")
+  afterSoldStock        Int                 @map("after_sold_stock")
+  actorType             String              @default("SYSTEM") @map("actor_type")
+  actorUserId           String?             @map("actor_user_id") @db.Uuid
+  reason                String
+  idempotencyKey        String?             @map("idempotency_key")
+  store                 Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant               ProductVariant      @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  location              InventoryLocation   @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  order                 Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  reservation           InventoryReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([id, createdAt])
+  @@index([storeId, createdAt])
+  @@index([productVariantId, locationId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([reservationId, createdAt])
+  @@index([type, createdAt])
+  @@map("inventory_ledger")
+}
+
+model InventoryOperation {
+  operationKey  String                   @id @map("operation_key")
+  operationType String                   @map("operation_type")
+  aggregateId   String                   @map("aggregate_id")
+  requestHash   String                   @map("request_hash") @db.VarChar(64)
+  status        InventoryOperationStatus @default(IN_PROGRESS)
+  responseJson  Json?                    @map("response_json")
+  claimedUntil  DateTime                 @map("claimed_until") @db.Timestamptz(3)
+  heartbeatAt   DateTime                 @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
+  expiresAt     DateTime                 @map("expires_at") @db.Timestamptz(3)
+  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, claimedUntil])
+  @@index([operationType, aggregateId])
+  @@index([expiresAt])
+  @@map("inventory_operations")
 }
 
 model Payment {

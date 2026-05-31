@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
-import { OrderStatus, PaymentStatus, Prisma, StockReservationStatus } from "@prisma/client";
+import { OrderStatus, PaymentStatus } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
+import { InventoryService } from "../inventory/inventory.service";
 import { PaymentTransitionService } from "../payments/payment-transition.service";
 import { paymentError } from "../payments/payment.errors";
 
@@ -9,6 +10,7 @@ import { paymentError } from "../payments/payment.errors";
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly inventory: InventoryService,
     private readonly transitions: PaymentTransitionService
   ) {}
 
@@ -34,7 +36,15 @@ export class OrdersService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await releaseOrderReservations(tx, order.id, "customer_cancelled");
+      await this.inventory.releaseOrderStock(tx, {
+        storeId: order.storeId,
+        orderId: order.id,
+        reason: "customer_cancelled",
+        idempotencyKey: `order-cancel:${order.id}`,
+        actorType: "CUSTOMER",
+        actorUserId: auth.userId,
+        requestId
+      });
       await this.transitions.transitionOrder(tx, {
         orderId: order.id,
         from: order.status,
@@ -57,24 +67,5 @@ export class OrdersService {
     });
 
     return { apiVersion: "v1", status: "CANCELLED", orderId: order.id };
-  }
-}
-
-async function releaseOrderReservations(tx: Prisma.TransactionClient, orderId: string, reason: string) {
-  const reservations = await tx.stockReservation.findMany({
-    where: { orderId, status: StockReservationStatus.ACTIVE }
-  });
-  for (const reservation of reservations) {
-    await tx.$executeRaw`
-      UPDATE product_variants
-      SET stock_reserved = GREATEST(stock_reserved - ${reservation.quantity}, 0),
-          stock_version = stock_version + 1,
-          updated_at = now()
-      WHERE id = ${reservation.productVariantId}::uuid
-    `;
-    await tx.stockReservation.update({
-      where: { id: reservation.id },
-      data: { status: StockReservationStatus.RELEASED, reason, releasedAt: new Date() }
-    });
   }
 }

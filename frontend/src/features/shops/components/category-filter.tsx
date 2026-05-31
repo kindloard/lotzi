@@ -69,7 +69,7 @@ export const CategoryFilter = memo(function CategoryFilter({
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end md:gap-4">
+      <div className="hidden md:flex flex-col justify-between gap-3 md:flex-row md:items-end md:gap-4">
         <div className="space-y-2">
           <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
             Explore by Category
@@ -104,7 +104,7 @@ export const CategoryFilter = memo(function CategoryFilter({
               <Icon size={15} strokeWidth={2.4} />
               <div>
                 <p className="text-xs font-bold leading-none">{category.name}</p>
-                <p className={`mt-0.5 text-[9px] leading-none ${isSelected ? "text-slate-300" : "text-slate-500"}`}>
+                <p className={`hidden md:block mt-0.5 text-[9px] leading-none ${isSelected ? "text-slate-300" : "text-slate-500"}`}>
                   {count} store{count === 1 ? "" : "s"}
                 </p>
               </div>

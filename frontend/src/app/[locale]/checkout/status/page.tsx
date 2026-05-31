@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { CheckCircle2, Loader2, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -8,6 +8,12 @@ import { getPaymentStatus, retryPayment, verifyPayment, type PaymentStatusRespon
 import { loadCashfree } from "@/features/checkout/cashfree-sdk";
 import { useCart } from "@/lib/cart-context";
 import { formatIndianRupees } from "@/lib/currency";
+
+const TERMINAL_PAYMENT_STATUSES = new Set(["PAID", "FAILED", "EXPIRED", "REFUNDED"]);
+
+function isTerminalPaymentStatus(status: string | undefined) {
+  return status !== undefined && TERMINAL_PAYMENT_STATUSES.has(status);
+}
 
 export default function CheckoutStatusPage() {
   const params = useSearchParams();
@@ -18,11 +24,8 @@ export default function CheckoutStatusPage() {
   const [status, setStatus] = useState<PaymentStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
-
-  const terminal = useMemo(() => {
-    const paymentStatus = status?.payment.status;
-    return paymentStatus === "PAID" || paymentStatus === "FAILED" || paymentStatus === "EXPIRED" || paymentStatus === "REFUNDED";
-  }, [status]);
+  const terminalRef = useRef(false);
+  terminalRef.current = isTerminalPaymentStatus(status?.payment.status);
 
   useEffect(() => {
     if (!paymentId) {
@@ -34,8 +37,8 @@ export default function CheckoutStatusPage() {
 
     const poll = async () => {
       try {
-        await verifyPayment(paymentId).catch(() => undefined);
-        const next = await getPaymentStatus(paymentId);
+        const verified = await verifyPayment(paymentId).catch(() => null);
+        const next = verified ?? (await getPaymentStatus(paymentId));
         if (disposed) return;
         setStatus(next);
         setError(null);
@@ -43,14 +46,19 @@ export default function CheckoutStatusPage() {
           clearCart();
           return;
         }
+        if (isTerminalPaymentStatus(next.payment.status)) {
+          return;
+        }
         const pollAfter = next.recovery.pollAfterMs;
-        if (pollAfter && !terminal) {
+        if (pollAfter && !terminalRef.current) {
           timer = setTimeout(poll, pollAfter);
         }
       } catch (pollError) {
         if (disposed) return;
         setError(pollError instanceof Error ? pollError.message : "Unable to check payment status.");
-        timer = setTimeout(poll, 5_000);
+        if (!terminalRef.current) {
+          timer = setTimeout(poll, 5_000);
+        }
       }
     };
 
@@ -59,7 +67,7 @@ export default function CheckoutStatusPage() {
       disposed = true;
       if (timer) clearTimeout(timer);
     };
-  }, [clearCart, paymentId, terminal]);
+  }, [clearCart, paymentId]);
 
   const handleRetry = async () => {
     if (!paymentId) return;

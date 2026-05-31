@@ -4,33 +4,32 @@ import { useEffect } from "react";
 import { ReactNode } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
+  Check,
   Info,
   Loader2,
-  X,
-  XCircle
+  X
 } from "lucide-react";
 import { ToastRecord, ToastVariant } from "@/components/toast/toast-context";
 
 const variantStyles: Record<ToastVariant, { icon: ReactNode; className: string }> = {
   success: {
-    icon: <CheckCircle2 size={18} />,
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700"
+    icon: <div className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-[#00e400] text-white"><Check size={14} strokeWidth={3} /></div>,
+    className: "border-slate-200 bg-white text-slate-700"
   },
   error: {
-    icon: <XCircle size={18} />,
-    className: "border-rose-200 bg-rose-50 text-rose-700"
+    icon: <div className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-red-500 text-white"><X size={14} strokeWidth={3} /></div>,
+    className: "border-slate-200 bg-white text-slate-700"
   },
   warning: {
-    icon: <AlertTriangle size={18} />,
-    className: "border-amber-200 bg-amber-50 text-amber-700"
+    icon: <div className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"><AlertTriangle size={14} strokeWidth={2.5} /></div>,
+    className: "border-slate-200 bg-white text-slate-700"
   },
   info: {
-    icon: <Info size={18} />,
-    className: "border-blue-200 bg-blue-50 text-blue-700"
+    icon: <div className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-blue-500 text-white"><Info size={14} strokeWidth={2.5} /></div>,
+    className: "border-slate-200 bg-white text-slate-700"
   },
   loading: {
-    icon: <Loader2 className="animate-spin" size={18} />,
+    icon: <div className="flex size-[22px] shrink-0 items-center justify-center text-slate-500"><Loader2 className="animate-spin" size={18} strokeWidth={2.5} /></div>,
     className: "border-slate-200 bg-white text-slate-700"
   }
 };
@@ -55,16 +54,16 @@ export function ToastItem({
   return (
     <div
       aria-live={toast.variant === "error" ? "assertive" : "polite"}
-      className={`toast-enter pointer-events-auto overflow-hidden rounded-[12px] border p-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)] ${styles.className}`}
+      className={`toast-enter pointer-events-auto overflow-hidden rounded-xl border px-3 py-2 shadow-lg ${styles.className}`}
       role="status"
     >
-      <div className="grid grid-cols-[auto_1fr_auto] gap-3">
-        <span className="mt-0.5">{styles.icon}</span>
-        <div className="min-w-0">
+      <div className="flex items-center gap-2.5">
+        <span className="shrink-0">{styles.icon}</span>
+        <div className="min-w-0 py-0.5">
           {toast.title && (
-            <p className="text-[13px] font-black leading-5 text-slate-950">{toast.title}</p>
+            <p className="text-[12px] font-bold leading-snug">{toast.title}</p>
           )}
-          <p className="text-[13px] font-extrabold leading-5">{toast.message}</p>
+          <p className="text-[12px] font-semibold leading-snug">{toast.message}</p>
           {toast.action && (
             <button
               className="mt-2 rounded-full bg-white px-3 py-1 text-[12px] font-black text-slate-950 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-950/10"
@@ -80,19 +79,13 @@ export function ToastItem({
         </div>
         <button
           aria-label="Dismiss notification"
-          className="flex size-7 items-center justify-center rounded-full text-slate-500 transition hover:bg-white/70 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-slate-950/10"
+          className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none"
           onClick={() => dismiss(toast.id)}
           type="button"
         >
-          <X size={15} />
+          <X size={14} />
         </button>
       </div>
-      {toast.duration > 0 && (
-        <div
-          className="toast-progress mt-3 h-0.5 rounded-full bg-current/30"
-          style={{ animationDuration: `${toast.duration}ms` }}
-        />
-      )}
     </div>
   );
 }

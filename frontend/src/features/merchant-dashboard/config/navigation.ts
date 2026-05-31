@@ -49,7 +49,7 @@ export function routeForNav(nav: NavId) {
 export function navFromMerchantPath(pathname: string): NavId | null {
   const withoutLocale = stripLocalePrefix(pathname);
   const normalizedPath = withoutLocale.endsWith("/") && withoutLocale !== "/" ? withoutLocale.slice(0, -1) : withoutLocale;
-  const match = Object.entries(merchantRoutes).find(([, route]) => route === normalizedPath);
+  const match = Object.entries(merchantRoutes).find(([, route]) => normalizedPath === route || normalizedPath.startsWith(`${route}/`));
   return match ? (match[0] as NavId) : null;
 }
 

@@ -4,14 +4,18 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useReducer,
   type ReactNode
 } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useToast } from "@/components/toast/toast-context";
-import { initialOrders } from "../data/mock-dashboard-data";
+import { fetchMerchantOrders, updateMerchantOrderStatuses } from "@/lib/merchant-dashboard-api";
 import type { Order } from "../types/dashboard";
+import { toDashboardOrder } from "../lib/order-mappers";
+import { useMerchantIdentity } from "./merchant-identity-provider";
 
 interface MerchantOrdersContextValue {
   closeOrder: () => void;
@@ -19,6 +23,11 @@ interface MerchantOrdersContextValue {
   moveOrdersToRefundReview: (ids: string[]) => void;
   openOrder: (order: Order) => void;
   orders: Order[];
+  errorMessage: string | null;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  isUpdating: boolean;
+  retry: () => void;
   selectedOrder: Order | null;
   setOrders: (updater: (current: Order[]) => Order[]) => void;
 }
@@ -51,11 +60,39 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
 
 export function MerchantOrdersProvider({ children }: { children: ReactNode }) {
   const t = useTranslations("dashboard");
+  const identity = useMerchantIdentity();
+  const queryClient = useQueryClient();
   const toast = useToast();
   const [state, dispatch] = useReducer(ordersReducer, {
-    orders: initialOrders,
+    orders: [],
     selectedOrder: null
   });
+
+  const query = useQuery({
+    enabled: identity.isReady,
+    queryKey: ["merchant", "orders", identity.storeId],
+    queryFn: async ({ signal }) => {
+      const response = await fetchMerchantOrders({ signal });
+      return response.orders.map(toDashboardOrder);
+    }
+  });
+
+  const mutation = useMutation({
+    mutationFn: updateMerchantOrderStatuses,
+    onSuccess: async (response) => {
+      if (response.updated.length) {
+        setOrders((current) => mergeOrders(current, response.updated.map(toDashboardOrder)));
+      }
+      await queryClient.invalidateQueries({ queryKey: ["merchant", "orders", identity.storeId] });
+    }
+  });
+
+  useEffect(() => {
+    if (!query.data) {
+      return;
+    }
+    dispatch({ type: "setOrders", updater: () => query.data });
+  }, [query.data]);
 
   const setOrders = useCallback((updater: (current: Order[]) => Order[]) => {
     dispatch({ type: "setOrders", updater });
@@ -67,16 +104,20 @@ export function MerchantOrdersProvider({ children }: { children: ReactNode }) {
         toast.warning(t("toasts.selectAtLeastOneOrder"));
         return;
       }
-      setOrders((current) =>
-        current.map((orderItem) =>
-          ids.includes(orderItem.id) && ["New", "Processing"].includes(orderItem.status)
-            ? { ...orderItem, status: "Packed" }
-            : orderItem
-        )
-      );
-      toast.success(t("toasts.ordersUpdated", { count: ids.length }));
+      void mutation.mutateAsync({ orderIds: ids, action: "MARK_PACKED" })
+        .then((response) => {
+          if (response.updatedCount > 0) {
+            toast.success(t("toasts.ordersUpdated", { count: response.updatedCount }));
+          }
+          if (response.skipped.length > 0) {
+            toast.warning(t("toasts.ordersSkipped", { count: response.skipped.length }));
+          }
+        })
+        .catch((error) => {
+          toast.error(errorMessage(error, t("toasts.ordersUpdateFailed")));
+        });
     },
-    [setOrders, t, toast]
+    [mutation, t, toast]
   );
 
   const moveOrdersToRefundReview = useCallback(
@@ -85,27 +126,51 @@ export function MerchantOrdersProvider({ children }: { children: ReactNode }) {
         toast.warning(t("toasts.selectOrdersFirst"));
         return;
       }
-      setOrders((current) =>
-        current.map((orderItem) =>
-          ids.includes(orderItem.id) ? { ...orderItem, status: "Refund review" } : orderItem
-        )
-      );
-      toast.success(t("toasts.ordersMovedToReview", { count: ids.length }));
+      void mutation.mutateAsync({ orderIds: ids, action: "MOVE_TO_REFUND_REVIEW" })
+        .then((response) => {
+          if (response.updatedCount > 0) {
+            toast.success(t("toasts.ordersMovedToReview", { count: response.updatedCount }));
+          }
+          if (response.skipped.length > 0) {
+            toast.warning(t("toasts.ordersSkipped", { count: response.skipped.length }));
+          }
+        })
+        .catch((error) => {
+          toast.error(errorMessage(error, t("toasts.ordersUpdateFailed")));
+        });
     },
-    [setOrders, t, toast]
+    [mutation, t, toast]
   );
 
+  const error = query.error ? errorMessage(query.error, t("toasts.ordersLoadFailed")) : null;
   const value = useMemo<MerchantOrdersContextValue>(
     () => ({
       closeOrder: () => dispatch({ type: "closeOrder" }),
+      errorMessage: error,
+      isLoading: identity.isReady && query.isLoading,
+      isRefreshing: query.isFetching && !query.isLoading,
+      isUpdating: mutation.isPending,
       markOrdersPacked,
       moveOrdersToRefundReview,
       openOrder: (order) => dispatch({ type: "openOrder", order }),
       orders: state.orders,
+      retry: () => {
+        void query.refetch();
+      },
       selectedOrder: state.selectedOrder,
       setOrders
     }),
-    [markOrdersPacked, moveOrdersToRefundReview, setOrders, state.orders, state.selectedOrder]
+    [
+      error,
+      identity.isReady,
+      markOrdersPacked,
+      moveOrdersToRefundReview,
+      mutation.isPending,
+      query,
+      setOrders,
+      state.orders,
+      state.selectedOrder
+    ]
   );
 
   return <MerchantOrdersContext.Provider value={value}>{children}</MerchantOrdersContext.Provider>;
@@ -117,4 +182,16 @@ export function useMerchantOrders() {
     throw new Error("useMerchantOrders must be used within MerchantOrdersProvider.");
   }
   return context;
+}
+
+function mergeOrders(current: Order[], updates: Order[]) {
+  const byId = new Map(updates.map((order) => [order.id, order]));
+  return current.map((order) => byId.get(order.id) ?? order);
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
 }

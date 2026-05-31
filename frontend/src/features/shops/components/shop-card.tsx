@@ -61,10 +61,10 @@ export const ShopCard = memo(function ShopCard({
   return (
     <article
       ref={cardRef}
-      className="group relative flex min-h-[380px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
-      style={{ contentVisibility: "auto", containIntrinsicSize: "380px" }}
+      className="group relative flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "280px" }}
     >
-      <div className="relative h-36 w-full overflow-hidden bg-slate-100 shadow-inner">
+      <div className="relative h-28 w-full overflow-hidden bg-slate-100 shadow-inner">
         {bannerUrl && shouldRenderMedia ? (
           <Image
             src={bannerUrl}
@@ -81,9 +81,9 @@ export const ShopCard = memo(function ShopCard({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col justify-between space-y-4 p-5">
+      <div className="flex flex-1 flex-col justify-between space-y-3 p-4">
         <div className="flex items-center gap-3">
-          <span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-100 bg-white text-xs font-black text-slate-900 shadow-md">
+          <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-100 bg-white text-xs font-black text-slate-900 shadow-md">
             {logoUrl && shouldRenderMedia ? (
               <Image
                 src={logoUrl}
@@ -113,7 +113,7 @@ export const ShopCard = memo(function ShopCard({
           <button
             type="button"
             onClick={() => onToggleFavorite(shop.id)}
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-rose-200 hover:text-rose-600"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-rose-200 hover:text-rose-600"
             title="Add to favorites"
             aria-label={isFavorite ? `Remove ${shop.name} from favorites` : `Add ${shop.name} to favorites`}
           >
@@ -137,7 +137,7 @@ export const ShopCard = memo(function ShopCard({
         </div>
 
         <div className="px-1">
-          <p className="line-clamp-3 text-sm font-medium leading-6 text-slate-700">
+          <p className="line-clamp-2 text-[13px] font-medium leading-5 text-slate-600">
             {shopDescription}
           </p>
         </div>
@@ -145,7 +145,7 @@ export const ShopCard = memo(function ShopCard({
         <div className="pt-1">
           <Link
             href={viewStoreHref}
-            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-black px-4 text-sm font-extrabold text-white transition-opacity hover:opacity-90"
+            className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-black px-4 text-sm font-extrabold text-white transition-opacity hover:opacity-90"
           >
             View Store
             <ChevronRight size={13} className="ml-0.5" />

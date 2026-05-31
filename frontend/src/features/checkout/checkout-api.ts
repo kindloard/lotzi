@@ -76,7 +76,7 @@ export function getPaymentStatus(paymentId: string) {
 }
 
 export function verifyPayment(paymentId: string) {
-  return apiFetch<PaymentStatusResponse | { apiVersion: "v1"; status: string }>(`/v1/payments/${paymentId}/verify`, {
+  return apiFetch<PaymentStatusResponse>(`/v1/payments/${paymentId}/verify`, {
     method: "POST",
     body: JSON.stringify({})
   });

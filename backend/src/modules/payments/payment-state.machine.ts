@@ -7,19 +7,22 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
     PaymentStatus.INITIATED,
     PaymentStatus.SESSION_CREATED,
     PaymentStatus.PENDING_GATEWAY,
-    PaymentStatus.FAILED
+    PaymentStatus.FAILED,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   ],
   [PaymentStatus.INITIATED]: [
     PaymentStatus.SESSION_CREATED,
     PaymentStatus.FAILED,
     PaymentStatus.EXPIRED,
-    PaymentStatus.UNKNOWN_GATEWAY
+    PaymentStatus.UNKNOWN_GATEWAY,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   ],
   [PaymentStatus.SESSION_CREATED]: [
     PaymentStatus.PENDING_GATEWAY,
     PaymentStatus.FAILED,
     PaymentStatus.EXPIRED,
-    PaymentStatus.UNKNOWN_GATEWAY
+    PaymentStatus.UNKNOWN_GATEWAY,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   ],
   [PaymentStatus.PENDING_GATEWAY]: [
     PaymentStatus.AUTHORIZED,
@@ -27,9 +30,15 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
     PaymentStatus.FAILED,
     PaymentStatus.USER_DROPPED,
     PaymentStatus.EXPIRED,
-    PaymentStatus.UNKNOWN_GATEWAY
+    PaymentStatus.UNKNOWN_GATEWAY,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   ],
-  [PaymentStatus.AUTHORIZED]: [PaymentStatus.PAID, PaymentStatus.FAILED, PaymentStatus.EXPIRED],
+  [PaymentStatus.AUTHORIZED]: [
+    PaymentStatus.PAID,
+    PaymentStatus.FAILED,
+    PaymentStatus.EXPIRED,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
+  ],
   [PaymentStatus.PAID]: [
     PaymentStatus.REFUND_PENDING,
     PaymentStatus.PARTIALLY_REFUNDED,
@@ -37,14 +46,22 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
     PaymentStatus.CHARGEBACK_OPENED,
     PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND
   ],
-  [PaymentStatus.FAILED]: [],
-  [PaymentStatus.USER_DROPPED]: [PaymentStatus.INITIATED, PaymentStatus.SESSION_CREATED, PaymentStatus.PENDING_GATEWAY, PaymentStatus.EXPIRED],
-  [PaymentStatus.EXPIRED]: [],
+  [PaymentStatus.FAILED]: [PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND],
+  [PaymentStatus.USER_DROPPED]: [
+    PaymentStatus.INITIATED,
+    PaymentStatus.SESSION_CREATED,
+    PaymentStatus.PENDING_GATEWAY,
+    PaymentStatus.PAID,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+    PaymentStatus.EXPIRED
+  ],
+  [PaymentStatus.EXPIRED]: [PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND],
   [PaymentStatus.UNKNOWN_GATEWAY]: [
     PaymentStatus.PENDING_GATEWAY,
     PaymentStatus.PAID,
     PaymentStatus.FAILED,
-    PaymentStatus.EXPIRED
+    PaymentStatus.EXPIRED,
+    PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
   ],
   [PaymentStatus.REFUND_PENDING]: [
     PaymentStatus.PARTIALLY_REFUNDED,
@@ -55,7 +72,12 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   [PaymentStatus.PARTIALLY_REFUNDED]: [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED],
   [PaymentStatus.REFUNDED]: [],
   [PaymentStatus.CHARGEBACK_OPENED]: [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED],
-  [PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND]: [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED]
+  [PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND]: [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED],
+  [PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW]: [
+    PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND,
+    PaymentStatus.REFUND_PENDING,
+    PaymentStatus.REFUNDED
+  ]
 };
 
 const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -68,11 +90,17 @@ const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING_PAYMENT]: [
     OrderStatus.PAYMENT_CONFIRMED,
     OrderStatus.PAYMENT_FAILED,
+    OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
     OrderStatus.EXPIRED,
     OrderStatus.CANCELLED
   ],
-  [OrderStatus.PAYMENT_CONFIRMED]: [OrderStatus.FULFILLMENT_READY, OrderStatus.REFUND_PENDING],
+  [OrderStatus.PAYMENT_CONFIRMED]: [
+    OrderStatus.FULFILLMENT_READY,
+    OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+    OrderStatus.REFUND_PENDING
+  ],
   [OrderStatus.PAYMENT_FAILED]: [],
+  [OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW]: [OrderStatus.REFUND_PENDING, OrderStatus.CANCELLED],
   [OrderStatus.FULFILLMENT_READY]: [OrderStatus.ACCEPTED, OrderStatus.CANCELLED, OrderStatus.REFUND_PENDING],
   [OrderStatus.ACCEPTED]: [OrderStatus.PACKING, OrderStatus.CANCELLED],
   [OrderStatus.REJECTED]: [],

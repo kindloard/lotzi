@@ -3,7 +3,7 @@
 import { AlertTriangle, ArrowRight, RefreshCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
-import { useRouter } from "@/i18n/navigation";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { logout } from "@/lib/auth-api";
 import { navItems } from "../config/navigation";
@@ -43,6 +43,7 @@ export function MerchantDashboardShell({ children }: { children: ReactNode }) {
 function MerchantDashboardShellFrame({ children }: { children: ReactNode }) {
   const t = useTranslations("dashboard");
   const router = useRouter();
+  const pathname = usePathname();
   const { clearSession } = useAuthSession();
   const identity = useMerchantIdentity();
   const navigation = useMerchantNavigation();
@@ -205,6 +206,9 @@ function MerchantDashboardShellFrame({ children }: { children: ReactNode }) {
             onMobileMenu={() => shell.setMobileNavOpen(true)}
             searchRef={shell.searchRef}
             setGlobalQuery={shell.setGlobalQuery}
+            overrideTitle={pathname.includes("/merchant/orders/") ? t("orders.detailTitle") : undefined}
+            onBack={pathname.includes("/merchant/orders/") ? () => router.push("/merchant/orders") : undefined}
+            hideActions={pathname.includes("/merchant/orders/")}
           />
 
           <div className={styles.contentInner}>{content}</div>

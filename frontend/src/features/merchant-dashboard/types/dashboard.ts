@@ -9,7 +9,7 @@ export type NavId =
   | "settings";
 
 export type ProductStatus = "Published" | "Draft" | "Paused" | "Needs review";
-export type OrderStatus = "New" | "Processing" | "Packed" | "Shipped" | "Delivered" | "Refund review";
+export type OrderStatus = "New" | "Processing" | "Packed" | "Shipped" | "Delivered" | "Refund review" | "Failed" | "Cancelled";
 export type PaymentStatus = "Paid" | "Authorized" | "Refunded" | "Failed";
 export type UnitGroup = "WEIGHT" | "VOLUME" | "COUNT" | "LENGTH" | "AREA" | "BUNDLE";
 export type MeasurementUnit =
@@ -148,12 +148,25 @@ export interface Order {
   email: string;
   total: number;
   items: number;
+  lineItems: OrderLineItem[];
   status: OrderStatus;
   payment: PaymentStatus;
   channel: string;
   city: string;
   placedAt: string;
   timeline: Array<{ label: string; at: string }>;
+}
+
+export interface OrderLineItem {
+  id: string;
+  name: string;
+  variantName: string | null;
+  unitDisplay: string | null;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  imageUrl: string | null;
+  sku: string | null;
 }
 
 export interface MerchantMetrics {

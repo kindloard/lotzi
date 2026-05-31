@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { DealProduct, Shop } from "../shops-api";
 import { useShops } from "../hooks/use-shops";
 import { CategoryFilter } from "./category-filter";
-import { DealProductsGrid } from "./deal-products-grid";
 import { NearbyShopsGrid } from "./nearby-shops-grid";
 
 interface LandingShopBrowserProps {
@@ -44,7 +43,6 @@ export function LandingShopBrowser({
         onSelectCategory={handleSelectCategory}
       />
       <NearbyShopsGrid initialShops={initialShops} selectedCategory={selectedCategory} />
-      <DealProductsGrid initialProducts={initialProducts} />
     </>
   );
 }

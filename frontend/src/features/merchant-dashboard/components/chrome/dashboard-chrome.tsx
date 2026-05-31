@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeft,
   Bell,
   CircleHelp,
   Command,
@@ -24,7 +25,10 @@ export function DashboardHeader({
   onCommand,
   onMobileMenu,
   searchRef,
-  setGlobalQuery
+  setGlobalQuery,
+  overrideTitle,
+  onBack,
+  hideActions
 }: {
   activeNav: NavId;
   globalQuery: string;
@@ -32,6 +36,9 @@ export function DashboardHeader({
   onMobileMenu: () => void;
   searchRef: MutableRefObject<HTMLInputElement | null>;
   setGlobalQuery: (value: string) => void;
+  overrideTitle?: string;
+  onBack?: () => void;
+  hideActions?: boolean;
 }) {
   const t = useTranslations("dashboard");
   const activeLabel = t(navLabelKeyById[activeNav] as never);
@@ -39,17 +46,28 @@ export function DashboardHeader({
   return (
     <header className="sticky top-0 z-30 border-b border-zinc-900 bg-zinc-950 text-white backdrop-blur-md md:border-zinc-200/80 md:bg-white/95 md:text-zinc-900">
       <div className="mx-auto flex h-[72px] max-w-[1520px] items-center gap-3 px-5 sm:px-8 lg:h-[80px] lg:px-10">
-        <button
-          aria-label={t("shell.openNavigation")}
-          className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:focus:ring-zinc-950/5 lg:hidden"
-          onClick={onMobileMenu}
-          type="button"
-        >
-          <Menu size={16} />
-        </button>
+        {onBack ? (
+          <button
+            aria-label={t("orders.backToOrders")}
+            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:focus:ring-zinc-950/5 lg:hidden"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        ) : (
+          <button
+            aria-label={t("shell.openNavigation")}
+            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:focus:ring-zinc-950/5 lg:hidden"
+            onClick={onMobileMenu}
+            type="button"
+          >
+            <Menu size={16} />
+          </button>
+        )}
 
         <div className="min-w-0 lg:hidden">
-          <h1 className="truncate text-base font-semibold tracking-tight text-white md:text-zinc-950">{activeLabel}</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight text-white md:text-zinc-950">{overrideTitle || activeLabel}</h1>
         </div>
 
         {SHOW_DASHBOARD_SEARCH_COMMAND && (
@@ -78,15 +96,22 @@ export function DashboardHeader({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <LanguageSwitcher compact />
-          <button
-            aria-label={t("shell.notifications")}
-            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:hover:text-zinc-950 md:focus:ring-zinc-950/5"
-            title={t("shell.notifications")}
-            type="button"
-          >
-            <Bell size={15} />
-          </button>
+          {!hideActions && (
+            <>
+              <LanguageSwitcher
+                compact
+                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:hover:text-zinc-950 md:focus:ring-zinc-950/5 cursor-pointer"
+              />
+              <button
+                aria-label={t("shell.notifications")}
+                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:hover:text-zinc-950 md:focus:ring-zinc-950/5"
+                title={t("shell.notifications")}
+                type="button"
+              >
+                <Bell size={15} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 

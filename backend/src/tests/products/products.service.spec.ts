@@ -9,7 +9,7 @@ const assetB = "f41743c7-870c-4141-bd5f-c9fa7f252a4b";
 
 describe("ProductsService product save hot path", () => {
   it("creates a published product with batched variants, images, and image variant links", async () => {
-    const { prisma, tx, service } = createHarness({ assetCount: 2 });
+    const { prisma, tx, inventory, service } = createHarness({ assetCount: 2 });
 
     const response = await service.create(auth(), {
       storeId,
@@ -37,7 +37,11 @@ describe("ProductsService product save hot path", () => {
     expect(response.product.variants).toHaveLength(2);
     expect(response.product.images[0].variantIds).toEqual([response.product.variants[1].id]);
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(inventory.initializeCatalogInventory).toHaveBeenCalledWith(tx, expect.objectContaining({
+      storeId,
+      reason: "product_created"
+    }));
     expect(tx.productVariant.create).not.toHaveBeenCalled();
     expect(tx.productImage.create).not.toHaveBeenCalled();
     expect(prisma.product.findUniqueOrThrow).not.toHaveBeenCalled();
@@ -59,7 +63,7 @@ describe("ProductsService product save hot path", () => {
   });
 
   it("creates a draft without images and skips image writes", async () => {
-    const { prisma, tx, service } = createHarness({ assetCount: 0, assets: [] });
+    const { prisma, tx, inventory, service } = createHarness({ assetCount: 0, assets: [] });
 
     const response = await service.create(auth(), {
       storeId,
@@ -78,7 +82,11 @@ describe("ProductsService product save hot path", () => {
     expect(response.product.variants).toHaveLength(1);
     expect(prisma.uploadAsset.findMany).not.toHaveBeenCalled();
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(inventory.initializeCatalogInventory).toHaveBeenCalledWith(tx, expect.objectContaining({
+      storeId,
+      reason: "product_created"
+    }));
     expect(tx.productImage.createMany).not.toHaveBeenCalled();
     expect(tx.uploadAsset.updateMany).not.toHaveBeenCalled();
   });
@@ -256,13 +264,17 @@ function createHarness(options: {
   const shops = {
     invalidateShopCaches: jest.fn()
   };
+  const inventory = {
+    initializeCatalogInventory: jest.fn(async () => ({ initialized: 1 }))
+  };
   const service = new ProductsService(
     prisma as never,
+    inventory as never,
     rbac as never,
     shops as never,
     {} as never
   );
-  return { prisma, tx, rbac, shops, service };
+  return { prisma, tx, inventory, rbac, shops, service };
 }
 
 function auth() {

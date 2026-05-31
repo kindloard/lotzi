@@ -18,6 +18,7 @@ let customerAddressesCache:
   | null = null;
 let customerAddressesInFlight: Promise<{ apiVersion: "v1"; addresses: CustomerAddress[] }> | null = null;
 let customerAddressesCacheVersion = 0;
+let checkoutAddressCacheVersion = 0;
 let checkoutAddressCache:
   | {
       key: string;
@@ -244,12 +245,12 @@ export function fetchCheckoutAddress(options: { selectedAddressId?: string | nul
   const query = options.selectedAddressId
     ? `?${new URLSearchParams({ selectedAddressId: options.selectedAddressId }).toString()}`
     : "";
-  const cacheVersion = customerAddressesCacheVersion;
+  const cacheVersion = checkoutAddressCacheVersion;
   const promise = apiFetch<CheckoutAddressResponse>(`/v1/me/checkout-address${query}`, {
     cache: "no-store"
   })
     .then((response) => {
-      if (cacheVersion === customerAddressesCacheVersion) {
+      if (cacheVersion === checkoutAddressCacheVersion) {
         checkoutAddressCache = {
           key: cacheKey,
           expiresAt: Date.now() + CUSTOMER_ADDRESSES_CACHE_TTL_MS,
@@ -313,6 +314,7 @@ export function setDefaultCustomerAddress(id: string) {
 
 export function invalidateCustomerAddressesCache() {
   customerAddressesCacheVersion += 1;
+  checkoutAddressCacheVersion += 1;
   customerAddressesCache = null;
   customerAddressesInFlight = null;
   checkoutAddressCache = null;

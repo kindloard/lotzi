@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { RequestTimer } from "../../common/request-timing";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
+import { InventoryService } from "../inventory/inventory.service";
 import { PERMISSIONS } from "../rbac/permissions";
 import { RbacEngine } from "../rbac/rbac.engine";
 import { ShopsService } from "../shops/shops.service";
@@ -151,6 +152,7 @@ export class ProductsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly inventory: InventoryService,
     private readonly rbac: RbacEngine,
     private readonly shops: ShopsService,
     private readonly uploadEngine: UploadEngineService
@@ -218,6 +220,17 @@ export class ProductsService {
       imageRows,
       imageVariantRows
     }));
+    await timeStage(timer, "inventory-init", () => this.prisma.$transaction((tx) =>
+      this.inventory.initializeCatalogInventory(tx, {
+        storeId: dto.storeId,
+        variants: variantRows.map((variant) => ({
+          productVariantId: variant.id,
+          availableStock: variant.stock
+        })),
+        reason: "product_created",
+        idempotencyKey: `product-create:${productId}`
+      })
+    ));
     await timeStage(timer, "public-cache-invalidate", () =>
       this.invalidatePublicShopProductCache(dto.storeId, "product.create")
     );
@@ -261,6 +274,13 @@ export class ProductsService {
     }));
     if (!existing) {
       throw uploadError(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", "Product not found.");
+    }
+    if (fullDto.stock !== existing.stock) {
+      throw uploadError(
+        HttpStatus.BAD_REQUEST,
+        "PRODUCT_STOCK_MANAGED_BY_INVENTORY",
+        "Use inventory adjustments to change stock."
+      );
     }
     const currentImageAssetIds = new Set(existing.images.map((image) => image.uploadAssetId));
     const incomingAssetIds = new Set(images.map((image) => image.uploadAssetId));
@@ -319,6 +339,15 @@ export class ProductsService {
       await tx.productVariant.deleteMany({ where: { productId } });
       if (variantRows.length) {
         await tx.productVariant.createMany({ data: variantRows });
+        await this.inventory.initializeCatalogInventory(tx, {
+          storeId: fullDto.storeId,
+          variants: variantRows.map((variant) => ({
+            productVariantId: variant.id,
+            availableStock: variant.stock
+          })),
+          reason: "product_updated",
+          idempotencyKey: `product-update:${productId}`
+        });
       }
       const writtenImages = await this.createProductImages(tx, {
         productId,
@@ -456,9 +485,11 @@ export class ProductsService {
     }
 
     if (dto.stock !== undefined && dto.stock !== existing.stock) {
-      productData.stock = dto.stock;
-      defaultVariantData.stock = dto.stock;
-      defaultVariantData.stockOnHand = dto.stock;
+      throw uploadError(
+        HttpStatus.BAD_REQUEST,
+        "PRODUCT_STOCK_MANAGED_BY_INVENTORY",
+        "Use inventory adjustments to change stock."
+      );
     }
 
     if (dto.reorderPoint !== undefined && dto.reorderPoint !== existing.reorderPoint) {

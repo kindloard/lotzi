@@ -4,7 +4,7 @@ import { DatabaseModule } from "../../database/database.module";
 import { SecurityModule } from "../../security/security.module";
 import { AuthModule } from "../auth/auth.module";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
-import { ProductsModule } from "../products/products.module";
+import { InventoryModule } from "../inventory/inventory.module";
 import { RateLimitModule } from "../rate-limit/rate-limit.module";
 import { RbacModule } from "../rbac/rbac.module";
 import { PaymentTransitionService } from "./payment-transition.service";
@@ -22,7 +22,7 @@ import { WebhookService } from "./webhook.service";
     CashfreeModule,
     DatabaseModule,
     IdempotencyModule,
-    ProductsModule,
+    InventoryModule,
     RateLimitModule,
     RbacModule,
     SecurityModule

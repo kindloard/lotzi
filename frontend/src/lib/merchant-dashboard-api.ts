@@ -48,9 +48,65 @@ export interface UpdateMerchantStoreLocationPayload {
   pincode?: string;
 }
 
+export interface MerchantDashboardOrder {
+  id: string;
+  customer: string;
+  email: string;
+  total: number;
+  items: number;
+  lineItems: MerchantDashboardOrderLineItem[];
+  status: string;
+  payment: string;
+  channel: string;
+  city: string;
+  placedAt: string;
+  timeline: Array<{ label: string; at: string }>;
+}
+
+export interface MerchantDashboardOrderLineItem {
+  id: string;
+  name: string;
+  variantName: string | null;
+  unitDisplay: string | null;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  imageUrl: string | null;
+  sku: string | null;
+}
+
+export interface MerchantOrderStatusUpdatePayload {
+  orderIds: string[];
+  action: "MARK_PACKED" | "MOVE_TO_REFUND_REVIEW";
+}
+
 export function fetchMerchantDashboardBootstrap(options: MerchantDashboardRequestOptions = {}) {
   return apiFetch<MerchantDashboardBootstrap>("/merchant/dashboard/bootstrap", {
     signal: options.signal
+  });
+}
+
+export function fetchMerchantOrders(options: MerchantDashboardRequestOptions = {}) {
+  return apiFetch<{ apiVersion: "v1"; orders: MerchantDashboardOrder[] }>("/merchant/dashboard/orders", {
+    signal: options.signal
+  });
+}
+
+export function fetchMerchantOrder(orderId: string, options: MerchantDashboardRequestOptions = {}) {
+  return apiFetch<{ apiVersion: "v1"; order: MerchantDashboardOrder }>(`/merchant/dashboard/orders/${encodeURIComponent(orderId)}`, {
+    signal: options.signal
+  });
+}
+
+export function updateMerchantOrderStatuses(payload: MerchantOrderStatusUpdatePayload) {
+  return apiFetch<{
+    apiVersion: "v1";
+    updated: MerchantDashboardOrder[];
+    updatedCount: number;
+    skipped: Array<{ id: string; reason: string; status?: string }>;
+  }>("/merchant/dashboard/orders/status", {
+    body: JSON.stringify(payload),
+    method: "PATCH"
   });
 }
 

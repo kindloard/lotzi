@@ -8,14 +8,14 @@ import {
   PaymentStatus,
   Prisma,
   ProductStatus,
-  ReconciliationReason,
-  StockReservationStatus
+  ReconciliationReason
 } from "@prisma/client";
 import { randomUUID, createHash } from "node:crypto";
 import { CashfreeClient, CashfreeGatewayError } from "../../integrations/cashfree/cashfree.client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
 import { IdempotencyService } from "../idempotency/idempotency.service";
+import { InventoryService } from "../inventory/inventory.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service";
 import { CreateCheckoutSessionDto } from "./dto/checkout.dto";
 import { paymentError } from "../payments/payment.errors";
@@ -32,6 +32,7 @@ import {
 } from "../payments/money";
 
 const CHECKOUT_TTL_MS = 15 * 60 * 1000;
+const CHECKOUT_MAX_LINES = 50;
 const PRICING_VERSION = 1;
 
 @Injectable()
@@ -43,6 +44,7 @@ export class CheckoutService {
     private readonly cashfree: CashfreeClient,
     private readonly config: ConfigService,
     private readonly idempotency: IdempotencyService,
+    private readonly inventory: InventoryService,
     private readonly rateLimit: RateLimitService,
     private readonly transitions: PaymentTransitionService
   ) {}
@@ -152,6 +154,11 @@ export class CheckoutService {
         mrp: variant.mrp,
         lineSubtotalPaise: unitPricePaise * BigInt(item.quantity)
       };
+    });
+
+    await this.inventory.admitCheckout({
+      storeId,
+      items: items.map((item) => ({ productVariantId: item.variantId }))
     });
 
     const subtotalPaise = items.reduce((total, item) => total + item.lineSubtotalPaise, 0n);
@@ -308,15 +315,18 @@ export class CheckoutService {
         }
       });
 
-      for (const item of items) {
-        await reserveVariantStock(tx, {
-          userId: auth.userId,
-          orderId: order.id,
-          variantId: item.variantId,
-          quantity: item.quantity,
-          expiresAt
-        });
-      }
+      await this.inventory.reserveOrderStock(tx, {
+        storeId,
+        userId: auth.userId,
+        orderId: order.id,
+        expiresAt,
+        idempotencyKey: dto.idempotencyKey,
+        requestId,
+        items: items.map((item) => ({
+          productVariantId: item.variantId,
+          quantity: item.quantity
+        }))
+      });
 
       await tx.paymentEvent.create({
         data: {
@@ -449,8 +459,14 @@ export class CheckoutService {
     const gatewayError = error instanceof CashfreeGatewayError ? error : null;
     const retryableUnknown = Boolean(gatewayError?.retryable || gatewayError?.timedOut);
     if (!retryableUnknown) {
-      await this.releaseOrderReservations(payment.orderId, "cashfree_create_failed");
       await this.prisma.$transaction(async (tx) => {
+        await this.inventory.releaseOrderStock(tx, {
+          storeId: payment.order.storeId,
+          orderId: payment.orderId,
+          reason: "cashfree_create_failed",
+          idempotencyKey: `checkout-create-failed:${payment.id}`,
+          requestId
+        });
         await tx.paymentAttempt.updateMany({
           where: { paymentId: payment.id, status: { in: [PaymentAttemptStatus.INITIATED, PaymentAttemptStatus.SESSION_CREATED] } },
           data: { status: PaymentAttemptStatus.FAILED, gatewayResponse: errorBody(error) as Prisma.InputJsonValue }
@@ -506,27 +522,6 @@ export class CheckoutService {
     };
   }
 
-  private async releaseOrderReservations(orderId: string, reason: string) {
-    const reservations = await this.prisma.stockReservation.findMany({
-      where: { orderId, status: StockReservationStatus.ACTIVE }
-    });
-    for (const reservation of reservations) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`
-          UPDATE product_variants
-          SET stock_reserved = GREATEST(stock_reserved - ${reservation.quantity}, 0),
-              stock_version = stock_version + 1,
-              updated_at = now()
-          WHERE id = ${reservation.productVariantId}::uuid
-        `;
-        await tx.stockReservation.update({
-          where: { id: reservation.id },
-          data: { status: StockReservationStatus.RELEASED, reason, releasedAt: new Date() }
-        });
-      });
-    }
-  }
-
   private async loadProducts(variantIds: string[]) {
     return this.prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
@@ -556,35 +551,6 @@ export class CheckoutService {
   }
 }
 
-async function reserveVariantStock(
-  tx: Prisma.TransactionClient,
-  input: { userId: string; orderId: string; variantId: string; quantity: number; expiresAt: Date }
-) {
-  const updated = await tx.$executeRaw`
-    UPDATE product_variants
-    SET stock_reserved = stock_reserved + ${input.quantity},
-        stock_version = stock_version + 1,
-        updated_at = now()
-    WHERE id = ${input.variantId}::uuid
-      AND stock_on_hand - stock_reserved >= ${input.quantity}
-  `;
-  if (updated !== 1) {
-    throw paymentError(HttpStatus.CONFLICT, "CHECKOUT_OUT_OF_STOCK", "One or more items are out of stock.", false, {
-      variantId: input.variantId
-    });
-  }
-  await tx.stockReservation.create({
-    data: {
-      userId: input.userId,
-      orderId: input.orderId,
-      productVariantId: input.variantId,
-      quantity: input.quantity,
-      status: StockReservationStatus.ACTIVE,
-      expiresAt: input.expiresAt
-    }
-  });
-}
-
 function normalizeCheckout(dto: CreateCheckoutSessionDto) {
   const aggregated = new Map<string, { productId: string; variantId: string; quantity: number }>();
   for (const item of dto.items) {
@@ -600,12 +566,22 @@ function normalizeCheckout(dto: CreateCheckoutSessionDto) {
       });
     }
   }
+  const items = Array.from(aggregated.values()).sort((a, b) => a.variantId.localeCompare(b.variantId));
+  if (items.length > CHECKOUT_MAX_LINES) {
+    throw paymentError(
+      HttpStatus.BAD_REQUEST,
+      "CHECKOUT_CART_TOO_LARGE",
+      `Checkout supports up to ${CHECKOUT_MAX_LINES} distinct items.`,
+      false,
+      { maxLines: CHECKOUT_MAX_LINES, lineCount: items.length }
+    );
+  }
   return {
     ...dto,
     shippingOption: dto.shippingOption ?? "standard",
     couponCode: dto.couponCode?.trim().toUpperCase() || undefined,
     idempotencyKey: dto.idempotencyKey.trim(),
-    items: Array.from(aggregated.values()).sort((a, b) => a.variantId.localeCompare(b.variantId))
+    items
   };
 }
 

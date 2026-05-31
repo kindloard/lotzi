@@ -7,14 +7,14 @@ import {
   PaymentStatus,
   Prisma,
   ReconciliationReason,
-  RefundStatus,
-  StockReservationStatus
+  RefundStatus
 } from "@prisma/client";
 import { randomUUID, createHash } from "node:crypto";
 import { CashfreeClient, CashfreeGatewayError } from "../../integrations/cashfree/cashfree.client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
 import { IdempotencyService } from "../idempotency/idempotency.service";
+import { InventoryService } from "../inventory/inventory.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service";
 import { CreateRefundDto, RetryPaymentDto } from "./dto/payments.dto";
 import { paymentError } from "./payment.errors";
@@ -22,6 +22,11 @@ import { PaymentTransitionService } from "./payment-transition.service";
 import { INR, paiseToNumber, paiseToRupeeDecimal, paiseToCashfreeAmount } from "./money";
 
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
+const PAYMENT_CONFIRM_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 10_000 } as const;
+const RELEASED_TERMINAL_SUCCESS_STATUSES = new Set<PaymentStatus>([
+  PaymentStatus.FAILED,
+  PaymentStatus.EXPIRED
+]);
 
 @Injectable()
 export class PaymentsService {
@@ -31,6 +36,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly cashfree: CashfreeClient,
     private readonly idempotency: IdempotencyService,
+    private readonly inventory: InventoryService,
     private readonly rateLimit: RateLimitService,
     private readonly transitions: PaymentTransitionService
   ) {}
@@ -151,6 +157,7 @@ export class PaymentsService {
       apiVersion: "v1",
       status: "PENDING_GATEWAY",
       payment: safePaymentStatus(local, local.attempts[0] ?? null),
+      recovery: recoveryFor(local.status, local.attempts[0]?.status ?? null),
       gateway: { orderStatus: order.order_status }
     };
   }
@@ -178,7 +185,8 @@ export class PaymentsService {
       return {
         apiVersion: "v1",
         status: "PAID",
-        payment: safePaymentStatus(payment, payment.attempts[0] ?? null)
+        payment: safePaymentStatus(payment, payment.attempts[0] ?? null),
+        recovery: recoveryFor(payment.status, payment.attempts[0]?.status ?? null)
       };
     }
 
@@ -192,6 +200,22 @@ export class PaymentsService {
       throw paymentError(HttpStatus.CONFLICT, "PAYMENT_AMOUNT_MISMATCH", "Gateway amount does not match the order total.");
     }
 
+    if (
+      payment.status === PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND ||
+      payment.status === PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW
+    ) {
+      return {
+        apiVersion: "v1",
+        status: payment.status,
+        payment: safePaymentStatus(payment, payment.attempts[0] ?? null),
+        recovery: recoveryFor(payment.status, payment.attempts[0]?.status ?? null)
+      };
+    }
+
+    if (RELEASED_TERMINAL_SUCCESS_STATUSES.has(payment.status)) {
+      return this.markLateSuccessRequiresRefund(payment, input);
+    }
+
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.payment.findUniqueOrThrow({
         where: { id: payment.id },
@@ -201,6 +225,74 @@ export class PaymentsService {
         return;
       }
       const activeAttempt = current.attempts[0];
+      const inventoryResult = await this.inventory.confirmOrderStock(tx, {
+        storeId: current.order.storeId,
+        orderId: payment.orderId,
+        idempotencyKey: input.cashfreePaymentId || `payment:${payment.id}`,
+        requestId: input.requestId
+      });
+      if (inventoryResult.status === "REQUIRES_REVIEW") {
+        await tx.paymentAttempt.updateMany({
+          where: { paymentId: payment.id, status: { in: activeAttemptStatuses() } },
+          data: {
+            status: PaymentAttemptStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+            cashfreePaymentId: input.cashfreePaymentId,
+            gatewayResponse: input.gatewayPayment as Prisma.InputJsonValue
+          }
+        });
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            cashfreePaymentId: input.cashfreePaymentId,
+            gatewayResponse: {
+              order: input.gatewayOrder,
+              payment: input.gatewayPayment,
+              inventory: inventoryResult
+            } as Prisma.InputJsonValue,
+            verifiedAt: new Date()
+          }
+        });
+        await this.transitions.transitionPayment(tx, {
+          paymentId: payment.id,
+          orderId: payment.orderId,
+          attemptId: activeAttempt?.id,
+          from: current.status,
+          to: PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+          context: {
+            reason: "inventory_confirmation_requires_review",
+            requestId: input.requestId,
+            metadata: inventoryResult as Prisma.InputJsonValue
+          }
+        });
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: { paymentStatus: PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW }
+        });
+        await this.transitions.transitionOrder(tx, {
+          orderId: payment.orderId,
+          from: current.order.status,
+          to: OrderStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW,
+          context: {
+            reason: "inventory_confirmation_requires_review",
+            requestId: input.requestId,
+            metadata: inventoryResult as Prisma.InputJsonValue
+          }
+        });
+        await tx.reconciliationRun.create({
+          data: {
+            paymentId: payment.id,
+            reason: ReconciliationReason.DUPLICATE_SUCCESS,
+            driftCode: "INVENTORY_CONFIRMATION_REQUIRES_REVIEW",
+            details: {
+              orderId: payment.orderId,
+              cashfreePaymentId: input.cashfreePaymentId,
+              inventory: inventoryResult
+            } as Prisma.InputJsonObject,
+            nextCheckAt: new Date()
+          }
+        });
+        return;
+      }
       await tx.paymentAttempt.updateMany({
         where: { paymentId: payment.id, status: { in: activeAttemptStatuses() } },
         data: {
@@ -239,7 +331,6 @@ export class PaymentsService {
           to: OrderStatus.PAYMENT_CONFIRMED,
           context: { reason: "payment_paid", requestId: input.requestId }
         });
-        await finalizeOrderReservations(tx, payment.orderId);
         await this.transitions.transitionOrder(tx, {
           orderId: payment.orderId,
           from: OrderStatus.PAYMENT_CONFIRMED,
@@ -263,7 +354,7 @@ export class PaymentsService {
           } as Prisma.InputJsonValue
         }
       });
-    });
+    }, PAYMENT_CONFIRM_TRANSACTION_OPTIONS);
 
     const updated = await this.prisma.payment.findUniqueOrThrow({
       where: { id: payment.id },
@@ -271,8 +362,9 @@ export class PaymentsService {
     });
     return {
       apiVersion: "v1",
-      status: "PAID",
-      payment: safePaymentStatus(updated, updated.attempts[0] ?? null)
+      status: updated.status,
+      payment: safePaymentStatus(updated, updated.attempts[0] ?? null),
+      recovery: recoveryFor(updated.status, updated.attempts[0]?.status ?? null)
     };
   }
 
@@ -282,7 +374,12 @@ export class PaymentsService {
       include: paymentInclude()
     });
     if (payment.status === PaymentStatus.PAID) {
-      return { apiVersion: "v1", status: "PAID", payment: safePaymentStatus(payment, payment.attempts[0] ?? null) };
+      return {
+        apiVersion: "v1",
+        status: "PAID",
+        payment: safePaymentStatus(payment, payment.attempts[0] ?? null),
+        recovery: recoveryFor(payment.status, payment.attempts[0]?.status ?? null)
+      };
     }
     const nextPaymentStatus =
       status === "EXPIRED" ? PaymentStatus.EXPIRED : status === "USER_DROPPED" ? PaymentStatus.USER_DROPPED : PaymentStatus.FAILED;
@@ -310,7 +407,13 @@ export class PaymentsService {
         context: { reason: `cashfree_${status.toLowerCase()}`, requestId, metadata: payload as Prisma.InputJsonValue }
       });
       if (nextPaymentStatus === PaymentStatus.FAILED || nextPaymentStatus === PaymentStatus.EXPIRED) {
-        await releaseOrderReservations(tx, payment.orderId, `payment_${nextPaymentStatus.toLowerCase()}`);
+        await this.inventory.releaseOrderStock(tx, {
+          storeId: current.order.storeId,
+          orderId: payment.orderId,
+          reason: `payment_${nextPaymentStatus.toLowerCase()}`,
+          idempotencyKey: `payment-release:${payment.id}:${nextPaymentStatus}`,
+          requestId
+        });
         await tx.order.update({ where: { id: payment.orderId }, data: { paymentStatus: nextPaymentStatus } });
         await this.transitions.transitionOrder(tx, {
           orderId: payment.orderId,
@@ -328,7 +431,8 @@ export class PaymentsService {
     return {
       apiVersion: "v1",
       status: updated.status,
-      payment: safePaymentStatus(updated, updated.attempts[0] ?? null)
+      payment: safePaymentStatus(updated, updated.attempts[0] ?? null),
+      recovery: recoveryFor(updated.status, updated.attempts[0]?.status ?? null)
     };
   }
 
@@ -545,6 +649,96 @@ export class PaymentsService {
       }
     });
   }
+
+  private async markLateSuccessRequiresRefund(
+    payment: Awaited<ReturnType<PaymentsService["ownedPayment"]>>,
+    input: {
+      cashfreePaymentId: string;
+      amountPaise: bigint;
+      currency: string;
+      gatewayOrder: unknown;
+      gatewayPayment: unknown;
+      requestId?: string;
+    }
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.payment.findUniqueOrThrow({
+        where: { id: payment.id },
+        include: { order: true, attempts: { orderBy: { attemptNumber: "desc" }, take: 1 } }
+      });
+      if (current.status === PaymentStatus.PAID || current.status === PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND) {
+        return;
+      }
+      if (!RELEASED_TERMINAL_SUCCESS_STATUSES.has(current.status)) {
+        return;
+      }
+      const activeAttempt = current.attempts[0];
+      await tx.paymentAttempt.updateMany({
+        where: { paymentId: payment.id },
+        data: {
+          status: PaymentAttemptStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND,
+          cashfreePaymentId: input.cashfreePaymentId || undefined,
+          gatewayResponse: input.gatewayPayment as Prisma.InputJsonValue
+        }
+      });
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          cashfreePaymentId: input.cashfreePaymentId || undefined,
+          gatewayResponse: {
+            order: input.gatewayOrder,
+            payment: input.gatewayPayment
+          } as Prisma.InputJsonValue,
+          verifiedAt: new Date()
+        }
+      });
+      await this.transitions.transitionPayment(tx, {
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        attemptId: activeAttempt?.id,
+        from: current.status,
+        to: PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND,
+        context: {
+          reason: "late_gateway_success_after_released_terminal_state",
+          requestId: input.requestId,
+          metadata: {
+            previousPaymentStatus: current.status,
+            orderStatus: current.order.status,
+            cashfreePaymentId: input.cashfreePaymentId || null
+          } as Prisma.InputJsonObject
+        }
+      });
+      await tx.order.update({
+        where: { id: payment.orderId },
+        data: { paymentStatus: PaymentStatus.DUPLICATE_SUCCESS_REQUIRES_REFUND }
+      });
+      await tx.reconciliationRun.create({
+        data: {
+          paymentId: payment.id,
+          reason: ReconciliationReason.DUPLICATE_SUCCESS,
+          driftCode: "LATE_SUCCESS_AFTER_RELEASED_TERMINAL_STATE",
+          details: {
+            previousPaymentStatus: current.status,
+            orderStatus: current.order.status,
+            cashfreePaymentId: input.cashfreePaymentId || null,
+            amountPaise: input.amountPaise.toString()
+          } as Prisma.InputJsonObject,
+          nextCheckAt: new Date()
+        }
+      });
+    }, PAYMENT_CONFIRM_TRANSACTION_OPTIONS);
+
+    const updated = await this.prisma.payment.findUniqueOrThrow({
+      where: { id: payment.id },
+      include: paymentInclude()
+    });
+    return {
+      apiVersion: "v1",
+      status: updated.status,
+      payment: safePaymentStatus(updated, updated.attempts[0] ?? null),
+      recovery: recoveryFor(updated.status, updated.attempts[0]?.status ?? null)
+    };
+  }
 }
 
 function paymentInclude() {
@@ -552,51 +746,6 @@ function paymentInclude() {
     order: { include: { user: true } },
     attempts: { orderBy: { attemptNumber: "desc" as const }, take: 1 }
   };
-}
-
-async function finalizeOrderReservations(tx: Prisma.TransactionClient, orderId: string) {
-  const reservations = await tx.stockReservation.findMany({
-    where: { orderId, status: StockReservationStatus.ACTIVE }
-  });
-  for (const reservation of reservations) {
-    const updated = await tx.$executeRaw`
-      UPDATE product_variants
-      SET stock_on_hand = stock_on_hand - ${reservation.quantity},
-          stock_reserved = GREATEST(stock_reserved - ${reservation.quantity}, 0),
-          stock = GREATEST(stock_on_hand - ${reservation.quantity}, 0),
-          stock_version = stock_version + 1,
-          updated_at = now()
-      WHERE id = ${reservation.productVariantId}::uuid
-        AND stock_on_hand >= ${reservation.quantity}
-        AND stock_reserved >= ${reservation.quantity}
-    `;
-    if (updated !== 1) {
-      throw paymentError(HttpStatus.CONFLICT, "INVENTORY_FINALIZE_FAILED", "Inventory changed before payment confirmation.");
-    }
-    await tx.stockReservation.update({
-      where: { id: reservation.id },
-      data: { status: StockReservationStatus.FINALIZED, finalizedAt: new Date() }
-    });
-  }
-}
-
-async function releaseOrderReservations(tx: Prisma.TransactionClient, orderId: string, reason: string) {
-  const reservations = await tx.stockReservation.findMany({
-    where: { orderId, status: StockReservationStatus.ACTIVE }
-  });
-  for (const reservation of reservations) {
-    await tx.$executeRaw`
-      UPDATE product_variants
-      SET stock_reserved = GREATEST(stock_reserved - ${reservation.quantity}, 0),
-          stock_version = stock_version + 1,
-          updated_at = now()
-      WHERE id = ${reservation.productVariantId}::uuid
-    `;
-    await tx.stockReservation.update({
-      where: { id: reservation.id },
-      data: { status: StockReservationStatus.RELEASED, reason, releasedAt: new Date() }
-    });
-  }
 }
 
 function activeAttemptStatuses() {
@@ -611,7 +760,7 @@ function activeAttemptStatuses() {
 
 function gatewayPaymentStatus(status: string | undefined): "PAID" | "FAILED" | "PENDING" | "USER_DROPPED" {
   const normalized = (status ?? "").toUpperCase();
-  if (normalized === "SUCCESS" || normalized === "PAID") return "PAID";
+  if (normalized === "SUCCESS" || normalized === "PAID" || normalized === "AUTHORIZED") return "PAID";
   if (normalized === "USER_DROPPED") return "USER_DROPPED";
   if (normalized === "FAILED" || normalized === "CANCELLED" || normalized === "VOID") return "FAILED";
   return "PENDING";
@@ -639,6 +788,7 @@ function gatewayAmountToPaise(value: unknown): bigint {
 function recoveryFor(status: PaymentStatus, attemptStatus: PaymentAttemptStatus | null) {
   if (status === PaymentStatus.PAID) return { action: "TRACK_ORDER", pollAfterMs: null };
   if (status === PaymentStatus.UNKNOWN_GATEWAY) return { action: "WAIT_RECONCILIATION", pollAfterMs: 15_000 };
+  if (status === PaymentStatus.INVENTORY_CONFIRMATION_REQUIRES_REVIEW) return { action: "CONTACT_SUPPORT", pollAfterMs: null };
   if (status === PaymentStatus.PENDING_GATEWAY || attemptStatus === PaymentAttemptStatus.PENDING_GATEWAY) {
     return { action: "POLL", pollAfterMs: 2_000 };
   }

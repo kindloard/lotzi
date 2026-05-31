@@ -2,6 +2,7 @@ import { StoreStatus, UploadAssetStatus, UploadPurpose, UploadRenditionKind } fr
 import { createHash, randomUUID } from "node:crypto";
 import { requestTimer } from "../common/request-timing";
 import { PrismaService } from "../database/prisma.service";
+import { InventoryService } from "../modules/inventory/inventory.service";
 import { ProductsService } from "../modules/products/products.service";
 import { PERMISSIONS } from "../modules/rbac/permissions";
 
@@ -27,8 +28,10 @@ async function main() {
       throw new Error("No APPROVED/PENDING store found. Seed a merchant store before running the smoke test.");
     }
 
+    const inventory = new InventoryService(prisma, { isConfigured: false } as never);
     const service = new ProductsService(
       prisma,
+      inventory,
       {
         storeAuthorization: async () => ({ permissions: [PERMISSIONS.PRODUCT_MANAGE] }),
         hasPermissions: () => true

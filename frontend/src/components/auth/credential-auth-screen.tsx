@@ -482,11 +482,11 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
       <div className="flex min-h-0 flex-1 flex-col px-7 pb-6 sm:pb-7">
         <Link
           aria-label="Back to dashboard"
-          className="mt-8 hidden size-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-900 transition hover:bg-zinc-200/80 active:translate-y-px focus:outline-none focus:ring-4 focus:ring-zinc-950/5 sm:mt-9 sm:flex"
+          className="absolute left-6 top-6 z-10 flex size-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-900 shadow-sm transition hover:bg-zinc-50 hover:shadow active:translate-y-px focus:outline-none focus:ring-4 focus:ring-zinc-950/5 sm:left-8 sm:top-8"
           href="/"
           prefetch
         >
-          <ArrowLeft size={16} strokeWidth={2.5} />
+          <ArrowLeft size={18} strokeWidth={2.5} />
         </Link>
 
         <div className="flex flex-1 flex-col justify-center py-6">

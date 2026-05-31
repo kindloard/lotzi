@@ -9,6 +9,7 @@ import { CartModule } from "./modules/cart/cart.module";
 import { CategoriesModule } from "./modules/categories/categories.module";
 import { CheckoutModule } from "./modules/checkout/checkout.module";
 import { CustomerAccountModule } from "./modules/customer-account/customer-account.module";
+import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MailModule } from "./modules/mail/mail.module";
 import { MerchantDashboardModule } from "./modules/merchant-dashboard/merchant-dashboard.module";
 import { ObservabilityModule } from "./modules/observability/observability.module";
@@ -31,6 +32,7 @@ import { RbacModule } from "./modules/rbac/rbac.module";
     RedisModule,
     RateLimitModule,
     AuditModule,
+    InventoryModule,
     MailModule,
     MerchantDashboardModule,
     ObservabilityModule,

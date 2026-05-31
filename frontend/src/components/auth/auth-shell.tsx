@@ -17,16 +17,16 @@ export function AuthShell({ children }: AuthShellProps) {
       id="main-content"
     >
       <section
-        className="animate-scale-up flex min-h-[100dvh] w-full max-w-[390px] flex-col sm:min-h-[680px]"
+        className="relative animate-scale-up flex min-h-[100dvh] w-full max-w-[390px] flex-col sm:min-h-[680px]"
         id="auth-content"
       >
-        <div className="px-7 pt-7 text-center sm:hidden">
-          <p className="text-[11px] font-bold tracking-[0.15em] text-zinc-900 uppercase">{tBrand("name")}</p>
-          <div className="mt-3 flex justify-center">
-            <LanguageSwitcher compact />
-          </div>
+        <div className="absolute right-6 top-6 z-10 sm:hidden">
+          <LanguageSwitcher compact />
         </div>
-        <div className="hidden justify-end px-7 pt-7 sm:flex">
+        <div className="px-7 pt-9 pb-2 text-center sm:hidden">
+          <p className="text-[11px] font-bold tracking-[0.15em] text-zinc-900 uppercase">{tBrand("name")}</p>
+        </div>
+        <div className="hidden justify-end px-8 pt-8 sm:flex z-10 relative">
           <LanguageSwitcher compact />
         </div>
         {children}
