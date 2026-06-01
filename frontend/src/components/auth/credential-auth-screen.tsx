@@ -16,7 +16,7 @@ import { ArrowLeft, ArrowRight, Check, Loader2, Store } from "lucide-react";
 import { ZodError } from "zod";
 import { ApiError } from "@/lib/api";
 import { googleLogin, login, reportRejectedRedirect, signup } from "@/lib/auth-api";
-import { defaultAuthRedirect, validateInternalRedirect } from "@/lib/auth-redirect";
+import { defaultAuthRedirect, toLocalizedBrowserPath, validateInternalRedirect } from "@/lib/auth-redirect";
 import { createLoginSchema, createSignupSchema, passwordStrength, zodFieldErrors } from "@/lib/auth-schemas";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { AuthInput } from "@/components/auth/auth-input";
@@ -186,6 +186,10 @@ function markAuthEvent(name: string) {
   }
 }
 
+function replaceWithAuthenticatedRoute(path: string) {
+  window.location.replace(toLocalizedBrowserPath(path));
+}
+
 function RememberControl({
   checked,
   disabled,
@@ -298,7 +302,9 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
   useEffect(() => {
     const routes = isRegistration
       ? ["/auth/otp", "/auth/login", "/"]
-      : ["/", "/merchant/onboarding", "/auth/reset-password"];
+      : ["/", "/auth/reset-password"];
+    // Protected routes must not be prefetched while logged out. In production, Next can
+    // reuse the unauthenticated middleware redirect after login.
     const warmRoutes = () => routes.forEach((route) => router.prefetch(route));
     const idleWindow = window as unknown as {
       requestIdleCallback?: (callback: () => void) => number;
@@ -401,7 +407,7 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
       toast.success(t("login.success"));
       navigated = true;
       markAuthEvent("auth:login:redirect-start");
-      router.replace(redirectValidation.path ?? defaultAuthRedirect(session));
+      replaceWithAuthenticatedRoute(redirectValidation.path ?? defaultAuthRedirect(session));
     } catch (error) {
       const message = credentialErrorMessage(error, mode, translateApiError);
       if (!message) {
@@ -440,7 +446,7 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
       toast.success(t("toast.googleSuccess"));
       navigated = true;
       markAuthEvent("auth:google:redirect-start");
-      router.replace(redirectValidation.path ?? defaultAuthRedirect(session));
+      replaceWithAuthenticatedRoute(redirectValidation.path ?? defaultAuthRedirect(session));
     } catch (error) {
       const message = credentialErrorMessage(error, mode, translateApiError);
       if (

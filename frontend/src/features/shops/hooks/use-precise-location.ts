@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates } from "../shops-api";
 
 const GEO_CACHE_KEY = "ns:shops:geo:v2";
@@ -11,19 +11,27 @@ interface CachedCoordinates extends Coordinates {
   capturedAt: number;
 }
 
-type LocationStatus = "idle" | "loading" | "resolved" | "denied" | "error" | "unsupported";
+export type LocationStatus = "idle" | "loading" | "resolved" | "denied" | "error" | "unsupported";
+
+interface RequestLocationOptions {
+  ignoreCache?: boolean;
+}
 
 export function usePreciseLocation() {
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [status, setStatus] = useState<LocationStatus>("idle");
+  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    if (!navigator?.geolocation) {
+  const requestLocation = useCallback((options: RequestLocationOptions = {}) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus("unsupported");
       return;
     }
 
-    const cached = readCoordinatesCache();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    const cached = options.ignoreCache ? null : readCoordinatesCache();
     if (cached) {
       setCoordinates(cached);
       setStatus("resolved");
@@ -31,11 +39,9 @@ export function usePreciseLocation() {
       setStatus("loading");
     }
 
-    let cancelled = false;
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        if (cancelled) {
+        if (requestIdRef.current !== requestId) {
           return;
         }
 
@@ -45,7 +51,7 @@ export function usePreciseLocation() {
         setStatus("resolved");
       },
       (error) => {
-        if (cancelled) {
+        if (requestIdRef.current !== requestId) {
           return;
         }
         setStatus(error.code === error.PERMISSION_DENIED ? "denied" : "error");
@@ -56,13 +62,16 @@ export function usePreciseLocation() {
         timeout: HIGH_ACCURACY_TIMEOUT_MS
       }
     );
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  return { coordinates, status };
+  useEffect(() => {
+    requestLocation();
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [requestLocation]);
+
+  return { coordinates, requestLocation, status };
 }
 
 function coordinatesFromPosition(position: GeolocationPosition): Coordinates {

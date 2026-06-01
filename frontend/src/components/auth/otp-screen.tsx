@@ -14,7 +14,7 @@ import {
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { ApiError } from "@/lib/api";
-import { defaultAuthRedirect, validateInternalRedirect } from "@/lib/auth-redirect";
+import { defaultAuthRedirect, toLocalizedBrowserPath, validateInternalRedirect } from "@/lib/auth-redirect";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { useAuthSession } from "@/components/session-refresh-provider";
 import { resendSignupOtp, verifySignup } from "@/lib/auth-api";
@@ -46,6 +46,10 @@ function markAuthEvent(name: string) {
   if (typeof performance !== "undefined" && "mark" in performance) {
     performance.mark(name);
   }
+}
+
+function replaceWithAuthenticatedRoute(path: string) {
+  window.location.replace(toLocalizedBrowserPath(path));
 }
 
 export function OtpScreen() {
@@ -80,12 +84,9 @@ export function OtpScreen() {
     setEmail(nextEmail.trim().toLowerCase());
     localStorage.setItem("namastore:pending-signup-email", nextEmail.trim().toLowerCase());
     router.prefetch("/");
-    if (redirectValidation.path) {
-      router.prefetch(redirectValidation.path);
-    }
-    router.prefetch("/merchant/onboarding");
+    // Do not prefetch protected post-auth routes before cookies are issued.
     router.prefetch("/auth/signup");
-  }, [redirectValidation.path, router, searchParams, t, toastWarning]);
+  }, [router, searchParams, t, toastWarning]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
@@ -180,7 +181,7 @@ export function OtpScreen() {
       toastSuccess(t("otp.success"));
       navigated = true;
       markAuthEvent("auth:otp:redirect-start");
-      router.replace(redirectValidation.path ?? defaultAuthRedirect(session));
+      replaceWithAuthenticatedRoute(redirectValidation.path ?? defaultAuthRedirect(session));
     } catch (apiError) {
       const message = translateApiError(apiError, "AUTH_OTP_INVALID") || mapOtpError(apiError);
       if (message) {

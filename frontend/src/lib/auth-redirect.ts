@@ -58,6 +58,24 @@ export function defaultAuthRedirect(session: SessionResponse) {
   return toIntlInternalPath(session.redirectTo || session.routeState?.redirectTo || "/");
 }
 
+export function toLocalizedBrowserPath(
+  path: string,
+  currentPathname = typeof window !== "undefined" ? window.location.pathname : ""
+) {
+  const [pathname, suffix = ""] = splitPathSuffix(path);
+  const [, maybeTargetLocale] = pathname.split("/");
+  if (routing.locales.includes(maybeTargetLocale as never)) {
+    return path;
+  }
+
+  const [, currentLocale] = currentPathname.split("/");
+  if (!routing.locales.includes(currentLocale as never)) {
+    return path;
+  }
+
+  return `${pathname === "/" ? `/${currentLocale}` : `/${currentLocale}${pathname}`}${suffix}`;
+}
+
 function toIntlInternalPath(path: string) {
   const [pathnameWithLocale, suffix = ""] = splitPathSuffix(path);
   const [, maybeLocale, ...rest] = pathnameWithLocale.split("/");
