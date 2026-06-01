@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter } from "@/i18n/navigation";
 import {
   ArrowLeft,
@@ -42,6 +42,7 @@ const stepIndex = new Map(steps.map((step, index) => [step.id, index]));
 export function MerchantOnboardingWizard() {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const previousStepRef = useRef<OnboardingStep | null>(null);
 
   const {
     bootstrap,
@@ -65,8 +66,12 @@ export function MerchantOnboardingWizard() {
     uploadAsset
   } = useOnboarding();
 
-  useEffect(() => {
-    headingRef.current?.focus();
+  useLayoutEffect(() => {
+    if (previousStepRef.current && previousStepRef.current !== currentStep) {
+      window.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    }
+    previousStepRef.current = currentStep;
+    headingRef.current?.focus({ preventScroll: true });
   }, [currentStep]);
 
   if (loading || redirecting) {

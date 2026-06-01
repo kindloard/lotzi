@@ -148,7 +148,7 @@ export function ProductsScreen() {
               onClick={toggleLayout}
               variant="secondary"
             />
-            <DashboardButton icon={Plus} label={t("products.addProduct")} onClick={openProductCreate} />
+            <DashboardButton icon={Plus} label={t("products.addProduct")} onClick={openProductCreate} showLabelOnMobile />
           </>
         }
         eyebrow={t("products.eyebrow")}
@@ -177,7 +177,7 @@ export function ProductsScreen() {
       {(isInitialProductLoad || isEmptyProductError) ? null : (
         <>
 
-      <Toolbar>
+      <Toolbar className="lg:w-fit">
         <div className="flex w-full flex-col gap-3">
           <SegmentedControl
             options={productStatusOptions.map((option) => ({ label: t(option.labelKey as never), value: option.value }))}

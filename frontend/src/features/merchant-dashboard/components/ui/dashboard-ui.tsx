@@ -64,7 +64,7 @@ export function PageTitle({
         <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl">{title}</h1>
       </div>
       {actions && (
-        <div className="-mx-4 flex min-w-0 justify-end gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+        <div className="scrollbar-hide -mx-4 flex min-w-0 justify-end gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
           {actions}
         </div>
       )}
@@ -147,9 +147,9 @@ export function KpiCard({
   );
 }
 
-export function Toolbar({ children }: { children: ReactNode }) {
+export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
+    <div className={cx("flex max-w-full flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center", className)}>
       {children}
     </div>
   );
@@ -266,7 +266,7 @@ export function SegmentedControl({
   value: string;
 }) {
   return (
-    <div className="flex gap-1 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5">
+    <div className="scrollbar-hide flex w-max max-w-full gap-1 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5">
       {options.map((item) => {
         const option = typeof item === "string" ? { label: item, value: item } : item;
         return (
@@ -370,7 +370,7 @@ export function EmptyState({
         <p className="mt-2 max-w-xs text-xs font-normal leading-relaxed text-zinc-500">{body}</p>
         {actionLabel && onAction && (
           <div className="mt-5">
-            <DashboardButton icon={actionIcon ?? Plus} label={actionLabel} onClick={onAction} />
+            <DashboardButton icon={actionIcon ?? Plus} label={actionLabel} onClick={onAction} showLabelOnMobile />
           </div>
         )}
       </div>
@@ -433,7 +433,7 @@ export function FormField({
   value: string;
 }) {
   return (
-    <label className="block">
+    <label className="block" data-auto-scroll-field>
       <span className="text-[13px] font-medium text-zinc-700">{label}</span>
       <input
         className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px] font-normal text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/5"
@@ -475,7 +475,7 @@ export function InlineInput({ error, label, onChange, value }: { error?: string;
   const inputId = useId();
   const errorId = `${inputId}-error`;
   return (
-    <div className="block w-full">
+    <div className="block w-full" data-auto-scroll-field>
       <label className="block" htmlFor={inputId}>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{label}</span>
         <input
@@ -575,7 +575,7 @@ function SmartNumberInput({
   };
 
   return (
-    <div className="block w-full">
+    <div className="block w-full" data-auto-scroll-field>
       <label className="block" htmlFor={inputId}>
         <span className={compact ? "text-[10px] font-semibold uppercase tracking-wider text-zinc-400" : "text-[13px] font-medium text-zinc-700"}>{label}</span>
         <input

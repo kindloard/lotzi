@@ -40,16 +40,16 @@ export function GoogleSignInButton({
 }) {
   return (
     <button
-      className="relative flex h-10 w-full items-center justify-center rounded-xl bg-zinc-100 text-[13px] font-semibold text-zinc-950 transition-all hover:bg-zinc-200/80 active:translate-y-px focus:outline-none focus:ring-4 focus:ring-zinc-950/5 disabled:cursor-not-allowed disabled:opacity-65"
+      className="relative flex h-10 w-full items-center justify-center rounded-xl bg-zinc-100 px-4 text-[13px] font-semibold text-zinc-950 transition-all hover:bg-zinc-200/80 active:translate-y-px focus:outline-none focus:ring-4 focus:ring-zinc-950/5 disabled:cursor-not-allowed disabled:opacity-65"
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      <span className="grid grid-cols-[24px_180px] items-center gap-2">
-        <span className="flex size-6 items-center justify-center justify-self-center">
+      <span className="inline-flex max-w-full items-center justify-center gap-2">
+        <span className="flex size-5 shrink-0 items-center justify-center">
           {loading ? <Loader2 className="animate-spin" size={14} /> : <GoogleLogo />}
         </span>
-        <span className="min-w-0 text-left font-semibold">
+        <span className="min-w-0 whitespace-nowrap font-semibold leading-none">
           {loading ? loadingLabel : label}
         </span>
       </span>

@@ -1,11 +1,10 @@
 import {
   Archive,
   ChevronLeft,
-  Database,
   Sparkles,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useToast } from "@/components/toast/toast-context";
 import { defaultDraft } from "../../data/mock-dashboard-data";
@@ -59,8 +58,8 @@ export function ProductCreateDrawer({
   const [draft, setDraft] = useState<ProductDraft>(() => (
     initialDraft ? withSubcategoryFallback(initialDraft) : loadStoredDraft()
   ));
-  const [lastSaved, setLastSaved] = useState(t("productCreate.notSaved"));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -86,10 +85,13 @@ export function ProductCreateDrawer({
     }
     const timer = window.setTimeout(() => {
       window.localStorage.setItem(storageKey, JSON.stringify(persistableDraft(draft)));
-      setLastSaved(t("productCreate.autoSaved"));
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [draft, isEditMode, t]);
+  }, [draft, isEditMode]);
+
+  useLayoutEffect(() => {
+    contentScrollRef.current?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+  }, [step]);
 
   const errors = validateDraftStep(draft, step);
   const saveBlocked = isSaving || isSubmitting;
@@ -153,6 +155,19 @@ export function ProductCreateDrawer({
     }
   };
 
+  const scrollFocusedControlIntoView = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const control = target.closest<HTMLElement>("[data-auto-scroll-field]") ?? target;
+    const scroll = () => {
+      control.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    };
+
+    window.requestAnimationFrame(scroll);
+    window.setTimeout(scroll, 260);
+  };
+
   return (
     <div className={cx("fixed inset-0 z-50 bg-zinc-950/45 backdrop-blur-sm", styles.backdrop)}>
       <button
@@ -170,21 +185,18 @@ export function ProductCreateDrawer({
           styles.drawer
         )}
       >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 sm:px-6">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
-                <Database size={12} />
-                {t("productCreate.productRecord")}
-              </span>
-              <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-medium text-white">
-                {t("productCreate.stepOf", { current: step + 1, total: steps.length })}
-              </span>
-            </div>
-            <h2 className="text-xl font-semibold tracking-tight text-zinc-950">
-              {isEditMode ? t("productCreate.editTitle") : t("productCreate.title")}
-            </h2>
-            <p className="mt-1 text-[12px] font-normal text-zinc-500">{lastSaved}</p>
+        <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              aria-label={t("common.back")}
+              className="flex size-8 shrink-0 appearance-none items-center justify-center border-0 bg-transparent p-0 text-zinc-950 shadow-none transition hover:bg-transparent hover:text-zinc-950 focus:outline-none focus:ring-0 disabled:pointer-events-none disabled:opacity-30"
+              disabled={step === 0 || saveBlocked}
+              onClick={() => setStep(Math.max(0, step - 1))}
+              type="button"
+            >
+              <ChevronLeft size={22} strokeWidth={2.2} />
+            </button>
+            <h2 className="text-xl font-semibold tracking-tight text-zinc-950">{steps[step]?.label}</h2>
           </div>
           <button
             aria-label={t("productCreate.closeDrawer")}
@@ -201,7 +213,11 @@ export function ProductCreateDrawer({
           <ProductCreateDesktopProgress canChangeStep={canChangeStep} currentStep={step} onStepChange={setStep} steps={steps} />
           <section className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
             <ProductCreateMobileProgress canChangeStep={canChangeStep} currentStep={step} onStepChange={setStep} steps={steps} />
-            <div className={cx("min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white p-5 sm:p-6", styles.hiddenScrollbar)}>
+            <div
+              className={cx("min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white p-5 sm:p-6", styles.hiddenScrollbar)}
+              onFocusCapture={(event) => scrollFocusedControlIntoView(event.target)}
+              ref={contentScrollRef}
+            >
               {step === 0 && <DetailsStep draft={draft} setDraft={setDraft} />}
               {step === 1 && <PricingStep draft={draft} setDraft={setDraft} />}
               {step === 2 && <InventoryStep draft={draft} setDraft={setDraft} />}
@@ -215,14 +231,6 @@ export function ProductCreateDrawer({
                   {errors[0] ? t(`productCreate.validation.${errors[0]}` as never) : t("productCreate.validationGood")}
                 </p>
                 <div className="flex flex-wrap justify-end gap-2">
-                  <DashboardButton
-                    disabled={step === 0 || saveBlocked}
-                    icon={ChevronLeft}
-                    label={t("common.back")}
-                    onClick={() => setStep(Math.max(0, step - 1))}
-                    showLabelOnMobile
-                    variant="secondary"
-                  />
                   {step < steps.length - 1 ? (
                     <DashboardButton
                       disabled={errors.length > 0 || saveBlocked}

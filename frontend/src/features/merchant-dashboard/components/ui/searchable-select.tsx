@@ -84,7 +84,15 @@ export function SearchableSelect({
       enabledOptions[0] ??
       null;
     setHighlightedValue(nextHighlighted?.value ?? null);
-    window.requestAnimationFrame(() => searchRef.current?.focus());
+    const scrollIntoView = () => {
+      rootRef.current?.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    };
+
+    window.requestAnimationFrame(() => {
+      scrollIntoView();
+      searchRef.current?.focus();
+    });
+    window.setTimeout(scrollIntoView, 260);
   }, [enabledOptions, isOpen, value]);
 
   useEffect(() => {
@@ -177,7 +185,7 @@ export function SearchableSelect({
   const describedBy = [helperId, errorId].filter(Boolean).join(" ") || undefined;
 
   return (
-    <div className={cx("relative", className)} ref={rootRef}>
+    <div className={cx("relative", className)} data-auto-scroll-field ref={rootRef}>
       <label
         className={cx(
           "block",

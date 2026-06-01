@@ -1,6 +1,5 @@
 import { Check } from "lucide-react";
 import { cx } from "../../lib/dashboard-utils";
-import styles from "../../styles/product-create-drawer.module.css";
 
 export interface ProductCreateStep {
   description: string;
@@ -61,9 +60,7 @@ export function ProductCreateDesktopProgress({
 }
 
 export function ProductCreateMobileProgress({
-  canChangeStep,
   currentStep,
-  onStepChange,
   steps
 }: {
   canChangeStep?: (step: number) => boolean;
@@ -71,26 +68,19 @@ export function ProductCreateMobileProgress({
   onStepChange: (step: number) => void;
   steps: ProductCreateStep[];
 }) {
+  const progress = `${((currentStep + 1) / steps.length) * 100}%`;
+
   return (
-    <div className="shrink-0 border-b border-zinc-200 bg-white px-4 py-3 lg:hidden">
-      <div className={cx("flex gap-1.5 overflow-x-auto", styles.hiddenScrollbar)}>
-        {steps.map((step, index) => {
-          const disabled = canChangeStep ? !canChangeStep(index) : false;
-          return (
-            <button
-              className={cx(
-                "shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-4 focus:ring-zinc-950/5",
-                currentStep === index ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white text-zinc-600"
-              )}
-              disabled={disabled}
-              key={step.label}
-              onClick={() => onStepChange(index)}
-              type="button"
-            >
-              {step.label}
-            </button>
-          );
-        })}
+    <div className="shrink-0 bg-white lg:hidden">
+      <div
+        aria-label={`Step ${currentStep + 1} of ${steps.length}`}
+        aria-valuemax={steps.length}
+        aria-valuemin={1}
+        aria-valuenow={currentStep + 1}
+        className="h-0.5 w-full bg-zinc-100"
+        role="progressbar"
+      >
+        <div className="h-full bg-zinc-950 transition-[width] duration-300 ease-out" style={{ width: progress }} />
       </div>
     </div>
   );

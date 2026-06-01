@@ -1,10 +1,10 @@
-import { BadRequestException, ForbiddenException, HttpStatus, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { normalizeException } from "@/common/api-exception.filter";
 
 describe("ApiExceptionFilter i18n error contract", () => {
   it("preserves stable codes and params from object responses", () => {
-    const error = new BadRequestException({
+    const error = new ConflictException({
       code: "PRODUCT_SKU_EXISTS",
       message: "A product with this SKU already exists.",
       params: { sku: "ABC-1" }
@@ -14,6 +14,22 @@ describe("ApiExceptionFilter i18n error contract", () => {
       code: "PRODUCT_SKU_EXISTS",
       message: "A product with this SKU already exists.",
       params: { sku: "ABC-1" }
+    });
+  });
+
+  it("preserves retry metadata for upload and idempotency clients", () => {
+    const error = new BadRequestException({
+      code: "IDEMPOTENCY_IN_PROGRESS",
+      message: "An identical request is already in progress.",
+      retryable: true,
+      retryAfterSeconds: 3
+    });
+
+    expect(normalizeException(error, HttpStatus.CONFLICT)).toEqual({
+      code: "IDEMPOTENCY_IN_PROGRESS",
+      message: "An identical request is already in progress.",
+      retryable: true,
+      retryAfterSeconds: 3
     });
   });
 

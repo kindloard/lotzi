@@ -21,6 +21,8 @@ export interface ApiErrorResponse {
   params?: Record<string, number | string>;
   fieldErrors?: ApiFieldError[];
   details?: unknown;
+  retryable?: boolean;
+  retryAfterSeconds?: number;
 }
 
 @Catch()
@@ -56,13 +58,17 @@ export function normalizeException(exception: unknown, status: number): ApiError
       const fieldErrors = fieldErrorsFromUnknown(candidate.fieldErrors ?? candidate.errors ?? (Array.isArray(candidate.message) ? candidate.message : undefined));
       const params = paramsFromUnknown(candidate.params);
       const details = "details" in candidate ? candidate.details : undefined;
+      const retryable = typeof candidate.retryable === "boolean" ? candidate.retryable : undefined;
+      const retryAfterSeconds = numberFromUnknown(candidate.retryAfterSeconds);
 
       return {
         code,
         message,
         ...(params ? { params } : {}),
         ...(fieldErrors.length > 0 ? { fieldErrors } : {}),
-        ...(details !== undefined ? { details } : {})
+        ...(details !== undefined ? { details } : {}),
+        ...(retryable !== undefined ? { retryable } : {}),
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {})
       };
     }
 
@@ -85,6 +91,10 @@ function messageFromUnknown(value: unknown): string | null {
     return value[0] ?? null;
   }
   return null;
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function fieldErrorsFromUnknown(value: unknown): ApiFieldError[] {

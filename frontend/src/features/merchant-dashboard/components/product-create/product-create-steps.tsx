@@ -4,7 +4,8 @@ import {
   GripVertical,
   ImagePlus,
   Plus,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import { useEffect } from "react";
 import type { ChangeEvent, Dispatch, DragEvent, MutableRefObject, SetStateAction } from "react";
@@ -282,7 +283,6 @@ export function DetailsStep({
 
   return (
     <div className="space-y-6">
-      <SectionHeading title={t("productCreate.sections.detailsTitle")} body={t("productCreate.sections.detailsBody")} />
       <FormGrid>
         <FormField
           label={t("productCreate.fields.name")}
@@ -348,7 +348,7 @@ export function DetailsStep({
           value={activeMeasurementGroup}
         />
       </FormGrid>
-      <div className="block">
+      <div className="block" data-auto-scroll-field>
         <label className="text-[13px] font-medium text-zinc-700" htmlFor="product-description">
           {t("productCreate.fields.description")}
         </label>
@@ -406,10 +406,7 @@ export function PricingStep({
   const updateProductPrice = (value: number) => {
     setDraft((current) => ({
       ...current,
-      price: value,
-      variants: current.variants.map((variant) =>
-        variant.manualPrice ? variant : { ...variant, price: value }
-      )
+      price: value
     }));
   };
   const updateProductPackSize = (value: number) => {
@@ -524,7 +521,6 @@ export function PricingStep({
 
   return (
     <div className="space-y-6">
-      <SectionHeading title={t("productCreate.sections.pricingTitle")} body={t("productCreate.sections.pricingBody")} />
       <div className={styles.pricingGrid}>
         <NumberField
           error={priceError}
@@ -585,10 +581,18 @@ export function PricingStep({
         <div className="space-y-2">
           {draft.variants.map((variant) => (
             <div
-              className={cx("items-end rounded-2xl border border-zinc-200 bg-white p-3", styles.variantGrid)}
+              className={cx("relative items-end rounded-2xl border border-zinc-200 bg-white p-3", styles.variantGrid)}
               key={variant.id}
             >
-              <div className={styles.variantNameField}>
+              <button
+                aria-label={t("productCreate.actions.removeVariant")}
+                className="absolute right-3 top-3 flex size-8 items-center justify-center text-zinc-400 transition hover:text-rose-600 focus:outline-none focus:ring-4 focus:ring-zinc-950/5"
+                onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((item) => item.id !== variant.id) }))}
+                type="button"
+              >
+                <X size={17} strokeWidth={2.2} />
+              </button>
+              <div className={cx(styles.variantNameField, "pr-9")}>
                 <InlineInput
                   error={!variant.name.trim() ? t("productCreate.validation.variantNameRequired") : undefined}
                   label={t("productCreate.fields.variant")}
@@ -663,14 +667,6 @@ export function PricingStep({
                 searchPlaceholder={t("productCreate.searchableSelect.searchPlaceholder")}
                 value={variant.measurement.packType}
               />
-              <button
-                aria-label={t("productCreate.actions.removeVariant")}
-                className={cx("flex size-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-950", styles.variantDeleteButton)}
-                onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((item) => item.id !== variant.id) }))}
-                type="button"
-              >
-                <Trash2 size={14} />
-              </button>
               <div className="col-span-full">
                 <span className="text-[11px] font-normal text-zinc-500">
                   {normalizeMeasurement(variant.measurement, variant.price).unitDisplay} - {normalizeMeasurement(variant.measurement, variant.price).pricePerBaseUnitDisplay}
@@ -728,12 +724,12 @@ function unitSummaryForGroup(
 
 function newVariantDraft(current: ProductDraft, fallbackName: string) {
   const measurement = coerceMeasurementForProduct(current.measurement, current);
-  const normalized = normalizeMeasurement(measurement, current.price);
+  const normalized = normalizeMeasurement(measurement, 0);
   return {
     id: uid(),
     name: variantNameFromProductName(current.name, fallbackName),
     sku: current.sku.trim().toUpperCase(),
-    price: current.price,
+    price: 0,
     mrp: current.compareAtPrice,
     costPrice: current.costPrice,
     stock: 0,
@@ -831,7 +827,6 @@ export function InventoryStep({
 
   return (
     <div className="space-y-6">
-      <SectionHeading title={t("productCreate.sections.inventoryTitle")} body={t("productCreate.sections.inventoryBody")} />
       <div className="min-w-0 space-y-3">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{t("productCreate.inventory.productStock")}</h3>

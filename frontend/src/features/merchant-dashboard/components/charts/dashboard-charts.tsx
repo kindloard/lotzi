@@ -54,7 +54,7 @@ export function LiveLineChart({
           return (
             <g key={i}>
               <line x1={padLeft} x2={width - padRight} y1={y} y2={y} stroke="#e4e4e7" strokeDasharray="4 4" strokeWidth="1" />
-              <text x={padLeft - 10} y={y + 4} textAnchor="end" fill="#a1a1aa" fontSize="11" fontFamily="Inter, system-ui, sans-serif" fontWeight="500">
+              <text x={padLeft - 10} y={y + 4} textAnchor="end" fill="#a1a1aa" fontSize="11" fontFamily="var(--font-app-sans), system-ui, sans-serif" fontWeight="600">
                 {fmt(val)}
               </text>
             </g>
@@ -88,7 +88,7 @@ export function LiveLineChart({
               textAnchor="middle"
               fill="#a1a1aa"
               fontSize="10"
-              fontFamily="Inter, system-ui, sans-serif"
+              fontFamily="var(--font-app-sans), system-ui, sans-serif"
               fontWeight="500"
             >
               {p.label}

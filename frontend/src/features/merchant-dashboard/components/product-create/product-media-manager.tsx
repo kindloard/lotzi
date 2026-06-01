@@ -45,7 +45,7 @@ import { isAbortError } from "@/lib/abort";
 import type { ProductDraft, ProductImage } from "../../types/dashboard";
 import { cx, isVisibleStockVariant, uid } from "../../lib/dashboard-utils";
 import { uploadStatusKey } from "../../lib/dashboard-i18n";
-import { IconButton, SectionHeading } from "../ui/dashboard-ui";
+import { IconButton } from "../ui/dashboard-ui";
 
 const allowedTypes = new Set([
   "image/jpeg",
@@ -223,7 +223,7 @@ export function ProductMediaManager({
         url: previewUrl,
         focus: "Center",
         isPrimary: imagesRef.current.length === 0 && accepted.length === 0,
-        ...variantImageAssignment(),
+        ...variantImageAssignment(activeMediaScope, variantOptions),
         upload: {
           attemptId,
           attempt: 1,
@@ -369,7 +369,9 @@ export function ProductMediaManager({
         id: imageId,
         imageScope: imageScopeFor(local),
         name: displayFileName(file),
-        url: local.url
+        url: local.url,
+        variantIds: local.variantIds ?? [],
+        variantSkuIds: local.variantSkuIds ?? []
       });
       updateImageAttempt(imageId, attemptId, (current) => {
         const currentPreviewUrl = current.upload?.previewUrl ?? previewUrl;
@@ -704,26 +706,18 @@ export function ProductMediaManager({
 
   return (
     <div className="space-y-6">
-      <SectionHeading title={t("productCreate.sections.mediaTitle")} body={t("productCreate.sections.mediaBody")} />
       {hasVariantMediaControls && (
         <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[13px] font-semibold text-zinc-950">{t("productCreate.media.sameImageAsProduct")}</p>
-              <p className="mt-1 text-[11px] font-normal leading-relaxed text-zinc-500">
-                {sameImageAsProduct
-                  ? t("productCreate.media.sameImageAsProductHelp")
-                  : activeMediaScope === "PRODUCT"
-                    ? t("productCreate.media.productPhotoScopeHelp")
-                    : t("productCreate.media.variantPhotoScopeHelp")}
-              </p>
             </div>
             <button
               aria-checked={sameImageAsProduct}
               aria-label={t("productCreate.media.sameImageAsProduct")}
               className={cx(
-                "flex h-8 w-14 shrink-0 items-center rounded-full border p-1 transition focus:outline-none focus:ring-4 focus:ring-zinc-950/5",
-                sameImageAsProduct ? "border-zinc-950 bg-zinc-950" : "border-zinc-200 bg-zinc-100"
+                "flex h-5 w-9 shrink-0 items-center rounded-full border p-0.5 transition focus:outline-none focus:ring-4 focus:ring-black/5",
+                sameImageAsProduct ? "border-black bg-black" : "border-zinc-200 bg-zinc-100"
               )}
               onClick={() => updateSameImageAsProduct(!sameImageAsProduct)}
               role="switch"
@@ -731,8 +725,8 @@ export function ProductMediaManager({
             >
               <span
                 className={cx(
-                  "size-6 rounded-full bg-white shadow-sm transition-transform",
-                  sameImageAsProduct ? "translate-x-6" : "translate-x-0"
+                  "size-4 rounded-full bg-white shadow-sm transition-transform",
+                  sameImageAsProduct ? "translate-x-4" : "translate-x-0"
                 )}
               />
             </button>
@@ -1122,8 +1116,15 @@ function mediaOptionsFromDraft(draft: ProductDraft): VariantMediaOption[] {
   });
 }
 
-function variantImageAssignment() {
-  return { variantIds: [], variantSkuIds: [] };
+function variantImageAssignment(scope: MediaScope, options: VariantMediaOption[]) {
+  if (scope !== "VARIANT" || options.length === 0) {
+    return { variantIds: [], variantSkuIds: [] };
+  }
+
+  return {
+    variantIds: options.map((option) => option.id),
+    variantSkuIds: options.flatMap((option) => option.sku ? [option.sku] : [])
+  };
 }
 
 function normalizeVariantImageAssignment(image: ProductImage, options: VariantMediaOption[]) {

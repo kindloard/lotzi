@@ -126,6 +126,9 @@ export function isRetryableUploadError(error: unknown) {
   if (retryableFlag(error.body)) {
     return true;
   }
+  if (retryableUploadCode(error.body)) {
+    return true;
+  }
   return error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500;
 }
 
@@ -203,7 +206,7 @@ function sendProductImageUpload(input: {
     xhr.onerror = () => reject(new ApiError("Connection error. Please check your internet and try again.", 0));
     xhr.ontimeout = () => reject(new ApiError("Image upload timed out.", 0));
     xhr.onabort = () => reject(new DOMException("Upload aborted.", "AbortError"));
-    xhr.timeout = 30_000;
+    xhr.timeout = 120_000;
 
     input.signal?.addEventListener("abort", () => xhr.abort(), { once: true });
 
@@ -296,15 +299,23 @@ function toProductPayload(draft: ProductDraft, storeId: string, status: ProductS
     seoTitle: draft.seoTitle,
     seoDescription: draft.seoDescription.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH),
     images: uploadedImages.map((image, index) => {
-      const useVariantAssignments = !useProductImagesForEveryVariant && image.imageScope === "VARIANT";
+      const assignedVariantIds = image.variantIds?.filter((id) => visibleVariants.some((variant) => variant.id === id)) ?? [];
+      const assignedVariantSkus = image.variantSkuIds?.filter((sku) => {
+        const normalizedSku = sku.trim().toUpperCase();
+        return normalizedSku && visibleVariants.some((variant) => variant.sku.trim().toUpperCase() === normalizedSku);
+      }) ?? [];
+      const useVariantAssignments =
+        !useProductImagesForEveryVariant &&
+        image.imageScope === "VARIANT" &&
+        (assignedVariantIds.length > 0 || assignedVariantSkus.length > 0);
       return {
         uploadAssetId: image.uploadAssetId,
         sortOrder: index,
         isPrimary: image.isPrimary ?? index === 0,
         altText: image.altText ?? image.name,
         imageScope: useVariantAssignments ? "VARIANT" : "PRODUCT",
-        variantClientIds: useVariantAssignments ? (image.variantIds ?? []) : [],
-        variantSkuIds: useVariantAssignments ? (image.variantSkuIds ?? []) : []
+        variantClientIds: useVariantAssignments ? assignedVariantIds : [],
+        variantSkuIds: useVariantAssignments ? assignedVariantSkus : []
       };
     }),
     variants: payloadVariants
@@ -480,6 +491,11 @@ function retryableFlag(body: unknown) {
   return Boolean(body && typeof body === "object" && (body as { retryable?: unknown }).retryable === true);
 }
 
+function retryableUploadCode(body: unknown) {
+  const code = errorCode(body);
+  return code === "IDEMPOTENCY_IN_PROGRESS" || code === "UPLOAD_PROCESSING_BUSY";
+}
+
 function retryAfterSecondsValue(body: unknown): number | undefined {
   if (!body || typeof body !== "object") {
     return undefined;
@@ -487,6 +503,10 @@ function retryAfterSecondsValue(body: unknown): number | undefined {
   const direct = (body as { retryAfterSeconds?: unknown }).retryAfterSeconds;
   if (typeof direct === "number" && Number.isFinite(direct)) {
     return direct;
+  }
+  const code = errorCode(body);
+  if (code === "IDEMPOTENCY_IN_PROGRESS" || code === "UPLOAD_PROCESSING_BUSY") {
+    return 3;
   }
   const details = (body as { details?: unknown }).details;
   if (details && typeof details === "object") {
@@ -551,7 +571,7 @@ function logUploadTiming(serverTiming: string | null) {
 
 export function productImageFromAsset(
   asset: UploadedAsset,
-  local: Pick<ProductImage, "id" | "name" | "url"> & Partial<Pick<ProductImage, "imageScope">>
+  local: Pick<ProductImage, "id" | "name" | "url"> & Partial<Pick<ProductImage, "imageScope" | "variantIds" | "variantSkuIds">>
 ): ProductImage {
   const card = asset.renditions.card ?? asset.renditions.detail ?? Object.values(asset.renditions)[0];
   return {
@@ -561,6 +581,8 @@ export function productImageFromAsset(
     name: asset.originalFilename,
     url: card?.secureUrl ?? local.url,
     focus: "Center",
-    isPrimary: false
+    isPrimary: false,
+    variantIds: local.variantIds ?? [],
+    variantSkuIds: local.variantSkuIds ?? []
   };
 }
