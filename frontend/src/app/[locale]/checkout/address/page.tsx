@@ -20,6 +20,7 @@ import {
   type ReverseGeocodeResult,
   addressDraftFromNominatim,
   emptyAddressDraft,
+  normalizeDeliveryPoint,
   persistAddressDraft,
   pointFromDraft,
   readAddressDraft,
@@ -114,18 +115,24 @@ export default function CheckoutAddressPage() {
       reverseLookup?: boolean;
     } = {}
   ) => {
-    setSelectedPoint(point);
+    const normalizedPoint = normalizeDeliveryPoint(point);
+    if (!normalizedPoint) {
+      setLocationState("error");
+      return;
+    }
+
+    setSelectedPoint(normalizedPoint);
     setPinRequired(false);
     setLocationAccuracy(options.accuracy ?? null);
     setSelectedLabel(options.label ?? "Selected delivery location");
     setLocationState("resolved");
-    moveMapPin(point, { animate: true });
+    moveMapPin(normalizedPoint, { animate: true });
 
     setDraft((current) => ({
       ...current,
       ...withoutEmpty(options.patch ?? {}),
-      latitude: point.latitude,
-      longitude: point.longitude
+      latitude: normalizedPoint.latitude,
+      longitude: normalizedPoint.longitude
     }));
 
     if (options.reverseLookup === false) {
@@ -133,13 +140,13 @@ export default function CheckoutAddressPage() {
     }
 
     try {
-      const result = await reverseGeocode(point.latitude, point.longitude);
+      const result = await reverseGeocode(normalizedPoint.latitude, normalizedPoint.longitude);
       setSelectedLabel(result.display_name?.split(",").slice(0, 3).join(", ") || "Selected delivery location");
       setDraft((current) => ({
         ...current,
         ...withoutEmpty(addressDraftFromNominatim()),
-        latitude: point.latitude,
-        longitude: point.longitude
+        latitude: normalizedPoint.latitude,
+        longitude: normalizedPoint.longitude
       }));
     } catch {
       // A selected map pin is still usable even when reverse geocoding is unavailable.

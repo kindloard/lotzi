@@ -10,4 +10,9 @@ export class WebhookController {
   cashfree(@Req() request: Request & { rawBody?: Buffer }) {
     return this.webhooks.ingestCashfree(request);
   }
+
+  @Post("phonepe")
+  phonepe(@Req() request: Request & { rawBody?: Buffer }) {
+    return this.webhooks.ingestPhonepe(request);
+  }
 }

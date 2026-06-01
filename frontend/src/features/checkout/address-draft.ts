@@ -3,12 +3,16 @@ import type { AddressInput } from "@/features/customer-account/customer-account-
 export const CHECKOUT_SELECTED_ADDRESS_KEY = "ns:checkout:selected-address-id";
 export const CHECKOUT_ADDRESS_DRAFT_KEY = "ns:checkout:address-draft";
 
+const COORDINATE_DECIMAL_PLACES = 7;
+const COORDINATE_SCALE = 10 ** COORDINATE_DECIMAL_PLACES;
+
 export interface DeliveryPoint {
   latitude: number;
   longitude: number;
 }
 
 export interface AddressDraft extends AddressInput {
+  email?: string;
   latitude?: number;
   longitude?: number;
 }
@@ -36,6 +40,7 @@ export function emptyAddressDraft(): AddressDraft {
   return {
     city: "",
     deliveryInstructions: "",
+    email: "",
     isDefault: true,
     label: "Home",
     line1: "",
@@ -70,7 +75,7 @@ export function persistSelectedAddress(addressId: string) {
 
 export function persistAddressDraft(draft: AddressDraft) {
   try {
-    window.sessionStorage.setItem(CHECKOUT_ADDRESS_DRAFT_KEY, JSON.stringify(draft));
+    window.sessionStorage.setItem(CHECKOUT_ADDRESS_DRAFT_KEY, JSON.stringify(withNormalizedDraftCoordinates(draft)));
   } catch {
     // The user can still type the address again if storage is unavailable.
   }
@@ -85,9 +90,40 @@ export function clearAddressDraft() {
 }
 
 export function pointFromDraft(draft: Partial<AddressDraft>): DeliveryPoint | null {
-  return typeof draft.latitude === "number" && typeof draft.longitude === "number"
-    ? { latitude: draft.latitude, longitude: draft.longitude }
-    : null;
+  return normalizeDeliveryPoint(draft);
+}
+
+export function normalizeCoordinate(value: unknown, min: number, max: number) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric < min || numeric > max) {
+    return undefined;
+  }
+  return Math.round(numeric * COORDINATE_SCALE) / COORDINATE_SCALE;
+}
+
+export function normalizeDeliveryPoint(point: Partial<DeliveryPoint> | null | undefined): DeliveryPoint | null {
+  if (!point) {
+    return null;
+  }
+  const latitude = normalizeCoordinate(point.latitude, -90, 90);
+  const longitude = normalizeCoordinate(point.longitude, -180, 180);
+  return latitude === undefined || longitude === undefined ? null : { latitude, longitude };
+}
+
+function withNormalizedDraftCoordinates(draft: AddressDraft): AddressDraft {
+  const next = { ...draft };
+  const point = normalizeDeliveryPoint(next);
+  if (!point) {
+    delete next.latitude;
+    delete next.longitude;
+    return next;
+  }
+  next.latitude = point.latitude;
+  next.longitude = point.longitude;
+  return next;
 }
 
 export function addressDraftFromNominatim(): Partial<AddressDraft> {

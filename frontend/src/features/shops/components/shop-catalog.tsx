@@ -12,10 +12,11 @@ import { SearchInput } from "@/components/search-input";
 import { ViewImageViewer, type ViewImageItem } from "@/components/view-image-viewer";
 import { useShopProducts } from "../hooks/use-shop-products";
 import { fetchShopProductDetail } from "../shops-api";
-import type { ShopDetail, ShopProduct, ShopProductsFilters, ShopProductsResponse } from "../shops-api";
+import type { ShopDetail, ShopProduct, ShopProductVariant, ShopProductsFilters, ShopProductsResponse } from "../shops-api";
 import { shopProductDetailQueryKey } from "../hooks/use-shop-product-detail";
 import { canonicalProductPath, productRefFromParts } from "../lib/product-route";
 import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
+import { useCatalogRealtimeSubscription } from "../realtime/catalog-realtime";
 import { Link, useRouter } from "@/i18n/navigation";
 
 const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -102,12 +103,29 @@ export function ShopCatalog({
   );
   const remoteData = query.data ?? initialProducts;
   const data = isLocalCatalogMode ? buildLocalCatalogData(initialProducts, filters) : remoteData;
+  const visibleProductPublicIds = useMemo(() => data.products.map((product) => product.publicId), [data.products]);
+  useCatalogRealtimeSubscription({
+    enabled: true,
+    productPublicIds: visibleProductPublicIds,
+    storePublicId: shop.publicId
+  });
   const showProductError = !isLocalCatalogMode && (query.isError || (initialFailed && !query.data && !query.isFetching));
   const hasCrossStoreItems = cartItems.some((item) => item.shopId !== shop.id);
-  const cartByProductId = useMemo(
-    () => new Map(cartItems.map((item) => [item.id, item.qty])),
-    [cartItems]
-  );
+  const cartByProductId = useMemo(() => {
+    const quantities = new Map<string, number>();
+    for (const item of cartItems) {
+      quantities.set(item.id, (quantities.get(item.id) ?? 0) + item.qty);
+    }
+    return quantities;
+  }, [cartItems]);
+  const cartByLineKey = useMemo(() => {
+    const quantities = new Map<string, number>();
+    for (const item of cartItems) {
+      const key = item.variantId ?? item.id;
+      quantities.set(key, (quantities.get(key) ?? 0) + item.qty);
+    }
+    return quantities;
+  }, [cartItems]);
   const formatPrice = useCallback(
     (value: number) =>
       format.number(value, {
@@ -164,6 +182,9 @@ export function ShopCatalog({
   }, [facetSource.categories, facetSource.subCategories, subCategoryLabels, tCategories]);
 
   function requestAdd(product: ShopProduct) {
+    if (!getPurchasableCatalogVariant(product)) {
+      return;
+    }
     if (hasCrossStoreItems) {
       setPendingProduct(product);
       return;
@@ -172,20 +193,23 @@ export function ShopCatalog({
   }
 
   function addProduct(product: ShopProduct) {
-    const variant = product.variants.find((item) => item.isDefault) ?? product.variants[0];
+    const variant = getPurchasableCatalogVariant(product);
+    if (!variant) {
+      return;
+    }
     addToCart({
       id: product.id,
-      variantId: variant?.id,
+      variantId: variant.id,
       name: product.name,
-      price: variant?.price ?? product.price,
+      price: variant.price,
       shop: shop.name,
       shopId: shop.id,
       imageBg: "bg-slate-50 text-slate-900",
       imageInitials: product.imageInitials,
       imageUrl: product.imageUrl ?? undefined,
-      unit: variant?.unitDisplay ?? product.unitDisplay,
-      unitDisplay: variant?.unitDisplay ?? product.unitDisplay,
-      pricePerBaseUnitDisplay: variant?.pricePerBaseUnitDisplay ?? product.pricePerBaseUnitDisplay
+      unit: variant.unitDisplay,
+      unitDisplay: variant.unitDisplay,
+      pricePerBaseUnitDisplay: variant.pricePerBaseUnitDisplay
     });
   }
 
@@ -219,7 +243,7 @@ export function ShopCatalog({
     void queryClient.prefetchQuery({
       queryKey: shopProductDetailQueryKey(shop.publicId, shop.publicSlug, productRef),
       queryFn: ({ signal }) => fetchShopProductDetail(shop.publicId, shop.publicSlug, productRef, { signal }),
-      staleTime: 2 * 60 * 1000
+      staleTime: 0
     });
   }, [queryClient, router, shop.publicId, shop.publicSlug]);
 
@@ -281,11 +305,11 @@ export function ShopCatalog({
                 key={product.id}
                 product={product}
                 priority={index < 6}
-                qty={cartByProductId.get(product.id) ?? 0}
+                qty={cartByLineKey.get(getCatalogDisplayVariant(product)?.id ?? product.id) ?? cartByProductId.get(product.id) ?? 0}
                 onAdd={() => requestAdd(product)}
                 onPrefetch={() => warmProductRoute(product)}
                 onPreviewImage={(imageIndex) => openProductImageViewer(product, imageIndex)}
-                onQtyChange={(delta) => updateQty(product.id, delta)}
+                onQtyChange={(delta) => updateQty(getCatalogDisplayVariant(product)?.id ?? product.id, delta)}
                 labels={{
                   addButton: tCatalog("addButton"),
                   addToCart: (name) => tCatalog("addToCartAria", { name }),
@@ -430,8 +454,14 @@ const ProductCard = memo(function ProductCard({
   const catalogImage = getPreferredCatalogImage(product);
   const imageUrl = optimizedCloudinaryUrl(catalogImage?.url ?? product.imageUrl, { width: 360 });
   const hasViewerImage = Boolean(catalogImage?.url || product.imageUrl);
-  const price = formatPrice(product.price);
-  const compareAt = product.compareAtPrice ? formatPrice(product.compareAtPrice) : null;
+  const displayVariant = getCatalogDisplayVariant(product);
+  const purchasableVariant = getPurchasableCatalogVariant(product);
+  const displayInStock = Boolean(purchasableVariant);
+  const availableStock = purchasableVariant?.stock ?? 0;
+  const quantityAtLimit = displayInStock && qty >= availableStock;
+  const price = formatPrice(displayVariant?.price ?? product.price);
+  const compareAt = displayVariant?.compareAtPrice ? formatPrice(displayVariant.compareAtPrice) : null;
+  const unitDisplay = displayVariant?.unitDisplay ?? product.unitDisplay;
 
   function handleCardClick(event: MouseEvent<HTMLElement>) {
     const target = event.target as HTMLElement;
@@ -443,7 +473,9 @@ const ProductCard = memo(function ProductCard({
 
   return (
     <article
-      className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)]"
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] transition ${
+        displayInStock ? "border-slate-100" : "border-slate-200 bg-slate-50/80"
+      }`}
       onClick={handleCardClick}
       onFocus={onPrefetch}
       onPointerEnter={onPrefetch}
@@ -456,6 +488,11 @@ const ProductCard = memo(function ProductCard({
         onClick={() => onPreviewImage(0)}
         aria-label={labels.viewImage(product.name)}
       >
+        {!displayInStock ? (
+          <span className="absolute left-3 top-3 z-10 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-rose-600 shadow-sm ring-1 ring-rose-100">
+            {labels.outOfStock}
+          </span>
+        ) : null}
         {imageUrl ? (
           <Image
             src={imageUrl}
@@ -463,10 +500,10 @@ const ProductCard = memo(function ProductCard({
             fill
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-            className="object-contain p-4 mix-blend-multiply"
+            className={`object-contain p-4 mix-blend-multiply transition ${displayInStock ? "" : "grayscale opacity-60"}`}
           />
         ) : (
-          <span className="flex h-full items-center justify-center text-lg font-black text-slate-300">
+          <span className={`flex h-full items-center justify-center text-lg font-black ${displayInStock ? "text-slate-300" : "text-slate-400"}`}>
             {product.imageInitials}
           </span>
         )}
@@ -492,7 +529,7 @@ const ProductCard = memo(function ProductCard({
         </div>
         
         <p className="mt-1 text-xs font-medium text-slate-500">
-          {product.unitDisplay}
+          {unitDisplay}
         </p>
         
         <div className="mt-auto flex items-end justify-between gap-2 pt-4">
@@ -503,7 +540,7 @@ const ProductCard = memo(function ProductCard({
             ) : null}
           </div>
 
-          {product.inStock ? (
+          {displayInStock ? (
             qty > 0 ? (
               <div className="flex h-9 w-[76px] items-center justify-between rounded-lg bg-black text-white shadow-sm overflow-hidden transition-all">
                 <button
@@ -518,7 +555,8 @@ const ProductCard = memo(function ProductCard({
                 <button
                   type="button"
                   onClick={() => onQtyChange(1)}
-                  className="flex h-full w-7 items-center justify-center"
+                  disabled={quantityAtLimit}
+                  className="flex h-full w-7 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label={labels.increaseQuantity(product.name)}
                 >
                   <Plus size={14} strokeWidth={2.5} />
@@ -528,7 +566,8 @@ const ProductCard = memo(function ProductCard({
               <button
                 type="button"
                 onClick={onAdd}
-                className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-black text-sm font-black text-white shadow-sm"
+                disabled={!displayInStock}
+                className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-black text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                 aria-label={labels.addToCart(product.name)}
               >
                 {labels.addButton}
@@ -592,6 +631,19 @@ function getProductViewerImages(product: ShopProduct): ViewImageItem[] {
 
 function getPreferredCatalogImage(product: ShopProduct) {
   return getCatalogVisibleImages(product)[0] ?? null;
+}
+
+function getPurchasableCatalogVariant(product: ShopProduct): ShopProductVariant | null {
+  return product.variants.find((variant) => variant.isDefault && variant.inStock && variant.stock > 0) ??
+    product.variants.find((variant) => variant.inStock && variant.stock > 0) ??
+    null;
+}
+
+function getCatalogDisplayVariant(product: ShopProduct): ShopProductVariant | null {
+  return getPurchasableCatalogVariant(product) ??
+    product.variants.find((variant) => variant.isDefault) ??
+    product.variants[0] ??
+    null;
 }
 
 function getCatalogVisibleImages(product: ShopProduct) {

@@ -164,6 +164,10 @@ export class ObservabilityService implements OnModuleInit {
     help: "Public shop page rate limited requests by endpoint",
     labelNames: ["endpoint"]
   });
+  readonly checkoutTraceQueryCapReached = new client.Counter({
+    name: "namastore_checkout_trace_query_cap_reached_total",
+    help: "Checkout trace requests that reached the per-request query trace cap"
+  });
 
   onModuleInit() {
     client.collectDefaultMetrics({ register: this.registry });
@@ -199,6 +203,7 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.shopPageCacheEvents);
     this.registry.registerMetric(this.shopPageProductsReturned);
     this.registry.registerMetric(this.shopPageRateLimited);
+    this.registry.registerMetric(this.checkoutTraceQueryCapReached);
   }
 
   observeAuthStep(flow: string, step: string, durationMs: number): void {
@@ -326,6 +331,10 @@ export class ObservabilityService implements OnModuleInit {
 
   recordShopPageRateLimited(endpoint: string): void {
     this.shopPageRateLimited.inc({ endpoint });
+  }
+
+  recordCheckoutTraceQueryCapReached(): void {
+    this.checkoutTraceQueryCapReached.inc();
   }
 
   metrics() {

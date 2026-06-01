@@ -2,9 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchShopProductDetail, type ShopProductDetailResponse } from "../shops-api";
+import { shopQueryKeys } from "../query-keys";
 
 export function shopProductDetailQueryKey(publicId: string, publicSlug: string, productRef: string) {
-  return ["shops", "pdp", publicId, publicSlug, productRef] as const;
+  return shopQueryKeys.pdp(publicId, publicSlug, productRef);
 }
 
 export function useShopProductDetail(
@@ -17,6 +18,9 @@ export function useShopProductDetail(
     queryKey: shopProductDetailQueryKey(publicId, publicSlug, productRef),
     queryFn: ({ signal }) => fetchShopProductDetail(publicId, publicSlug, productRef, { signal }),
     initialData,
-    staleTime: 2 * 60 * 1000
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    staleTime: 0
   });
 }

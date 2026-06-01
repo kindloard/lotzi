@@ -205,7 +205,7 @@ export class MerchantDashboardService {
     if (order.status === OrderStatus.PACKING) {
       return { ok: true as const };
     }
-    if (order.paymentStatus !== PaymentStatus.PAID) {
+    if (order.paymentStatus !== PaymentStatus.PAID && !(order.paymentMethod === "COD" && order.paymentStatus === PaymentStatus.AUTHORIZED)) {
       return { ok: false as const, reason: "payment_not_paid" };
     }
     const path = packingTransitionPath(order.status);
@@ -323,6 +323,7 @@ export class MerchantDashboardService {
 const merchantOrderSelect = {
   id: true,
   status: true,
+  paymentMethod: true,
   paymentStatus: true,
   total: true,
   grandTotalPaise: true,

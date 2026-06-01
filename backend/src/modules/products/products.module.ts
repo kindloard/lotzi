@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../database/database.module";
 import { SecurityModule } from "../../security/security.module";
 import { AuthModule } from "../auth/auth.module";
+import { CatalogEventsModule } from "../catalog-events/catalog-events.module";
 import { InventoryModule } from "../inventory/inventory.module";
 import { RbacModule } from "../rbac/rbac.module";
 import { ShopsModule } from "../shops/shops.module";
@@ -12,7 +13,7 @@ import { ProductsService } from "./products.service";
 
 @Module({
   controllers: [ProductsController],
-  imports: [AuthModule, DatabaseModule, InventoryModule, RbacModule, SecurityModule, ShopsModule, UploadsModule],
+  imports: [AuthModule, CatalogEventsModule, DatabaseModule, InventoryModule, RbacModule, SecurityModule, ShopsModule, UploadsModule],
   providers: [ProductInventoryService, ProductsService],
   exports: [ProductInventoryService, ProductsService]
 })

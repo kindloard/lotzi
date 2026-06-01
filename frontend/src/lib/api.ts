@@ -12,10 +12,30 @@ export class ApiError extends Error {
   }
 }
 
+export interface ApiFetchMeta {
+  status: number;
+  headers: Headers;
+  requestId: string | null;
+  serverTiming: string | null;
+}
+
+export interface ApiFetchResult<TResponse> {
+  data: TResponse;
+  meta: ApiFetchMeta;
+}
+
 export async function apiFetch<TResponse>(
   path: string,
   init?: RequestInit
 ): Promise<TResponse> {
+  const result = await apiFetchWithMeta<TResponse>(path, init);
+  return result.data;
+}
+
+export async function apiFetchWithMeta<TResponse>(
+  path: string,
+  init?: RequestInit
+): Promise<ApiFetchResult<TResponse>> {
   const headers = new Headers(init?.headers);
   setJsonContentTypeWhenNeeded(headers, init);
   const csrf = shouldSendCsrf(path, init?.method) ? csrfToken() : undefined;
@@ -74,7 +94,7 @@ export async function apiFetch<TResponse>(
           retryBody
         );
       }
-      return retryBody as TResponse;
+      return responseResult<TResponse>(retry, retryBody);
     }
   }
   if (!response.ok) {
@@ -85,7 +105,19 @@ export async function apiFetch<TResponse>(
     );
   }
 
-  return body as TResponse;
+  return responseResult<TResponse>(response, body);
+}
+
+function responseResult<TResponse>(response: Response, body: unknown): ApiFetchResult<TResponse> {
+  return {
+    data: body as TResponse,
+    meta: {
+      status: response.status,
+      headers: response.headers,
+      requestId: response.headers.get("x-request-id"),
+      serverTiming: response.headers.get("server-timing") ?? response.headers.get("Server-Timing")
+    }
+  };
 }
 
 function setJsonContentTypeWhenNeeded(headers: Headers, init?: RequestInit) {

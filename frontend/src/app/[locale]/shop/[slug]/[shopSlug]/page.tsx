@@ -20,7 +20,8 @@ type ShopPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function generateMetadata({ params, searchParams }: ShopPageProps): Promise<Metadata> {
   const [{ locale, slug: shopCode, shopSlug }, rawSearchParams] = await Promise.all([params, searchParams]);
@@ -173,7 +174,7 @@ function ShopHero({
       <ShopHeaderMobile shopName={shop.name} address={address} typeName={typeName} />
       
       {/* Desktop Header */}
-      <section className="bg-white border-b border-slate-200 hidden md:block">
+      <section className="bg-slate-50 border-b border-slate-200 hidden md:block">
         <div className="mx-auto max-w-6xl px-4 py-4 sm:py-6">
           {/* Title Row */}
           <div className="flex items-start justify-between gap-4">

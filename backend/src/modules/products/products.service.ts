@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger, Optional } from "@nestjs/common";
 import {
   Category as CategoryModel,
   Prisma,
@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { RequestTimer } from "../../common/request-timing";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
+import { CatalogEventsService } from "../catalog-events/catalog-events.service";
 import { InventoryService } from "../inventory/inventory.service";
 import { PERMISSIONS } from "../rbac/permissions";
 import { RbacEngine } from "../rbac/rbac.engine";
@@ -147,6 +148,7 @@ type ProductCreateGraphRow = {
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
   private readonly categoryCache = new Map<string, CacheEntry<CategoryRef | null>>();
   private readonly storeAccessCache = new Map<string, CacheEntry<true>>();
 
@@ -155,7 +157,8 @@ export class ProductsService {
     private readonly inventory: InventoryService,
     private readonly rbac: RbacEngine,
     private readonly shops: ShopsService,
-    private readonly uploadEngine: UploadEngineService
+    private readonly uploadEngine: UploadEngineService,
+    @Optional() private readonly catalogEvents?: CatalogEventsService
   ) {}
 
   async list(auth: AuthenticatedPrincipal, storeId: string) {
@@ -231,8 +234,23 @@ export class ProductsService {
         idempotencyKey: `product-create:${productId}`
       })
     ));
+    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
+      changedFields: ["category", "details", "images", "inventory", "price", "publication"],
+      catalogVersion: result.product?.catalogVersion ?? 1,
+      nextCategoryId: category?.id ?? null,
+      operation: "product.create",
+      productId,
+      snapshot: {
+        compareAtPrice: toMrp(dto.compareAtPrice),
+        isAvailable: status === ProductStatus.PUBLISHED,
+        price: dto.price,
+        stockStatus: dto.stock > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
+      },
+      storeId: dto.storeId,
+      variantIds: variantRows.map((variant) => variant.id)
+    }));
     await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(dto.storeId, "product.create")
+      this.invalidatePublicShopProductCache(dto.storeId, "product.create", productId)
     );
 
     return {
@@ -366,8 +384,23 @@ export class ProductsService {
       }
       return { product: updated, variants: variantRows, ...writtenImages };
     }));
+    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
+      changedFields: ["category", "details", "images", "price", "publication"],
+      catalogVersion: result.product.catalogVersion,
+      nextCategoryId: category?.id ?? null,
+      operation: "product.update",
+      previousCategoryId: existing.categoryId,
+      productId,
+      snapshot: {
+        compareAtPrice: toMrp(fullDto.compareAtPrice),
+        isAvailable: status === ProductStatus.PUBLISHED,
+        price: fullDto.price
+      },
+      storeId: fullDto.storeId,
+      variantIds: result.variants.map((variant) => variant.id)
+    }));
     await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(fullDto.storeId, "product.update")
+      this.invalidatePublicShopProductCache(fullDto.storeId, "product.update", productId)
     );
 
     return {
@@ -604,8 +637,23 @@ export class ProductsService {
         }
       });
     }));
+    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
+      changedFields: catalogChangedFieldsFromSparseDto(dto),
+      catalogVersion: updated.catalogVersion,
+      nextCategoryId: updated.categoryId,
+      operation: "product.patch",
+      previousCategoryId: existing.categoryId,
+      productId,
+      snapshot: {
+        compareAtPrice: decimalToNullableNumber(updated.compareAtPrice),
+        isAvailable: updated.status === ProductStatus.PUBLISHED,
+        price: Number(updated.price)
+      },
+      storeId: dto.storeId,
+      variantIds: updated.variants.map((variant) => variant.id)
+    }));
     await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(dto.storeId, "product.patch")
+      this.invalidatePublicShopProductCache(dto.storeId, "product.patch", productId)
     );
 
     return {
@@ -639,7 +687,16 @@ export class ProductsService {
       where: { id: productId },
       data: { imageUrl: card?.secureUrl ?? null }
     });
-    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.reorder");
+    await this.recordCatalogChange({
+      changedFields: ["images"],
+      catalogVersion: product.catalogVersion,
+      operation: "product.images.reorder",
+      productId,
+      snapshot: { imageUrl: card?.secureUrl ?? null },
+      storeId: dto.storeId,
+      variantIds: product.variants.map((variant) => variant.id)
+    });
+    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.reorder", productId);
     return { apiVersion: "v1", product: toProductResponse(product) };
   }
 
@@ -667,7 +724,16 @@ export class ProductsService {
       })
     ]);
     const product = await this.prisma.product.findUniqueOrThrow({ where: { id: productId }, include: productInclude });
-    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.replace");
+    await this.recordCatalogChange({
+      changedFields: ["images"],
+      catalogVersion: product.catalogVersion,
+      operation: "product.images.replace",
+      productId,
+      snapshot: { imageUrl: product.imageUrl },
+      storeId: dto.storeId,
+      variantIds: product.variants.map((variant) => variant.id)
+    });
+    await this.invalidatePublicShopProductCache(dto.storeId, "product.images.replace", productId);
     return { apiVersion: "v1", product: toProductResponse(product) };
   }
 
@@ -687,12 +753,65 @@ export class ProductsService {
       })
     ]);
     const product = await this.prisma.product.findUniqueOrThrow({ where: { id: productId }, include: productInclude });
-    await this.invalidatePublicShopProductCache(storeId, "product.images.delete");
+    await this.recordCatalogChange({
+      changedFields: ["images"],
+      catalogVersion: product.catalogVersion,
+      operation: "product.images.delete",
+      productId,
+      snapshot: { imageUrl: product.imageUrl },
+      storeId,
+      variantIds: product.variants.map((variant) => variant.id)
+    });
+    await this.invalidatePublicShopProductCache(storeId, "product.images.delete", productId);
     return { apiVersion: "v1", product: toProductResponse(product) };
   }
 
-  private async invalidatePublicShopProductCache(storeId: string, operation: string) {
-    await this.shops.invalidateShopCaches({ keyFamily: "products", operation, storeId });
+  private async invalidatePublicShopProductCache(storeId: string, operation: string, productId?: string) {
+    await this.shops.invalidateShopCaches({
+      keyFamily: "products",
+      operation,
+      productIds: productId ? [productId] : undefined,
+      storeId
+    });
+  }
+
+  private async recordCatalogChange(input: {
+    changedFields: string[];
+    catalogVersion?: number | null;
+    nextCategoryId?: string | null;
+    operation: string;
+    previousCategoryId?: string | null;
+    productId: string;
+    snapshot?: Record<string, unknown>;
+    storeId: string;
+    variantIds?: string[];
+  }) {
+    if (!this.catalogEvents) {
+      await this.shops.invalidateShopCaches({
+        keyFamily: "products",
+        operation: input.operation,
+        productIds: [input.productId],
+        storeId: input.storeId
+      });
+      return;
+    }
+    try {
+      await this.catalogEvents.enqueueProductChanged({
+        changedFields: input.changedFields,
+        catalogVersion: input.catalogVersion,
+        eventType: "catalog.product.changed.v1",
+        idempotencyKey: `${input.operation}:${input.productId}:${input.catalogVersion ?? Date.now()}`,
+        nextCategoryId: input.nextCategoryId,
+        previousCategoryId: input.previousCategoryId,
+        productId: input.productId,
+        snapshot: input.snapshot,
+        storeId: input.storeId,
+        variantIds: input.variantIds
+      });
+      void this.catalogEvents.publishPending();
+    } catch (error) {
+      this.logger.warn(`Unable to enqueue catalog event for ${input.operation}:${input.productId}: ${messageOf(error)}`);
+    }
   }
 
   private async assertStoreAccess(auth: AuthenticatedPrincipal, storeId: string) {
@@ -1293,6 +1412,31 @@ function fullProductUpdateDto(dto: UpdateProductDto): CreateProductDto {
     "PRODUCT_UPDATE_INVALID",
     "Send expectedCatalogVersion for sparse updates or a complete legacy product payload."
   );
+}
+
+function catalogChangedFieldsFromSparseDto(dto: UpdateProductDto) {
+  const fields = new Set<string>();
+  if (dto.price !== undefined || dto.compareAtPrice !== undefined) fields.add("price");
+  if (dto.stock !== undefined) fields.add("inventory");
+  if (dto.category !== undefined) fields.add("category");
+  if (dto.status !== undefined) fields.add("publication");
+  if (
+    dto.name !== undefined ||
+    dto.sku !== undefined ||
+    dto.subCategory !== undefined ||
+    dto.productType !== undefined ||
+    dto.seoTitle !== undefined ||
+    dto.seoDescription !== undefined ||
+    dto.measurement !== undefined ||
+    dto.reorderPoint !== undefined
+  ) {
+    fields.add("details");
+  }
+  return fields.size ? Array.from(fields).sort() : ["details"];
+}
+
+function messageOf(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {

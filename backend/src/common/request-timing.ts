@@ -55,6 +55,20 @@ export class RequestTimer {
   serverTiming() {
     return serverTiming(requestTimings(this.request));
   }
+
+  entries() {
+    return [...requestTimings(this.request)];
+  }
+
+  ensureStages(stages: readonly string[]) {
+    const timings = requestTimings(this.request);
+    const present = new Set(timings.map((item) => item.stage));
+    for (const stage of stages) {
+      if (!present.has(stage)) {
+        timings.push({ stage, durationMs: 0 });
+      }
+    }
+  }
 }
 
 export function initRequestTiming(request: Request) {
@@ -65,6 +79,10 @@ export function initRequestTiming(request: Request) {
 
 export function requestTimer(request: Request) {
   return new RequestTimer(request as TimedRequest);
+}
+
+export function requestTimingEntries(request: Request): StageTiming[] {
+  return [...requestTimings(request as TimedRequest)];
 }
 
 function requestTimings(request: TimedRequest) {

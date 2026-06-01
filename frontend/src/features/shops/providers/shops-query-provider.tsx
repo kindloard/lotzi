@@ -23,11 +23,11 @@ function createShopsQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        gcTime: 30 * 60 * 1000,
-        refetchOnReconnect: false,
-        refetchOnWindowFocus: false,
+        gcTime: 5 * 60 * 1000,
+        refetchOnReconnect: true,
+        refetchOnWindowFocus: true,
         retry: 2,
-        staleTime: 5 * 60 * 1000
+        staleTime: 0
       },
       mutations: {
         retry: false

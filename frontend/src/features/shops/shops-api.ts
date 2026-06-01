@@ -37,6 +37,7 @@ export interface Shop {
 
 export interface DealProduct {
   id: string;
+  variantId: string | null;
   name: string;
   price: number;
   originalPrice: number | null;

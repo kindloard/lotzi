@@ -23,6 +23,7 @@ interface CartContextType {
   addToCart: (item: Omit<CartItem, "qty">) => void;
   removeFromCart: (id: string) => void;
   updateQty: (id: string, delta: number) => void;
+  updateCartLines: (updates: Array<{ variantId: string; name?: string | null; price?: number; imageUrl?: string | null }>) => void;
   clearCart: () => void;
   cartSubtotal: number;
   cartItemCount: number;
@@ -92,6 +93,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const updateCartLines: CartContextType["updateCartLines"] = (updates) => {
+    const byVariant = new Map(updates.map((update) => [update.variantId, update]));
+    setCartItems((prev) =>
+      prev.map((item) => {
+        const update = item.variantId ? byVariant.get(item.variantId) : undefined;
+        if (!update) {
+          return item;
+        }
+        return {
+          ...item,
+          imageUrl: update.imageUrl !== undefined ? update.imageUrl ?? undefined : item.imageUrl,
+          name: update.name || item.name,
+          price: update.price !== undefined ? normalizedCartPrice(update.price, item.price) : item.price
+        };
+      })
+    );
+  };
+
   const clearCart = () => {
     setCartItems([]);
   };
@@ -106,6 +125,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         addToCart,
         removeFromCart,
         updateQty,
+        updateCartLines,
         clearCart,
         cartSubtotal,
         cartItemCount,

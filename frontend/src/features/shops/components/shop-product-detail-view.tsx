@@ -11,6 +11,7 @@ import { trackProductView, type ShopProductDetailResponse } from "../shops-api";
 import { productRefFromParts } from "../lib/product-route";
 import { useShopProductDetail } from "../hooks/use-shop-product-detail";
 import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
+import { useCatalogRealtimeSubscription } from "../realtime/catalog-realtime";
 
 export function ShopProductDetailView({
   initialImageIndex,
@@ -27,6 +28,11 @@ export function ShopProductDetailView({
     productDetail
   );
   const detail = query.data ?? productDetail;
+  useCatalogRealtimeSubscription({
+    enabled: true,
+    productPublicIds: [detail.product.publicId],
+    storePublicId: detail.store.publicId
+  });
   const format = useFormatter();
   const tDetail = useTranslations("marketplace.shopProductDetail");
   const tCatalog = useTranslations("marketplace.shopCatalog");
@@ -60,7 +66,12 @@ export function ShopProductDetailView({
   const { addToCart, cartItems, updateQty } = useCart();
   const [activeImageIndex, setActiveImageIndex] = useState(initialImageIndex);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const defaultVariantId = detail.product.variants.find((variant) => variant.isDefault)?.id ?? detail.product.variants[0]?.id ?? null;
+  const defaultVariantId =
+    detail.product.variants.find((variant) => variant.isDefault && variant.inStock && variant.stock > 0)?.id ??
+    detail.product.variants.find((variant) => variant.inStock && variant.stock > 0)?.id ??
+    detail.product.variants.find((variant) => variant.isDefault)?.id ??
+    detail.product.variants[0]?.id ??
+    null;
   const [selectedVariantId, setSelectedVariantId] = useState(defaultVariantId);
 
   const selectedVariant = detail.product.variants.find((variant) => variant.id === selectedVariantId) ?? detail.product.variants[0];
@@ -69,7 +80,8 @@ export function ShopProductDetailView({
   const rawDisplayUnit = selectedVariant?.unitDisplay ?? detail.product.unitDisplay;
   const displayUnit = localizeUnitDisplay(rawDisplayUnit, packTypeLabels);
   const displayPricePerBaseUnit = selectedVariant?.pricePerBaseUnitDisplay ?? detail.product.pricePerBaseUnitDisplay;
-  const displayInStock = selectedVariant?.inStock ?? detail.product.inStock;
+  const displayStock = selectedVariant?.stock ?? detail.product.stock;
+  const displayInStock = Boolean((selectedVariant?.inStock ?? detail.product.inStock) && displayStock > 0);
   const displayCategory = localizeCategoryLabel(detail.product.categorySlug, detail.product.category, tCategories);
   const displaySubCategory = detail.product.subCategory
     ? localizeSubCategoryLabel(detail.product.subCategory, subCategoryLabels)
@@ -107,6 +119,7 @@ export function ShopProductDetailView({
   const cartQty = cartItems
     .filter((item) => item.id === detail.product.id && (item.variantId ?? null) === (selectedVariant?.id ?? null))
     .reduce((sum, item) => sum + item.qty, 0);
+  const quantityAtLimit = displayInStock && cartQty >= displayStock;
 
   const discountPercent = displayCompareAtPrice && displayCompareAtPrice > displayPrice
     ? Math.round(((displayCompareAtPrice - displayPrice) / displayCompareAtPrice) * 100)
@@ -162,6 +175,9 @@ export function ShopProductDetailView({
   const activeImage = galleryImages[activeImageIndex] ?? galleryImages[0];
 
   function addCurrentVariantToCart() {
+    if (!selectedVariant || !displayInStock || quantityAtLimit) {
+      return;
+    }
     addToCart({
       id: detail.product.id,
       variantId: selectedVariant?.id,
@@ -294,11 +310,17 @@ export function ShopProductDetailView({
               <div className="hidden items-center gap-3 md:flex lg:gap-4">
                 {cartQty > 0 ? (
                   <div className="flex h-14 w-40 items-center justify-between rounded-2xl bg-slate-100 px-2 text-slate-900 border border-slate-200">
-                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(detail.product.id, -1)}>
+                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(selectedVariant?.id ?? detail.product.id, -1)}>
                       <Minus size={18} className="text-slate-600" />
                     </button>
                     <span className="text-lg font-black w-8 text-center">{cartQty}</span>
-                    <button type="button" className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors" aria-label={tDetail("increaseQuantity")} onClick={addCurrentVariantToCart}>
+                    <button
+                      type="button"
+                      className="h-10 w-10 flex items-center justify-center rounded-xl bg-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label={tDetail("increaseQuantity")}
+                      disabled={quantityAtLimit}
+                      onClick={addCurrentVariantToCart}
+                    >
                       <Plus size={18} className="text-slate-600" />
                     </button>
                   </div>
@@ -403,11 +425,17 @@ export function ShopProductDetailView({
           <div className="flex min-w-0 flex-1 justify-end">
             {cartQty > 0 ? (
               <div className="flex h-12 w-full max-w-[13rem] items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-1.5 text-slate-900">
-                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(detail.product.id, -1)}>
+                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label={tDetail("decreaseQuantity")} onClick={() => updateQty(selectedVariant?.id ?? detail.product.id, -1)}>
                   <Minus size={16} className="text-slate-600" />
                 </button>
                 <span className="text-base font-black truncate px-1">{cartQty}</span>
-                <button type="button" className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0" aria-label={tDetail("increaseQuantity")} onClick={addCurrentVariantToCart}>
+                <button
+                  type="button"
+                  className="h-9 w-10 flex items-center justify-center rounded-lg bg-white shadow-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label={tDetail("increaseQuantity")}
+                  disabled={quantityAtLimit}
+                  onClick={addCurrentVariantToCart}
+                >
                   <Plus size={16} className="text-slate-600" />
                 </button>
               </div>

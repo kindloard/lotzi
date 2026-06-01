@@ -26,6 +26,7 @@ export const DealProductsGrid = memo(function DealProductsGrid({
     (product: DealProduct) => {
       addToCart({
         id: product.id,
+        variantId: product.variantId ?? undefined,
         name: product.name,
         price: product.price,
         shop: product.shop,

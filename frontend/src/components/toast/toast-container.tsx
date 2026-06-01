@@ -24,7 +24,7 @@ export function ToastContainer({
 
   return createPortal(
     <div
-      className="pointer-events-none fixed left-1/2 top-3 z-[1000] flex w-[calc(100%-24px)] max-w-[256px] -translate-x-1/2 flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-[224px] sm:translate-x-0"
+      className="pointer-events-none fixed left-3 right-3 top-3 z-[1000] flex flex-col items-center gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-fit sm:items-end"
     >
       {toasts.map((toast) => (
         <ToastItem dismiss={dismiss} key={toast.id} toast={toast} />

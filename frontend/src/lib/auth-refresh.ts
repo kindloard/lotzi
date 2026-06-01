@@ -39,6 +39,7 @@ export function ensureSession(options: {
   signal?: AbortSignal;
   reason?: string;
 } = {}): Promise<EnsureSessionResult> {
+  const startedAt = checkoutPerfNow();
   if (!isBrowser()) {
     return Promise.resolve({ status: "logged_out", reason: "server_runtime" });
   }
@@ -46,26 +47,44 @@ export function ensureSession(options: {
   if (!options.forceRefresh) {
     const cached = readFreshEnvelope();
     if (cached) {
-      return Promise.resolve({
+      const result: EnsureSessionResult = {
         status: "authenticated",
         source: "cache",
         session: cached.session
+      };
+      logCheckoutPerf("Session Validation", startedAt, {
+        reason: options.reason ?? "unknown",
+        source: result.source,
+        status: result.status
       });
+      return Promise.resolve(result);
     }
   }
 
   if (!hasReadableAuthHint()) {
     clearSessionEnvelope({ broadcast: false });
-    return Promise.resolve({ status: "logged_out", reason: "csrf_missing" });
+    const result: EnsureSessionResult = { status: "logged_out", reason: "csrf_missing" };
+    logCheckoutPerf("Session Validation", startedAt, {
+      reason: options.reason ?? "unknown",
+      status: result.status,
+      detail: result.reason
+    });
+    return Promise.resolve(result);
   }
 
   const suppressed = currentRefreshOutage();
   if (suppressed) {
-    return Promise.resolve({
+    const result: EnsureSessionResult = {
       status: "outage",
       reason: suppressed.reason,
       session: readSessionEnvelope()?.session ?? null
+    };
+    logCheckoutPerf("Session Validation", startedAt, {
+      reason: options.reason ?? "unknown",
+      status: result.status,
+      detail: result.reason
     });
+    return Promise.resolve(result);
   }
 
   if (!inFlight) {
@@ -73,7 +92,15 @@ export function ensureSession(options: {
       inFlight = null;
     });
   }
-  return inFlight;
+  return inFlight.then((result) => {
+    logCheckoutPerf("Session Validation", startedAt, {
+      reason: options.reason ?? "unknown",
+      status: result.status,
+      source: result.status === "authenticated" ? result.source : undefined,
+      detail: result.status === "authenticated" ? undefined : result.reason
+    });
+    return result;
+  });
 }
 
 export function storeSessionEnvelope(session: SessionResponse, options: { broadcast?: boolean } = {}) {
@@ -247,6 +274,7 @@ async function postRefresh(
   headers.set("x-csrf-token", csrf);
 
   let response: Response;
+  const startedAt = checkoutPerfNow();
   try {
     response = await fetch(`${resolveApiBaseUrl()}/auth/refresh`, {
       method: "POST",
@@ -258,10 +286,18 @@ async function postRefresh(
     if (isAbortError(error)) {
       throw error;
     }
+    logCheckoutPerf(isRetry ? "Auth Refresh Retry" : "Auth Refresh Network", startedAt, {
+      status: "network_error"
+    });
     return { kind: "outage", reason: isRetry ? "refresh_network_retry_failed" : "refresh_network" };
   }
 
   const body = await readBody(response);
+  logCheckoutPerf(isRetry ? "Auth Refresh Retry" : "Auth Refresh Network", startedAt, {
+    requestId: response.headers.get("x-request-id"),
+    serverTiming: response.headers.get("server-timing") ?? response.headers.get("Server-Timing"),
+    status: response.status
+  });
   const code = errorCode(body);
   if (response.ok) {
     if (isSessionResponse(body)) {
@@ -456,6 +492,33 @@ function delay(ms: number, signal?: AbortSignal) {
       { once: true }
     );
   });
+}
+
+function checkoutPerfNow() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function logCheckoutPerf(stage: string, startedAt: number, metadata?: Record<string, unknown>) {
+  if (!shouldLogCheckoutPerf()) {
+    return;
+  }
+  const durationMs = Math.max(0, Math.round(checkoutPerfNow() - startedAt));
+  const label = `${stage} ${".".repeat(Math.max(1, 26 - stage.length))}`;
+  console.info(`[CHECKOUT] ${label} ${durationMs}ms`, metadata ?? {});
+}
+
+function shouldLogCheckoutPerf() {
+  if (!isBrowser() || !window.location.pathname.includes("/checkout/")) {
+    return false;
+  }
+  if (process.env.NODE_ENV !== "production") {
+    return true;
+  }
+  try {
+    return localStorage.getItem("namastore:checkout-perf") === "1";
+  } catch {
+    return false;
+  }
 }
 
 function isBrowser() {

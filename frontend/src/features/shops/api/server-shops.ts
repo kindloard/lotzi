@@ -45,13 +45,13 @@ export const getShopDetailForPage = cache(async function getShopDetailForPage(
   publicSlug: string
 ): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}`, {
-    next: { revalidate: 300 }
+    cache: "no-store"
   });
 });
 
 export const getLegacyShopDetailForRedirect = cache(async function getLegacyShopDetailForRedirect(slug: string): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 300 }
+    cache: "no-store"
   });
 });
 
@@ -65,7 +65,7 @@ export async function getShopProductsForPage(
     return {
       data: await serverFetchRequired<ShopProductsResponse>(
         `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products${filtersToSearch(normalized)}`,
-        { next: { revalidate: 300 } }
+        { cache: "no-store" }
       ),
       failed: false
     };
@@ -84,7 +84,7 @@ export const getShopProductDetailForPage = cache(async function getShopProductDe
 ): Promise<ShopProductDetailResponse> {
   return serverFetchRequired<ShopProductDetailResponse>(
     `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}`,
-    { next: { revalidate: 120 } }
+    { cache: "no-store" }
   );
 });
 
@@ -97,7 +97,7 @@ export const getProductRouteForShortLink = cache(async function getProductRouteF
     productRef: string;
     canonicalPath: string;
   }>(`/v1/products/${encodeURIComponent(productPublicId)}/route`, {
-    next: { revalidate: 120 }
+    cache: "no-store"
   });
 });
 

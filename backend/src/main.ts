@@ -97,6 +97,7 @@ async function bootstrap() {
           connectSrc: [
             "'self'",
             ...allowedOrigins,
+            ...allowedOrigins.map(toWebSocketOrigin).filter((origin): origin is string => Boolean(origin)),
             "https://*.googleapis.com",
             "https://*.firebaseio.com",
             "https://identitytoolkit.googleapis.com",
@@ -222,4 +223,13 @@ function safeUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function toWebSocketOrigin(origin: string) {
+  const url = safeUrl(origin);
+  if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
+    return null;
+  }
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.origin;
 }

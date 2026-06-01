@@ -6,6 +6,8 @@ import { ObservabilityService } from "../observability/observability.service";
 export const AUTH_PERFORMANCE_TARGET_MS = {
   login: 200,
   otp_verify: 300,
+  phone_signup: 300,
+  refresh: 250,
   session: 100
 } as const;
 

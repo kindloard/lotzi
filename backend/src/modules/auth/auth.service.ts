@@ -90,6 +90,7 @@ interface SignupIntent {
 }
 
 interface CheckoutAddressPayload {
+  email?: string;
   label?: string;
   recipientName?: string;
   recipientPhone: string;
@@ -416,9 +417,13 @@ export class AuthService {
   ) {
     this.assertPhoneCheckoutEnabled();
     const phoneNumber = this.phones.normalizeIndianMobile(dto.recipientPhone);
+    const email = this.normalizeEmail(dto.email);
     await this.enforceCheckoutOnboardingStartLimits(phoneNumber, context);
 
-    const existingPhoneUser = await this.users.findByPhone(phoneNumber);
+    const [existingPhoneUser, existingEmailUser] = await Promise.all([
+      this.users.findByPhone(phoneNumber),
+      this.users.findByEmail(email)
+    ]);
     if (existingPhoneUser && existingPhoneUser.status !== UserStatus.DELETED) {
       this.audit.record({
         eventType: "auth.phone_recycle_or_duplicate_detected",
@@ -431,6 +436,20 @@ export class AuthService {
       throw new ConflictException({
         code: "PHONE_ALREADY_REGISTERED",
         message: "This phone number already has an account. Log in to continue checkout."
+      });
+    }
+    if (existingEmailUser) {
+      this.audit.record({
+        eventType: "auth.email_duplicate_detected",
+        actorUserId: existingEmailUser.id,
+        outcome: AuditOutcome.FAILURE,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: { stage: "checkout_onboarding_start" }
+      });
+      throw new ConflictException({
+        code: "EMAIL_ALREADY_REGISTERED",
+        message: "This email already has an account. Log in to continue checkout."
       });
     }
 
@@ -565,7 +584,8 @@ export class AuthService {
             existing.expiresAt,
             existing.cooldownUntil,
             existing.providerMessageId,
-            existing.providerRawStatus
+            existing.providerRawStatus,
+            this.devPhoneOtpForExisting(flow.id, phoneNumber, existing.otpReferenceId, existing.providerRawStatus)
           );
         }
         throw new ServiceUnavailableException({
@@ -594,15 +614,19 @@ export class AuthService {
         latest.expiresAt,
         latest.cooldownUntil,
         latest.providerMessageId,
-        latest.providerRawStatus
+        latest.providerRawStatus,
+        this.devPhoneOtpForExisting(flow.id, phoneNumber, latest.otpReferenceId, latest.providerRawStatus)
       );
     }
 
-    const code = this.otp.generate();
-    const nonce = this.otp.nonce();
     const expiresAt = this.secondsFromNow(this.config.get<number>("PHONE_OTP_TTL_SECONDS", 300));
     const cooldownUntil = this.secondsFromNow(this.config.get<number>("PHONE_OTP_RESEND_COOLDOWN_SECONDS", 30));
     const otpReferenceId = this.crypto.randomBase64Url(18);
+    const isDevOtpTransport = this.shouldUseDevPhoneOtpTransport();
+    const code = isDevOtpTransport
+      ? this.devPhoneOtpCode(flow.id, phoneNumber, otpReferenceId)
+      : this.otp.generate();
+    const nonce = this.otp.nonce();
     let created;
     try {
       created = await this.repository.prisma.phoneOtpVerification.create({
@@ -633,13 +657,62 @@ export class AuthService {
           replay.expiresAt,
           replay.cooldownUntil,
           replay.providerMessageId,
-          replay.providerRawStatus
+          replay.providerRawStatus,
+          this.devPhoneOtpForExisting(flow.id, phoneNumber, replay.otpReferenceId, replay.providerRawStatus)
         );
       }
       throw new ServiceUnavailableException({
         code: "PHONE_OTP_SEND_ALREADY_FAILED",
         message: "This OTP send attempt already failed. Use resend to request a new code."
       });
+    }
+
+    if (isDevOtpTransport) {
+      await this.repository.prisma.$transaction([
+        this.repository.prisma.phoneOtpVerification.update({
+          where: { id: created.id },
+          data: {
+            providerMessageId: undefined,
+            providerRawStatus: "DEV_OTP"
+          }
+        }),
+        this.repository.prisma.checkoutOnboardingFlow.update({
+          where: { id: flow.id },
+          data: { status: CheckoutOnboardingFlowStatus.OTP_SENT }
+        })
+      ]);
+      this.observability.recordOtpSent("DEV_TOAST", "accepted");
+      this.audit.record({
+        eventType: latest ? "otp.resent" : "otp.sent",
+        outcome: AuditOutcome.SUCCESS,
+        ip: context.ip,
+        requestId: context.requestId,
+        metadata: {
+          flowId: flow.id,
+          otpReferenceId,
+          phoneHash: this.phoneAuditHash(phoneNumber),
+          provider: "DEV_TOAST",
+          providerStatus: "DEV_OTP"
+        } as Prisma.InputJsonObject
+      });
+      this.logger.log(JSON.stringify({
+        event: latest ? "otp.resent" : "otp.sent",
+        flowId: flow.id,
+        outcome: "accepted",
+        phoneHash: this.phoneAuditHash(phoneNumber),
+        provider: "DEV_TOAST",
+        providerStatus: "DEV_OTP",
+        otpReferenceId,
+        requestId: context.requestId
+      }));
+      return this.phoneOtpResponse(
+        otpReferenceId,
+        expiresAt,
+        cooldownUntil,
+        undefined,
+        "DEV_OTP",
+        code
+      );
     }
 
     try {
@@ -857,132 +930,167 @@ export class AuthService {
     proofCookie: string | undefined,
     response: Response
   ) {
+    const timer = this.performance.start("phone_signup", response);
+    let actorUserId: string | undefined;
     this.assertPhoneCheckoutEnabled();
-    if (!proofCookie) {
-      this.recordProofFailure(context, "missing");
-      throw new ForbiddenException({
-        code: "PHONE_PROOF_REQUIRED",
-        message: "Verify your phone number before creating a password."
-      });
-    }
-
-    const passwordHash = await this.password.hash(dto.password);
-    let user: User;
     try {
-      user = await this.repository.prisma.$transaction(async (tx) => {
-        const flow = await this.lockCheckoutFlow(tx, dto.flowToken);
-        this.assertFlowReadyForSignup(flow, proofCookie, context);
-        const address = this.decryptCheckoutPayload(flow.address_ciphertext, flow.address_nonce);
-        const existing = await tx.user.findFirst({
-          where: {
-            phone: flow.phone_number,
-            deletedAt: null,
-            status: { not: UserStatus.DELETED }
-          }
+      if (!proofCookie) {
+        this.recordProofFailure(context, "missing");
+        throw new ForbiddenException({
+          code: "PHONE_PROOF_REQUIRED",
+          message: "Verify your phone number before creating a password."
         });
-        if (existing) {
-          this.audit.record({
-            eventType: "auth.phone_recycle_or_duplicate_detected",
-            actorUserId: existing.id,
-            outcome: AuditOutcome.FAILURE,
-            ip: context.ip,
-            requestId: context.requestId,
-            metadata: {
-              flowId: flow.id,
-              phoneHash: this.phoneAuditHash(flow.phone_number),
-              stage: "signup"
-            } as Prisma.InputJsonObject
-          });
-          throw new ConflictException({
-            code: "PHONE_ALREADY_REGISTERED",
-            message: "This phone number already has an account. Log in to continue checkout."
-          });
-        }
-
-        const created = await tx.user.create({
-          data: {
-            email: this.shadowEmailForPhone(flow.phone_number),
-            emailVerified: false,
-            fullName: this.sanitizeName(address.recipientName || "Namastore customer"),
-            passwordHash,
-            phone: flow.phone_number,
-            phoneVerifiedAt: new Date(),
-            providerType: UserProviderType.EMAIL,
-            status: UserStatus.ACTIVE
-          }
-        });
-        await this.customerCreation.ensureCustomer({
-          userId: created.id,
-          displayName: created.fullName,
-          phone: flow.phone_number
-        }, tx);
-        await tx.address.create({
-          data: {
-            userId: created.id,
-            label: address.label?.trim() || "Home",
-            recipientName: address.recipientName?.trim() || created.fullName,
-            recipientPhone: flow.phone_number,
-            line1: address.line1.trim(),
-            line2: address.line2?.trim() || null,
-            city: address.city.trim(),
-            state: address.state.trim(),
-            pincode: address.pincode.trim(),
-            latitude: address.latitude,
-            longitude: address.longitude,
-            deliveryInstructions: address.deliveryInstructions?.trim() || null,
-            isDefault: true
-          }
-        });
-        await tx.phoneOtpVerification.updateMany({
-          where: { flowId: flow.id, status: PhoneOtpStatus.VERIFIED },
-          data: { status: PhoneOtpStatus.CONSUMED, userId: created.id }
-        });
-        await tx.checkoutOnboardingFlow.update({
-          where: { id: flow.id },
-          data: {
-            consumedAt: new Date(),
-            status: CheckoutOnboardingFlowStatus.COMPLETED
-          }
-        });
-        return created;
-      }, AUTH_TRANSACTION_OPTIONS);
-    } catch (error) {
-      if (!this.isUniqueConstraintError(error)) {
-        throw error;
       }
-      const flow = await this.repository.prisma.checkoutOnboardingFlow.findUnique({
-        where: { flowTokenHash: this.checkoutHash(dto.flowToken) },
-        select: { id: true, phoneNumber: true }
-      });
+
+      const passwordHashPromise = timer.time("password_hash", () => this.password.hash(dto.password));
+      void passwordHashPromise.catch(() => undefined);
+      let user: User;
+      try {
+        user = await timer.time("signup_transaction", () =>
+          this.repository.prisma.$transaction(async (tx) => {
+            const flow = await timer.time("flow_lock", () => this.lockCheckoutFlow(tx, dto.flowToken));
+            this.assertFlowReadyForSignup(flow, proofCookie, context);
+            const address = this.decryptCheckoutPayload(flow.address_ciphertext, flow.address_nonce);
+            const signupEmail = address.email ? this.normalizeEmail(address.email) : this.shadowEmailForPhone(flow.phone_number);
+            const existing = await timer.time("phone_duplicate_check", () =>
+              tx.user.findFirst({
+                where: {
+                  phone: flow.phone_number,
+                  deletedAt: null,
+                  status: { not: UserStatus.DELETED }
+                },
+                select: { id: true }
+              })
+            );
+            if (existing) {
+              this.audit.record({
+                eventType: "auth.phone_recycle_or_duplicate_detected",
+                actorUserId: existing.id,
+                outcome: AuditOutcome.FAILURE,
+                ip: context.ip,
+                requestId: context.requestId,
+                metadata: {
+                  flowId: flow.id,
+                  phoneHash: this.phoneAuditHash(flow.phone_number),
+                  stage: "signup"
+                } as Prisma.InputJsonObject
+              });
+              throw new ConflictException({
+                code: "PHONE_ALREADY_REGISTERED",
+                message: "This phone number already has an account. Log in to continue checkout."
+              });
+            }
+
+            const passwordHash = await passwordHashPromise;
+            const fullName = this.sanitizeName(address.recipientName || "Namastore customer");
+            const created = await timer.time("account_bundle_create", () =>
+              tx.user.create({
+                data: {
+                  email: signupEmail,
+                  emailVerified: false,
+                  fullName,
+                  passwordHash,
+                  phone: flow.phone_number,
+                  phoneVerifiedAt: new Date(),
+                  providerType: UserProviderType.EMAIL,
+                  status: UserStatus.ACTIVE,
+                  customerProfile: {
+                    create: {
+                      displayName: fullName,
+                      phone: flow.phone_number
+                    }
+                  },
+                  userRoles: {
+                    create: {
+                      role: { connect: { code: ROLE_CODES.CUSTOMER } }
+                    }
+                  },
+                  addresses: {
+                    create: {
+                      label: address.label?.trim() || "Home",
+                      recipientName: address.recipientName?.trim() || fullName,
+                      recipientPhone: flow.phone_number,
+                      line1: address.line1.trim(),
+                      line2: address.line2?.trim() || null,
+                      city: address.city.trim(),
+                      state: address.state.trim(),
+                      pincode: address.pincode.trim(),
+                      latitude: address.latitude,
+                      longitude: address.longitude,
+                      deliveryInstructions: address.deliveryInstructions?.trim() || null,
+                      isDefault: true
+                    }
+                  }
+                }
+              })
+            );
+            await timer.time("flow_complete", () =>
+              Promise.all([
+                tx.phoneOtpVerification.updateMany({
+                  where: { flowId: flow.id, status: PhoneOtpStatus.VERIFIED },
+                  data: { status: PhoneOtpStatus.CONSUMED, userId: created.id }
+                }),
+                tx.checkoutOnboardingFlow.update({
+                  where: { id: flow.id },
+                  data: {
+                    consumedAt: new Date(),
+                    status: CheckoutOnboardingFlowStatus.COMPLETED
+                  }
+                })
+              ]).then(() => undefined)
+            );
+            return created;
+          }, AUTH_TRANSACTION_OPTIONS)
+        );
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) {
+          throw error;
+        }
+        const flow = await timer.time("conflict_flow_lookup", () =>
+          this.repository.prisma.checkoutOnboardingFlow.findUnique({
+            where: { flowTokenHash: this.checkoutHash(dto.flowToken) },
+            select: { id: true, phoneNumber: true }
+          })
+        );
+        const isEmailConflict = this.uniqueConstraintTargets(error).includes("email");
+        this.audit.record({
+          eventType: isEmailConflict ? "auth.email_duplicate_detected" : "auth.phone_recycle_or_duplicate_detected",
+          outcome: AuditOutcome.FAILURE,
+          ip: context.ip,
+          requestId: context.requestId,
+          metadata: {
+            flowId: flow?.id,
+            phoneHash: flow?.phoneNumber ? this.phoneAuditHash(flow.phoneNumber) : undefined,
+            stage: "signup_unique_constraint"
+          } as Prisma.InputJsonObject
+        });
+        throw new ConflictException({
+          code: isEmailConflict ? "EMAIL_ALREADY_REGISTERED" : "PHONE_ALREADY_REGISTERED",
+          message: isEmailConflict
+            ? "This email already has an account. Log in to continue checkout."
+            : "This phone number already has an account. Log in to continue checkout."
+        });
+      }
+
+      actorUserId = user.id;
+      const routeState = this.customerRouteState(user);
+      const createdSession = await this.sessionService.create(user, context, response, timer, { persistent: true });
+      await timer.time("auth_cache_prime", () => this.primeEssentialAuthCaches(createdSession.session, routeState));
+      const session = this.sessionPayloadFromRouteState(routeState, createdSession.access.expiresAt, createdSession.session.id);
+      this.clearCheckoutPhoneProofCookie(response);
       this.audit.record({
-        eventType: "auth.phone_recycle_or_duplicate_detected",
-        outcome: AuditOutcome.FAILURE,
+        eventType: "auth.phone_signup.created",
+        actorUserId: user.id,
+        outcome: AuditOutcome.SUCCESS,
         ip: context.ip,
         requestId: context.requestId,
-        metadata: {
-          flowId: flow?.id,
-          phoneHash: flow?.phoneNumber ? this.phoneAuditHash(flow.phoneNumber) : undefined,
-          stage: "signup_unique_constraint"
-        } as Prisma.InputJsonObject
+        sessionId: session.sessionId,
+        metadata: { phoneHash: this.phoneAuditHash(user.phone ?? "") } as Prisma.InputJsonObject
       });
-      throw new ConflictException({
-        code: "PHONE_ALREADY_REGISTERED",
-        message: "This phone number already has an account. Log in to continue checkout."
-      });
+      return session;
+    } finally {
+      timer.end({ actorUserId });
     }
-
-    const session = await this.createSession(user, context, response, undefined, [ROLE_CODES.CUSTOMER]);
-    this.clearCheckoutPhoneProofCookie(response);
-    this.audit.record({
-      eventType: "auth.phone_signup.created",
-      actorUserId: user.id,
-      outcome: AuditOutcome.SUCCESS,
-      ip: context.ip,
-      requestId: context.requestId,
-      sessionId: session.sessionId,
-      metadata: { phoneHash: this.phoneAuditHash(user.phone ?? "") } as Prisma.InputJsonObject
-    });
-    return session;
   }
 
   async login(dto: LoginDto, context: RequestContext, response: Response) {
@@ -1333,15 +1441,20 @@ export class AuthService {
     response: Response
   ) {
     const started = Date.now();
+    const timer = this.performance.start("refresh", response);
+    let actorUserId: string | undefined;
     try {
       if (!refreshToken) {
         this.observability.recordAuthRefreshInvalid("missing");
         throw authUnauthorized(AUTH_REFRESH_MISSING, "Missing refresh token.");
       }
 
+      const tokenStarted = Date.now();
       const parsed = this.tokens.parseRefreshToken(refreshToken);
       const oldHash = this.tokens.hashRefreshToken(refreshToken);
-      const session = await this.sessions.findByRefreshHash(oldHash);
+      timer.record("token_parse_hash", Date.now() - tokenStarted);
+
+      const session = await timer.time("session_lookup", () => this.sessions.findByRefreshHash(oldHash));
       if (!session) {
         return await this.handleConsumedOrInvalidRefresh({
           refreshTokenHash: oldHash,
@@ -1352,8 +1465,9 @@ export class AuthService {
           reason: "refresh_hash_not_active"
         });
       }
+      actorUserId = session.userId;
 
-      await this.rateLimit.enforce(`refresh:session:${session.id}`, 30, 60);
+      await timer.time("rate_limit", () => this.rateLimit.enforce(`refresh:session:${session.id}`, 30, 60));
       const binding = this.resolveClientBinding(session, clientSecret);
       if (!binding) {
         return await this.revokeActiveSessionRefresh({
@@ -1379,49 +1493,56 @@ export class AuthService {
       const nextRefresh = this.tokens.issueRefreshToken(nextParentJti);
       const nextRefreshIssuedAt = new Date();
       const expiresAt = this.daysFromNow(this.config.get<number>("REFRESH_TOKEN_TTL_DAYS", 30));
-      const rotated = await this.sessions.rotateRefreshToken({
-        sessionId: session.id,
-        oldHash,
-        newHash: this.tokens.hashRefreshToken(nextRefresh.token),
-        expiresAt,
-        refreshTokenJti: nextRefresh.jti,
-        refreshTokenParentJti: nextRefresh.parentJti,
-        refreshTokenIssuedAt: nextRefreshIssuedAt,
-        clientSecretHash: binding.hash,
-        consumedRefreshTokenJti: parsed.version === "v2" ? parsed.jti : session.refreshTokenJti ?? undefined,
-        replacementRefreshTokenJti: nextRefresh.jti,
-        deviceFingerprint: context.deviceFingerprint
-      }).catch(async (error: unknown) => {
-        if (error instanceof Error && error.message.includes("no longer refreshable")) {
-          return this.handleConsumedOrInvalidRefresh({
-            refreshTokenHash: oldHash,
-            parsedRefreshTokenJti: parsed.version === "v2" ? parsed.jti : undefined,
-            clientSecret,
-            context,
-            response,
-            reason: "concurrent_rotation"
-          });
-        }
-        throw error;
-      });
+      const rotated = await timer.time("refresh_rotate_tx", () =>
+        this.sessions.rotateRefreshToken({
+          sessionId: session.id,
+          oldHash,
+          newHash: this.tokens.hashRefreshToken(nextRefresh.token),
+          expiresAt,
+          refreshTokenJti: nextRefresh.jti,
+          refreshTokenParentJti: nextRefresh.parentJti,
+          refreshTokenIssuedAt: nextRefreshIssuedAt,
+          clientSecretHash: binding.hash,
+          consumedRefreshTokenJti: parsed.version === "v2" ? parsed.jti : session.refreshTokenJti ?? undefined,
+          replacementRefreshTokenJti: nextRefresh.jti,
+          deviceFingerprint: context.deviceFingerprint
+        }).catch(async (error: unknown) => {
+          if (error instanceof Error && error.message.includes("no longer refreshable")) {
+            return this.handleConsumedOrInvalidRefresh({
+              refreshTokenHash: oldHash,
+              parsedRefreshTokenJti: parsed.version === "v2" ? parsed.jti : undefined,
+              clientSecret,
+              context,
+              response,
+              reason: "concurrent_rotation"
+            });
+          }
+          throw error;
+        })
+      );
 
       const [access, routeState] = await Promise.all([
-        this.tokens.issueAccessToken({
+        timer.time("access_token_issue", () => this.tokens.issueAccessToken({
           userId: rotated.user.id,
           sessionId: rotated.id,
           tokenFamilyId: rotated.tokenFamilyId,
           authzVersion: rotated.user.authzVersion
-        }),
-        this.authState.getCachedOrLoadRouteState(rotated.user.id, rotated.user.authzVersion)
+        })),
+        timer.time("route_state_query", () =>
+          this.authState.getCachedOrLoadRouteState(rotated.user.id, rotated.user.authzVersion)
+        )
       ]);
+      const cookieStarted = Date.now();
       this.tokens.setAuthCookies(response, access.token, nextRefresh.token, rotated.id, access.expiresAt, {
         persistent: rotated.persistent ?? true,
         clientSecret: binding.secret
       });
-      await this.primeAuthCaches(rotated, routeState);
+      timer.record("set_cookies", Date.now() - cookieStarted);
+      await timer.time("auth_cache_prime", () => this.primeAuthCaches(rotated, routeState));
       return this.sessionPayloadFromRouteState(routeState, access.expiresAt, rotated.id);
     } finally {
       this.observability.observeAuthRefreshLatency(Date.now() - started);
+      timer.end({ actorUserId });
     }
   }
 
@@ -1797,6 +1918,26 @@ export class AuthService {
     };
   }
 
+  private customerRouteState(user: User): AuthRouteState {
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+        status: user.status,
+        emailVerified: user.emailVerified,
+        authzVersion: user.authzVersion
+      },
+      roleCodes: [ROLE_CODES.CUSTOMER],
+      merchantStoreId: null,
+      merchantStoreStatus: null,
+      onboardingState: null,
+      onboardingComplete: false,
+      redirectTo: "/"
+    };
+  }
+
   private publicUserFromRouteState(routeState: AuthRouteState): PublicUser {
     const user = routeState.user;
     return {
@@ -1830,6 +1971,27 @@ export class AuthService {
       }),
       this.authState.cacheRouteState(routeState),
       this.rbac.platformAuthorization(routeState.user.id, routeState.user.authzVersion)
+    ]);
+  }
+
+  private async primeEssentialAuthCaches(
+    session: {
+      id: string;
+      userId: string;
+      tokenFamilyId: string;
+      expiresAt: Date;
+    },
+    routeState: AuthRouteState
+  ): Promise<void> {
+    await Promise.all([
+      this.sessionCache.set({
+        id: session.id,
+        userId: session.userId,
+        tokenFamilyId: session.tokenFamilyId,
+        expiresAt: session.expiresAt.toISOString(),
+        user: routeState.user
+      }),
+      this.authState.cacheRouteState(routeState)
     ]);
   }
 
@@ -1871,6 +2033,7 @@ export class AuthService {
 
   private checkoutAddressPayload(dto: CheckoutOnboardingStartDto, phoneNumber: string): CheckoutAddressPayload {
     return {
+      email: this.normalizeEmail(dto.email),
       label: dto.label?.trim() || "Home",
       recipientName: dto.recipientName?.trim().replace(/\s+/g, " "),
       recipientPhone: phoneNumber,
@@ -2131,7 +2294,8 @@ export class AuthService {
     expiresAt: Date,
     cooldownUntil: Date | null,
     providerRequestId?: string | null,
-    providerStatus?: string | null
+    providerStatus?: string | null,
+    devOtp?: string
   ) {
     return {
       success: true,
@@ -2139,7 +2303,51 @@ export class AuthService {
       expiresAt: expiresAt.toISOString(),
       resendAfterSeconds: cooldownUntil ? Math.max(0, this.secondsUntil(cooldownUntil)) : 0,
       providerRequestId: providerRequestId ?? undefined,
-      providerStatus: providerStatus ?? undefined
+      providerStatus: providerStatus ?? undefined,
+      devOtp: this.devOtpPayload(devOtp, expiresAt)
+    };
+  }
+
+  private shouldUseDevPhoneOtpTransport(): boolean {
+    return (
+      this.config.get<string>("NODE_ENV", "development") !== "production" &&
+      this.config.get<boolean>("PHONE_OTP_DEV_TOAST_ENABLED", true)
+    );
+  }
+
+  private devPhoneOtpForExisting(
+    flowId: string,
+    phoneNumber: string,
+    otpRequestId: string,
+    providerStatus?: string | null
+  ): string | undefined {
+    if (providerStatus !== "DEV_OTP" || !this.shouldUseDevPhoneOtpTransport()) {
+      return undefined;
+    }
+    return this.devPhoneOtpCode(flowId, phoneNumber, otpRequestId);
+  }
+
+  private devPhoneOtpCode(flowId: string, phoneNumber: string, otpRequestId: string): string {
+    const digest = createHash("sha256")
+      .update([
+        "dev-phone-otp",
+        flowId,
+        phoneNumber,
+        otpRequestId,
+        this.crypto.pepper("OTP_PEPPER")
+      ].join(":"))
+      .digest();
+    return (digest.readUIntBE(0, 6) % 1_000_000).toString().padStart(6, "0");
+  }
+
+  private devOtpPayload(code: string | undefined, expiresAt: Date) {
+    if (!code || !this.shouldUseDevPhoneOtpTransport()) {
+      return undefined;
+    }
+    return {
+      code,
+      delivery: "toast" as const,
+      expiresAt: expiresAt.toISOString()
     };
   }
 
@@ -2237,6 +2445,17 @@ export class AuthService {
         "code" in error &&
         (error as { code?: unknown }).code === "P2002"
     );
+  }
+
+  private uniqueConstraintTargets(error: unknown): string[] {
+    if (!this.isUniqueConstraintError(error) || !error || typeof error !== "object") {
+      return [];
+    }
+    const target = (error as { meta?: { target?: unknown } }).meta?.target;
+    if (Array.isArray(target)) {
+      return target.filter((value): value is string => typeof value === "string");
+    }
+    return typeof target === "string" ? [target] : [];
   }
 
   private secondsUntil(date: Date): number {

@@ -5,8 +5,9 @@ import { RateLimitService } from "../rate-limit/rate-limit.service";
 import { ShopsService, type CachedResult, type ShopProductSort, type ShopProductsQuery } from "./shops.service";
 
 const DETAIL_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=30";
-const PRODUCTS_CACHE_CONTROL = "public, max-age=60, s-maxage=180, stale-while-revalidate=120";
-const PDP_CACHE_CONTROL = "public, max-age=60, s-maxage=180, stale-while-revalidate=120";
+const STOCK_SENSITIVE_CACHE_CONTROL = "no-store, max-age=0, must-revalidate";
+const PRODUCTS_CACHE_CONTROL = STOCK_SENSITIVE_CACHE_CONTROL;
+const PDP_CACHE_CONTROL = STOCK_SENSITIVE_CACHE_CONTROL;
 const PUBLIC_ID_PATTERN = /^\d{6}$/;
 const SHOP_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRODUCT_REF_PATTERN = /^([0-9a-f]{32})(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$/i;
@@ -29,7 +30,7 @@ export class ShopsController {
   ) {
     const startedAt = process.hrtime.bigint();
     const result = await this.shops.listApprovedShops();
-    setPublicCacheHeaders(response, result, durationMs(startedAt), "shops");
+    setPublicCacheHeaders(response, result, durationMs(startedAt), "shops", STOCK_SENSITIVE_CACHE_CONTROL);
 
     if (etagMatches(ifNoneMatch, result.etag)) {
       response.status(304);
@@ -46,7 +47,7 @@ export class ShopsController {
   ) {
     const startedAt = process.hrtime.bigint();
     const result = await this.shops.listDealProducts();
-    setPublicCacheHeaders(response, result, durationMs(startedAt), "shop-products");
+    setPublicCacheHeaders(response, result, durationMs(startedAt), "shop-products", STOCK_SENSITIVE_CACHE_CONTROL);
 
     if (etagMatches(ifNoneMatch, result.etag)) {
       response.status(304);

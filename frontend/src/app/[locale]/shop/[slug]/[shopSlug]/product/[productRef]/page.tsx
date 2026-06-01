@@ -12,7 +12,8 @@ type ProductPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { locale, slug, shopSlug, productRef } = await params;

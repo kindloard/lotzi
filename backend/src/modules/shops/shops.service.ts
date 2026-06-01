@@ -3,6 +3,7 @@ import { Prisma, ProductStatus, StoreStatus, UploadRenditionKind } from "@prisma
 import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { GoogleMapsService, type LatLng } from "../../integrations/google-maps/google-maps.service";
+import { CatalogCacheService } from "../catalog-cache/catalog-cache.service";
 import { ObservabilityService } from "../observability/observability.service";
 import { RedisService } from "../redis/redis.service";
 import {
@@ -72,6 +73,7 @@ export interface ShopDto {
 
 export interface DealProductDto {
   id: string;
+  variantId: string | null;
   name: string;
   price: number;
   originalPrice: number | null;
@@ -262,7 +264,8 @@ export class ShopsService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly googleMaps: GoogleMapsService,
     private readonly observability: ObservabilityService,
-    private readonly redis: RedisService
+    private readonly redis: RedisService,
+    private readonly catalogCache: CatalogCacheService = new CatalogCacheService(redis)
   ) {}
 
   onApplicationBootstrap() {
@@ -270,17 +273,21 @@ export class ShopsService implements OnApplicationBootstrap {
   }
 
   async listApprovedShops(): Promise<CachedResult<ShopDto[]>> {
-    return this.cached(SHOP_LIST_CACHE_KEY, "landing_shops", SHOP_CACHE_TTL_SECONDS, () => this.loadApprovedShops());
+    const version = await this.catalogCache.version(this.catalogCache.landingShopsScope());
+    return this.cached(`catalog:v2:landing:shops:${version}`, "landing_shops", SHOP_CACHE_TTL_SECONDS, () => this.loadApprovedShops());
   }
 
   async listDealProducts(): Promise<CachedResult<DealProductDto[]>> {
-    return this.cached(DEAL_PRODUCTS_CACHE_KEY, "landing_products", SHOP_CACHE_TTL_SECONDS, () => this.loadDealProducts());
+    const version = await this.catalogCache.version(this.catalogCache.dealsScope());
+    return this.cached(`catalog:v2:deals:global:${version}`, "landing_products", SHOP_CACHE_TTL_SECONDS, () => this.loadDealProducts());
   }
 
   async getShopDetail(slug: string): Promise<CachedResult<ShopDetailDto>> {
     const normalizedSlug = normalizeSlugForLookup(slug);
+    const storeScope = this.catalogCache.storeSlugScope(normalizedSlug);
+    const version = await this.catalogCache.version(storeScope);
     return this.cached(
-      `${SHOP_DETAIL_CACHE_PREFIX}${normalizedSlug}`,
+      `catalog:v2:${storeScope}:detail:${version}`,
       "shop_detail",
       SHOP_CACHE_TTL_SECONDS,
       () => this.loadShopDetail(normalizedSlug)
@@ -290,8 +297,10 @@ export class ShopsService implements OnApplicationBootstrap {
   async getShopDetailByPublicRoute(publicId: string, publicSlug: string): Promise<CachedResult<ShopDetailDto>> {
     const normalizedPublicId = normalizePublicStoreCode(publicId);
     const normalizedPublicSlug = normalizeSlugForLookup(publicSlug);
+    const storeScope = this.catalogCache.storePublicScope(normalizedPublicId);
+    const version = await this.catalogCache.version(storeScope);
     return this.cached(
-      `${SHOP_DETAIL_CACHE_PREFIX}code:${normalizedPublicId}`,
+      `catalog:v2:${storeScope}:detail:${version}`,
       "shop_detail",
       SHOP_CACHE_TTL_SECONDS,
       () => this.loadShopDetailByPublicRoute(normalizedPublicId, normalizedPublicSlug)
@@ -301,7 +310,13 @@ export class ShopsService implements OnApplicationBootstrap {
   async listProductsForShop(slug: string, query: ShopProductsQuery): Promise<CachedResult<ShopProductsResponseDto>> {
     const normalizedSlug = normalizeSlugForLookup(slug);
     const canonicalQuery = canonicalShopProductsQuery(query);
-    const cacheKey = `${SHOP_PRODUCTS_CACHE_PREFIX}${normalizedSlug}:${hashCanonicalQuery(canonicalQuery)}`;
+    const storeScope = this.catalogCache.storeSlugScope(normalizedSlug);
+    const version = await this.catalogCache.version(storeScope);
+    const searchVersion = await this.catalogCache.version(this.catalogCache.searchScope(storeScope));
+    const categoryVersion = canonicalQuery.category
+      ? await this.catalogCache.version(this.catalogCache.categoryScope(storeScope, canonicalQuery.category))
+      : "1";
+    const cacheKey = `catalog:v2:${storeScope}:products:${version}:${searchVersion}:${categoryVersion}:${hashCanonicalQuery(canonicalQuery)}`;
     return this.cached(
       cacheKey,
       "shop_products",
@@ -318,7 +333,13 @@ export class ShopsService implements OnApplicationBootstrap {
     const normalizedPublicId = normalizePublicStoreCode(publicId);
     const normalizedPublicSlug = normalizeSlugForLookup(publicSlug);
     const canonicalQuery = canonicalShopProductsQuery(query);
-    const cacheKey = `${SHOP_PRODUCTS_CACHE_PREFIX}code:${normalizedPublicId}:${hashCanonicalQuery(canonicalQuery)}`;
+    const storeScope = this.catalogCache.storePublicScope(normalizedPublicId);
+    const version = await this.catalogCache.version(storeScope);
+    const searchVersion = await this.catalogCache.version(this.catalogCache.searchScope(storeScope));
+    const categoryVersion = canonicalQuery.category
+      ? await this.catalogCache.version(this.catalogCache.categoryScope(storeScope, canonicalQuery.category))
+      : "1";
+    const cacheKey = `catalog:v2:${storeScope}:products:${version}:${searchVersion}:${categoryVersion}:${hashCanonicalQuery(canonicalQuery)}`;
     return this.cached(
       cacheKey,
       "shop_products",
@@ -335,7 +356,11 @@ export class ShopsService implements OnApplicationBootstrap {
     const normalizedPublicId = normalizePublicStoreCode(publicId);
     const normalizedPublicSlug = normalizeSlugForLookup(publicSlug);
     const normalizedProductPublicId = normalizePublicProductCode(productPublicId);
-    const cacheKey = `${SHOP_PDP_CACHE_PREFIX}code:${normalizedPublicId}:${normalizedProductPublicId}`;
+    const productScope = this.catalogCache.productPublicScope(normalizedProductPublicId);
+    const productVersion = await this.catalogCache.version(productScope);
+    const storeScope = this.catalogCache.storePublicScope(normalizedPublicId);
+    const storeVersion = await this.catalogCache.version(storeScope);
+    const cacheKey = `catalog:v2:${productScope}:pdp:${productVersion}:${storeVersion}`;
     return this.cached(
       cacheKey,
       "shop_pdp",
@@ -593,6 +618,7 @@ export class ShopsService implements OnApplicationBootstrap {
   async invalidateShopCaches(input: {
     keyFamily?: "detail" | "products" | "all";
     operation?: string;
+    productIds?: string[];
     requestId?: string;
     slug?: string | null;
     storeId?: string | null;
@@ -603,26 +629,28 @@ export class ShopsService implements OnApplicationBootstrap {
       route = input.slug
         ? { slug: input.slug, publicId: null }
         : await this.routeForStore(input.storeId);
-      const deletes: Array<Promise<unknown>> = [
+      const scopes = new Set<string>([
+        this.catalogCache.dealsScope(),
+        this.catalogCache.landingShopsScope()
+      ]);
+      if (route?.slug) {
+        const slugScope = this.catalogCache.storeSlugScope(route.slug);
+        scopes.add(slugScope);
+        scopes.add(this.catalogCache.searchScope(slugScope));
+      }
+      if (route?.publicId) {
+        const publicScope = this.catalogCache.storePublicScope(route.publicId);
+        scopes.add(publicScope);
+        scopes.add(this.catalogCache.searchScope(publicScope));
+      }
+      for (const productId of input.productIds ?? []) {
+        scopes.add(this.catalogCache.productPublicScope(publicProductCode(productId)));
+      }
+      await this.catalogCache.bumpScopes(scopes);
+      await Promise.all([
         this.redis.del(SHOP_LIST_CACHE_KEY),
         this.redis.del(DEAL_PRODUCTS_CACHE_KEY)
-      ];
-
-      if (route?.slug && (families === "detail" || families === "all")) {
-        deletes.push(this.redis.del(`${SHOP_DETAIL_CACHE_PREFIX}${route.slug}`));
-      }
-      if (route?.slug && (families === "products" || families === "all")) {
-        deletes.push(this.redis.delByPrefix(`${SHOP_PRODUCTS_CACHE_PREFIX}${route.slug}:`));
-      }
-      if (route?.publicId && (families === "detail" || families === "all")) {
-        deletes.push(this.redis.del(`${SHOP_DETAIL_CACHE_PREFIX}code:${route.publicId}`));
-      }
-      if (route?.publicId && (families === "products" || families === "all")) {
-        deletes.push(this.redis.delByPrefix(`${SHOP_PRODUCTS_CACHE_PREFIX}code:${route.publicId}:`));
-        deletes.push(this.redis.delByPrefix(`${SHOP_PDP_CACHE_PREFIX}code:${route.publicId}:`));
-      }
-
-      await Promise.all(deletes);
+      ]);
       this.observability.recordShopPageCacheEvent("invalidate", families);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -639,8 +667,54 @@ export class ShopsService implements OnApplicationBootstrap {
     }
   }
 
+  async invalidateStockSensitiveCaches(input: {
+    operation?: string;
+    productIds?: string[];
+    productVariantIds?: string[];
+    requestId?: string;
+    storeId: string;
+  }): Promise<void> {
+    const publicId = publicStoreCode(input.storeId);
+    try {
+      const productIds = new Set(input.productIds ?? []);
+      if (input.productVariantIds?.length) {
+        const variants = await this.prisma.productVariant.findMany({
+          where: { id: { in: input.productVariantIds } },
+          select: { productId: true }
+        });
+        for (const variant of variants) {
+          productIds.add(variant.productId);
+        }
+      }
+      const storeScope = this.catalogCache.storePublicScope(publicId);
+      await this.catalogCache.bumpScopes([
+        this.catalogCache.dealsScope(),
+        storeScope,
+        this.catalogCache.searchScope(storeScope),
+        ...Array.from(productIds).map((productId) => this.catalogCache.productPublicScope(publicProductCode(productId)))
+      ]);
+      await this.redis.del(DEAL_PRODUCTS_CACHE_KEY);
+      this.observability.recordShopPageCacheEvent("invalidate", "products");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(JSON.stringify({
+        event: "shop_stock_cache_invalidation_failed",
+        operation: input.operation ?? "inventory_stock_changed",
+        publicId,
+        requestId: input.requestId,
+        storeId: input.storeId,
+        message
+      }));
+    }
+  }
+
   private async prewarmLandingCaches() {
     try {
+      const lock = await this.redis.setNxEx("lock:cache_prewarm", 60, "1");
+      if (!lock) {
+        return;
+      }
+
       await Promise.all([
         this.listApprovedShops(),
         this.listDealProducts()
@@ -743,6 +817,15 @@ export class ShopsService implements OnApplicationBootstrap {
           select: {
             id: true,
             name: true
+          }
+        },
+        variants: {
+          where: { isDefault: true },
+          take: 1,
+          select: {
+            id: true,
+            price: true,
+            mrp: true
           }
         }
       }
@@ -1029,7 +1112,7 @@ export class ShopsService implements OnApplicationBootstrap {
       version: 1
     };
 
-    await this.redis.setEx(key, ttlSeconds, JSON.stringify(envelope));
+    await this.catalogCache.set(key, ttlSeconds, JSON.stringify(envelope));
 
     return {
       data,
@@ -1055,7 +1138,7 @@ export class ShopsService implements OnApplicationBootstrap {
   }
 
   private async readCache<T>(key: string): Promise<CacheEnvelope<T> | null> {
-    const raw = await this.redis.get(key);
+    const raw = await this.catalogCache.get(key);
     if (!raw) {
       return null;
     }
@@ -1120,6 +1203,13 @@ type DealProductRow = Prisma.ProductGetPayload<{
     price: true;
     compareAtPrice: true;
     imageUrl: true;
+    variants: {
+      select: {
+        id: true;
+        price: true;
+        mrp: true;
+      };
+    };
     category: {
       select: {
         slug: true;
@@ -1516,8 +1606,9 @@ function mapStoreToDto(store: StoreLandingRow): ShopDto {
 }
 
 function mapProductToDto(product: DealProductRow): DealProductDto {
-  const price = decimalToNumber(product.price) ?? 0;
-  const originalPrice = decimalToNumber(product.compareAtPrice);
+  const defaultVariant = product.variants?.[0];
+  const price = decimalToNumber(defaultVariant?.price ?? product.price) ?? 0;
+  const originalPrice = decimalToNumber(defaultVariant?.mrp ?? product.compareAtPrice);
   const discount =
     originalPrice && originalPrice > price
       ? `${Math.round(((originalPrice - price) / originalPrice) * 100)}% OFF`
@@ -1526,6 +1617,7 @@ function mapProductToDto(product: DealProductRow): DealProductDto {
 
   return {
     id: product.id,
+    variantId: defaultVariant?.id ?? null,
     name: product.name,
     price,
     originalPrice,

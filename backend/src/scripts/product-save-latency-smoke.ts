@@ -28,7 +28,11 @@ async function main() {
       throw new Error("No APPROVED/PENDING store found. Seed a merchant store before running the smoke test.");
     }
 
-    const inventory = new InventoryService(prisma, { isConfigured: false } as never);
+    const inventory = new InventoryService(
+      prisma,
+      { isConfigured: false } as never,
+      { invalidateStockSensitiveCaches: async () => undefined } as never
+    );
     const service = new ProductsService(
       prisma,
       inventory,

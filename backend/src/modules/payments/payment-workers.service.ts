@@ -4,6 +4,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { InventoryService } from "../inventory/inventory.service";
 import { ReconciliationService } from "./reconciliation.service";
 import { WebhookService } from "./webhook.service";
+import { RedisService } from "../redis/redis.service";
 
 const STALE_WEBHOOK_PROCESSING_MS = 2 * 60 * 1000;
 
@@ -17,7 +18,8 @@ export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
     private readonly reconciliation: ReconciliationService,
-    private readonly webhooks: WebhookService
+    private readonly webhooks: WebhookService,
+    private readonly redis: RedisService
   ) {}
 
   onModuleInit() {
@@ -43,6 +45,9 @@ export class PaymentWorkersService implements OnModuleInit, OnModuleDestroy {
     }
     this.running = true;
     try {
+      const lock = await this.redis.setNxEx("lock:payment_worker", 25, "1");
+      if (!lock) return;
+
       await this.inventory.expireReservations(100);
       await this.reconciliation.runDue(25);
       const now = new Date();

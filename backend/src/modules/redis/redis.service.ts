@@ -74,6 +74,19 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  async getStrict(key: string): Promise<string | null> {
+    if (!this.client || this.isCircuitOpen()) {
+      return null;
+    }
+    try {
+      await this.ensureConnected();
+      return await this.client.get(key);
+    } catch (error) {
+      this.openCircuit(error);
+      return null;
+    }
+  }
+
   async setEx(key: string, seconds: number, value: string): Promise<void> {
     this.setLocal(key, seconds, value);
     if (!this.client || this.isCircuitOpen()) {
@@ -87,9 +100,37 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
-  async setNxEx(key: string, seconds: number, value: string): Promise<boolean | null> {
+  async setExStrict(key: string, seconds: number, value: string): Promise<boolean> {
+    if (!this.client || this.isCircuitOpen()) {
+      return false;
+    }
+    try {
+      await this.ensureConnected();
+      await this.client.set(key, value, "EX", seconds);
+      return true;
+    } catch (error) {
+      this.openCircuit(error);
+      return false;
+    }
+  }
+
+  async incr(key: string): Promise<number | null> {
+    this.localCache.delete(key);
     if (!this.client || this.isCircuitOpen()) {
       return null;
+    }
+    try {
+      await this.ensureConnected();
+      return await this.client.incr(key);
+    } catch (error) {
+      this.openCircuit(error);
+      return null;
+    }
+  }
+
+  async setNxEx(key: string, seconds: number, value: string): Promise<boolean | null> {
+    if (!this.client || this.isCircuitOpen()) {
+      return this.allowLocalOnlyFallback() ? this.setLocalNx(key, seconds, value) : null;
     }
     try {
       await this.ensureConnected();
@@ -97,7 +138,7 @@ export class RedisService implements OnModuleDestroy {
       return result === "OK";
     } catch (error) {
       this.openCircuit(error);
-      return null;
+      return this.allowLocalOnlyFallback() ? this.setLocalNx(key, seconds, value) : null;
     }
   }
 
@@ -151,8 +192,12 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async xAdd(stream: string, values: Record<string, string | number | boolean | null | undefined>, maxLen?: number): Promise<void> {
+    await this.xAddStrict(stream, values, maxLen);
+  }
+
+  async xAddStrict(stream: string, values: Record<string, string | number | boolean | null | undefined>, maxLen?: number): Promise<boolean> {
     if (!this.client || this.isCircuitOpen()) {
-      return;
+      return false;
     }
 
     const entries: string[] = [];
@@ -163,7 +208,7 @@ export class RedisService implements OnModuleDestroy {
       entries.push(key, String(value));
     }
     if (!entries.length) {
-      return;
+      return true;
     }
 
     try {
@@ -173,6 +218,73 @@ export class RedisService implements OnModuleDestroy {
       } else {
         await this.client.xadd(stream, "*", ...entries);
       }
+      return true;
+    } catch (error) {
+      this.openCircuit(error);
+      return false;
+    }
+  }
+
+  async xGroupCreate(stream: string, group: string): Promise<boolean> {
+    if (!this.client || this.isCircuitOpen()) {
+      return false;
+    }
+    try {
+      await this.ensureConnected();
+      await this.client.xgroup("CREATE", stream, group, "$", "MKSTREAM");
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("BUSYGROUP")) {
+        return true;
+      }
+      this.openCircuit(error);
+      return false;
+    }
+  }
+
+  async xReadGroup(input: {
+    stream: string;
+    group: string;
+    consumer: string;
+    count?: number;
+    blockMs?: number;
+  }): Promise<Array<{ id: string; values: Record<string, string> }>> {
+    if (!this.client || this.isCircuitOpen()) {
+      return [];
+    }
+    try {
+      await this.ensureConnected();
+      const response = await this.client.xreadgroup(
+        "GROUP",
+        input.group,
+        input.consumer,
+        "COUNT",
+        input.count ?? 25,
+        "BLOCK",
+        input.blockMs ?? 1000,
+        "STREAMS",
+        input.stream,
+        ">"
+      ) as Array<[string, Array<[string, string[]]>]> | null;
+      const stream = response?.[0]?.[1] ?? [];
+      return stream.map(([id, entries]) => ({
+        id,
+        values: entriesToObject(entries)
+      }));
+    } catch (error) {
+      this.openCircuit(error);
+      return [];
+    }
+  }
+
+  async xAck(stream: string, group: string, id: string): Promise<void> {
+    if (!this.client || this.isCircuitOpen()) {
+      return;
+    }
+    try {
+      await this.ensureConnected();
+      await this.client.xack(stream, group, id);
     } catch (error) {
       this.openCircuit(error);
     }
@@ -245,6 +357,18 @@ export class RedisService implements OnModuleDestroy {
     });
   }
 
+  private setLocalNx(key: string, seconds: number, value: string) {
+    if (this.getLocal(key) !== null) {
+      return false;
+    }
+    this.setLocal(key, seconds, value);
+    return true;
+  }
+
+  private allowLocalOnlyFallback() {
+    return process.env.NODE_ENV !== "production";
+  }
+
   private pruneLocalCache() {
     const now = Date.now();
     for (const [key, entry] of this.localCache) {
@@ -256,4 +380,16 @@ export class RedisService implements OnModuleDestroy {
       }
     }
   }
+}
+
+function entriesToObject(entries: string[]) {
+  const result: Record<string, string> = {};
+  for (let index = 0; index < entries.length; index += 2) {
+    const key = entries[index];
+    const value = entries[index + 1];
+    if (key !== undefined && value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
 }

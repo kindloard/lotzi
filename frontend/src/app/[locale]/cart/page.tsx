@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useRouter } from "@/i18n/navigation";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
@@ -19,15 +19,18 @@ import {
   Gift,
   Loader2,
   ArrowRight,
-  Percent
+  Percent,
+  Smartphone,
+  Wallet,
+  Banknote
 } from "lucide-react";
-import { createCheckoutSession } from "@/features/checkout/checkout-api";
-import { loadCashfree } from "@/features/checkout/cashfree-sdk";
+import { createCheckoutSessionWithMeta, getCheckoutMethods, type CheckoutMethod } from "@/features/checkout/checkout-api";
+import { validateCart } from "@/features/cart/cart-validation-api";
 import {
   checkoutAddressRetryDelay,
   fetchCheckoutAddress
 } from "@/features/customer-account/customer-account-api";
-import { ApiError } from "@/lib/api";
+import { ApiError, type ApiFetchMeta } from "@/lib/api";
 import { useCart, CartItem, cartLineKey } from "@/lib/cart-context";
 import { formatIndianRupees } from "@/lib/currency";
 
@@ -124,7 +127,9 @@ export default function CartPage() {
   const {
     cartItems,
     cartSubtotal,
+    clearCart,
     updateQty,
+    updateCartLines,
     removeFromCart,
     isCartReady
   } = useCart();
@@ -140,6 +145,9 @@ export default function CartPage() {
   const [isSelectedAddressLoaded, setIsSelectedAddressLoaded] = useState(false);
   const [checkoutAddress, setCheckoutAddress] = useState<{ id: string } | null>(null);
   const [addressLookupState, setAddressLookupState] = useState<AddressLookupState>("idle");
+  const [checkoutMethods, setCheckoutMethods] = useState<CheckoutMethod[]>([]);
+  const [methodsState, setMethodsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<CheckoutMethod["key"] | null>(null);
   const currentSessionId = session?.sessionId ?? null;
 
   // Pricing calculations
@@ -148,6 +156,12 @@ export default function CartPage() {
   const discount = SHOW_PROMO_CODE_SECTION && appliedPromo ? (subtotal * appliedPromo.discountPercent) / 100 : 0;
   const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
   const effectiveAddressId = checkoutAddress?.id ?? selectedAddressId;
+  const checkoutStoreIds = useMemo(
+    () => Array.from(new Set(cartItems.map((item) => item.shopId).filter(Boolean))).sort(),
+    [cartItems]
+  );
+  const checkoutStoreId = checkoutStoreIds.length === 1 ? checkoutStoreIds[0] : undefined;
+  const isPaymentMethodReady = methodsState === "ready" && checkoutMethods.length > 0 && selectedPaymentMethod !== null;
   const isCheckingAddress = isSessionReady && Boolean(session) && (
     !isSelectedAddressLoaded || (!effectiveAddressId && (addressLookupState === "idle" || addressLookupState === "loading"))
   );
@@ -232,6 +246,36 @@ export default function CartPage() {
     };
   }, [currentSessionId, isSelectedAddressLoaded, isSessionReady, selectedAddressId]);
 
+  useEffect(() => {
+    if (!isCartReady || cartItems.length === 0 || !checkoutStoreId) {
+      setCheckoutMethods([]);
+      setSelectedPaymentMethod(null);
+      setMethodsState("idle");
+      return;
+    }
+
+    let isCurrent = true;
+    setMethodsState("loading");
+    void getCheckoutMethods(checkoutStoreId)
+      .then((response) => {
+        if (!isCurrent) return;
+        const methods = response.methods.filter((method) => method.enabled);
+        setCheckoutMethods(methods);
+        setSelectedPaymentMethod((current) => methods.some((method) => method.key === current) ? current : methods[0]?.key ?? null);
+        setMethodsState("ready");
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setCheckoutMethods([]);
+        setSelectedPaymentMethod(null);
+        setMethodsState("error");
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [cartItems.length, checkoutStoreId, isCartReady]);
+
   // Promo code validation
   const handleApplyPromo = (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,8 +304,14 @@ export default function CartPage() {
 
   // Checkout handling
   const handlePlaceOrder = async () => {
+    markCheckoutPerformance("checkout_click");
     if (cartItems.length === 0) return;
     setCheckoutError(null);
+
+    if (!checkoutStoreId) {
+      setCheckoutError("Checkout supports one store at a time. Please order from one store per checkout.");
+      return;
+    }
 
     if (!isSessionReady) {
       setCheckoutError("Checking your session. Please try again in a moment.");
@@ -289,9 +339,38 @@ export default function CartPage() {
       return;
     }
 
+    if (!isPaymentMethodReady) {
+      setCheckoutError("Payment methods are temporarily unavailable. Please try again in a moment.");
+      return;
+    }
+    const paymentMethod = selectedPaymentMethod;
+    if (!paymentMethod) {
+      setCheckoutError("Payment methods are unavailable for this store.");
+      return;
+    }
+
     setCheckoutStep("verifying");
+    markCheckoutLoadingVisible();
     try {
-      const session = await createCheckoutSession({
+      const validation = await validateCart(cartItems);
+      updateCartLines(validation.lines.map((line) => ({
+        imageUrl: line.imageUrl,
+        name: line.productName,
+        price: line.unitPrice,
+        variantId: line.variantId
+      })));
+      const invalidLine = validation.lines.find((line) => !line.isAvailable);
+      if (invalidLine) {
+        setCheckoutStep("idle");
+        setCheckoutError(
+          invalidLine.reason === "INSUFFICIENT_STOCK"
+            ? `Only ${invalidLine.availableStock} item(s) are available for ${invalidLine.productName ?? "this product"}.`
+            : `${invalidLine.productName ?? "One product"} is no longer available.`
+        );
+        return;
+      }
+      markCheckoutPerformance("checkout_request_start");
+      const sessionResult = await createCheckoutSessionWithMeta({
         items: cartItems.map((item) => ({
           productId: item.id,
           variantId: item.variantId!,
@@ -300,21 +379,36 @@ export default function CartPage() {
         shippingOption: deliverySpeed,
         couponCode: appliedPromo?.code,
         addressId: effectiveAddressId,
+        paymentMethod,
         idempotencyKey: crypto.randomUUID()
       });
+      markCheckoutPerformance("checkout_response_end");
+      measureCheckoutPerformance("checkout_request_duration", "checkout_request_start", "checkout_response_end");
+      logCheckoutPerformanceMeta(sessionResult.meta);
+      const session = sessionResult.data;
+
+      if (session.status === "COD_CONFIRMED") {
+        clearCart();
+        markCheckoutPerformance("route_change_start");
+        router.push(`/checkout/status?orderId=${session.orderId}&paymentId=${session.paymentId}&provider=cod`);
+        return;
+      }
+
+      if (session.redirectUrl) {
+        setCheckoutStep("securing");
+        markCheckoutPerformance("route_change_start");
+        window.location.assign(session.redirectUrl);
+        return;
+      }
 
       if (session.status === "UNKNOWN_GATEWAY" || !session.paymentSessionId) {
+        markCheckoutPerformance("route_change_start");
         router.push(`/checkout/status?orderId=${session.orderId}&paymentId=${session.paymentId}`);
         return;
       }
 
-      setCheckoutStep("securing");
-      const cashfree = await loadCashfree();
-      setCheckoutStep("processing");
-      await cashfree.checkout({
-        paymentSessionId: session.paymentSessionId,
-        redirectTarget: "_self"
-      });
+      markCheckoutPerformance("route_change_start");
+      router.push(`/checkout/status?orderId=${session.orderId}&paymentId=${session.paymentId}`);
     } catch (error) {
       setCheckoutStep("idle");
       if (isApiErrorCode(error, "CHECKOUT_ADDRESS_REQUIRED")) {
@@ -328,7 +422,9 @@ export default function CartPage() {
   // Loading text depending on animation stage
   const getLoaderText = () => {
     if (checkoutStep === "verifying") return "Validating server-side totals...";
-    if (checkoutStep === "securing") return "Opening secure Cashfree checkout...";
+    if (checkoutStep === "securing" && selectedPaymentMethod === "phonepe") return "Opening PhonePe checkout...";
+    if (checkoutStep === "securing" && selectedPaymentMethod === "cod") return "Confirming order...";
+    if (checkoutStep === "securing") return "Opening secure checkout...";
     if (checkoutStep === "processing") return "Waiting for payment authorization...";
     return "Finalizing order...";
   };
@@ -609,6 +705,51 @@ export default function CartPage() {
               </div>
               ) : null}
 
+              <section className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6 space-y-4">
+                <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+                  <Wallet size={16} className="text-slate-800" />
+                  Payment Method
+                </h3>
+                {methodsState === "loading" ? (
+                  <div className="space-y-2">
+                    <Skeleton height={42} radius="xl" />
+                    <Skeleton height={42} radius="xl" />
+                  </div>
+                ) : checkoutMethods.length > 0 ? (
+                  <div className="grid gap-2">
+                    {checkoutMethods.map((method) => {
+                      const selected = selectedPaymentMethod === method.key;
+                      const Icon = method.key === "phonepe" ? Smartphone : method.key === "cod" ? Banknote : CreditCard;
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className={`flex h-12 w-full items-center justify-between gap-3 rounded-xl border px-3 text-left transition ${
+                            selected
+                              ? "border-black bg-slate-50 text-slate-950 ring-1 ring-black"
+                              : "border-slate-200 bg-white text-slate-650 hover:border-slate-300"
+                          }`}
+                          key={method.key}
+                          onClick={() => setSelectedPaymentMethod(method.key)}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-black text-white" : "bg-slate-100 text-slate-600"}`}>
+                              <Icon size={15} strokeWidth={2.5} />
+                            </span>
+                            <span className="truncate text-xs font-black">{method.name}</span>
+                          </span>
+                          <span className={`size-2.5 shrink-0 rounded-full ${selected ? "bg-black" : "bg-slate-200"}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                    Payment methods are unavailable for this store.
+                  </p>
+                )}
+              </section>
+
               {/* Order Summary & Billing */}
               <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm p-6 space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
@@ -654,12 +795,12 @@ export default function CartPage() {
               {/* Place Order Button */}
               <button
                 onClick={handlePlaceOrder}
-                disabled={checkoutStep !== "idle" || cartItems.length === 0 || !isSessionReady || isCheckingAddress}
+                disabled={checkoutStep !== "idle" || cartItems.length === 0 || !isSessionReady || isCheckingAddress || !isPaymentMethodReady}
                 className="w-full flex h-12 items-center justify-center rounded-xl bg-black text-xs font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90 disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:opacity-40 disabled:bg-black cursor-pointer"
               >
                 {checkoutStep === "idle" ? (
                   <span className="flex items-center gap-1.5 justify-center">
-                    {!isSessionReady ? "Checking account" : isCheckingAddress ? "Checking address" : shouldSelectAddress ? "Select address" : (
+                    {!isSessionReady ? "Checking account" : isCheckingAddress ? "Checking address" : shouldSelectAddress ? "Select address" : !isPaymentMethodReady ? "Checking payment" : (
                       <>
                         Place Order &bull; {formatIndianRupees(grandTotal)}
                       </>
@@ -698,8 +839,20 @@ function checkoutErrorMessage(error: unknown) {
     if (body?.code === "CHECKOUT_OUT_OF_STOCK" || body?.code === "CHECKOUT_PRODUCT_UNAVAILABLE") {
       return "One or more items changed. Refresh the store page and try again.";
     }
+    if (body?.code === "STORE_PAYMENT_METHOD_REQUIRED" || body?.code === "STORE_PAYMENT_METHODS_NOT_CONFIGURED") {
+      return "This store has not enabled direct payment collection yet.";
+    }
+    if (body?.code === "CHECKOUT_PAYMENT_METHOD_UNAVAILABLE") {
+      return "That payment method is not available for this store.";
+    }
     if (body?.code === "CASHFREE_NOT_CONFIGURED") {
       return "Payments are temporarily unavailable. Please try again later.";
+    }
+    if (body?.code === "PHONEPE_NOT_ENABLED" || body?.code === "PHONEPE_NOT_CONFIGURED") {
+      return "PhonePe is temporarily unavailable for this store.";
+    }
+    if (body?.code === "COD_NOT_ENABLED") {
+      return "Cash on delivery is not available for this store.";
     }
     return body?.message ?? error.message;
   }
@@ -712,4 +865,52 @@ function isApiErrorCode(error: unknown, code: string) {
   }
   const body = error.body as { code?: unknown } | undefined;
   return body?.code === code;
+}
+
+function markCheckoutPerformance(name: string) {
+  if (typeof performance !== "undefined" && "mark" in performance) {
+    performance.mark(name);
+  }
+}
+
+function measureCheckoutPerformance(name: string, startMark: string, endMark: string) {
+  if (typeof performance !== "undefined" && "measure" in performance) {
+    try {
+      performance.measure(name, startMark, endMark);
+    } catch {
+      // Missing marks should never break checkout.
+    }
+  }
+}
+
+function markCheckoutLoadingVisible() {
+  if (typeof requestAnimationFrame === "undefined") {
+    markCheckoutPerformance("checkout_loading_visible");
+    measureCheckoutPerformance("checkout_click_to_loading_visible", "checkout_click", "checkout_loading_visible");
+    return;
+  }
+  requestAnimationFrame(() => {
+    markCheckoutPerformance("checkout_loading_visible");
+    measureCheckoutPerformance("checkout_click_to_loading_visible", "checkout_click", "checkout_loading_visible");
+  });
+}
+
+function logCheckoutPerformanceMeta(meta: ApiFetchMeta) {
+  if (process.env.NODE_ENV === "production" || typeof performance === "undefined") {
+    return;
+  }
+  const measures = [
+    "checkout_click_to_loading_visible",
+    "checkout_request_duration"
+  ].flatMap((name) =>
+    performance.getEntriesByName(name).slice(-1).map((entry) => ({
+      name,
+      durationMs: Math.round(entry.duration * 10) / 10
+    }))
+  );
+  console.info("checkout.performance", {
+    requestId: meta.requestId,
+    serverTiming: meta.serverTiming,
+    measures
+  });
 }

@@ -250,6 +250,10 @@ function checkoutPasswordError(error: unknown) {
   }
   if (error instanceof ApiError) {
     if (error.status === 409) {
+      const code = (error.body as { code?: unknown } | undefined)?.code;
+      if (code === "EMAIL_ALREADY_REGISTERED") {
+        return "This email already has an account. Sign in to continue checkout.";
+      }
       return "This phone number already has an account. Sign in to continue checkout.";
     }
     if (error.status === 401 || error.status === 403) {

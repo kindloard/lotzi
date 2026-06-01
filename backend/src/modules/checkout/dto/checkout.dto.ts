@@ -48,6 +48,10 @@ export class CreateCheckoutSessionDto {
   @IsIn(["standard", "priority"])
   shippingOption?: "standard" | "priority";
 
+  @IsOptional()
+  @IsIn(["cashfree", "phonepe", "cod"])
+  paymentMethod?: "cashfree" | "phonepe" | "cod";
+
   @IsString()
   @MaxLength(160)
   idempotencyKey!: string;

@@ -30,6 +30,7 @@ export interface SessionResponse {
 }
 
 export interface CheckoutOnboardingStartInput {
+  email: string;
   label?: string;
   recipientName?: string;
   recipientPhone: string;
@@ -71,6 +72,11 @@ export interface SendPhoneOtpResponse {
   resendAfterSeconds: number;
   providerRequestId?: string;
   providerStatus?: string;
+  devOtp?: {
+    code: string;
+    delivery: "toast";
+    expiresAt: string;
+  };
 }
 
 export function signup(

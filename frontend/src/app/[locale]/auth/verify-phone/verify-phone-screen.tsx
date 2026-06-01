@@ -10,6 +10,7 @@ import { useToast } from "@/components/toast/toast-context";
 import { ApiError } from "@/lib/api";
 import {
   checkoutOnboardingStatus,
+  type SendPhoneOtpResponse,
   sendPhoneOtp,
   verifyPhoneOtp
 } from "@/lib/auth-api";
@@ -67,15 +68,18 @@ export function VerifyPhoneScreen() {
         setOtpRequestId(result.otpRequestId);
         setCooldownUntil(Date.now() + result.resendAfterSeconds * 1000);
         setExpiresAt(new Date(result.expiresAt).getTime());
-        setProviderReference(result.providerRequestId ?? null);
+        setProviderReference(result.devOtp ? null : result.providerRequestId ?? null);
         setStatus("idle");
         setMessage(null);
         setProviderBlocked(false);
+        const showedDevOtp = showDevOtpToast(result.devOtp, toast);
         if (mode === "resend") {
           setOtp(emptyOtp);
           lastSubmittedOtpRef.current = null;
           setResendCount((value) => value + 1);
-          toast.success("Verification code resent.");
+          if (!showedDevOtp) {
+            toast.success("Verification code resent.");
+          }
           window.setTimeout(() => inputRefs.current[0]?.focus(), 0);
         }
       } catch (error) {
@@ -489,4 +493,36 @@ function apiErrorCode(body: unknown) {
     return typeof code === "string" ? code : undefined;
   }
   return undefined;
+}
+
+function showDevOtpToast(
+  devOtp: SendPhoneOtpResponse["devOtp"] | undefined,
+  toast: ReturnType<typeof useToast>
+) {
+  if (!devOtp || !shouldShowDevOtpToast()) {
+    return false;
+  }
+
+  toast.info(`OTP: ${devOtp.code}`, {
+    title: "Local development OTP",
+    duration: 20_000,
+    action: {
+      label: "Copy",
+      onClick: () => {
+        void navigator.clipboard?.writeText(devOtp.code);
+      }
+    }
+  });
+  return true;
+}
+
+function shouldShowDevOtpToast() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "production" || isLoopbackHost(window.location.hostname);
+}
+
+function isLoopbackHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }

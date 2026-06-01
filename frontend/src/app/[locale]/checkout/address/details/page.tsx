@@ -12,6 +12,7 @@ import {
   type AddressDraft,
   clearAddressDraft,
   emptyAddressDraft,
+  normalizeCoordinate,
   persistAddressDraft,
   persistSelectedAddress,
   readAddressDraft,
@@ -22,7 +23,7 @@ import { startCheckoutOnboarding } from "@/lib/auth-api";
 import { useCart } from "@/lib/cart-context";
 import { formatIndianPhoneNumber, isValidIndianPhoneNumber } from "@/features/customer-account/lib/account-utils";
 
-type AddressFormErrorKey = "recipientName" | "recipientPhone" | "line1" | "city" | "state" | "pincode";
+type AddressFormErrorKey = "email" | "recipientName" | "recipientPhone" | "line1" | "city" | "state" | "pincode";
 type AddressFormErrors = Partial<Record<AddressFormErrorKey, string>>;
 
 export default function CheckoutAddressDetailsPage() {
@@ -31,6 +32,7 @@ export default function CheckoutAddressDetailsPage() {
   const toast = useToast();
   const { cartItemCount } = useCart();
   const { isSessionReady, session } = useAuthSession();
+  const pageStartedAtRef = useRef(checkoutPerfNow());
   const nextPath = safeNextPath(searchParams.get("next"));
   const mapPath = useMemo(
     () => `/checkout/address?next=${encodeURIComponent(nextPath)}`,
@@ -43,6 +45,7 @@ export default function CheckoutAddressDetailsPage() {
   const [fieldErrors, setFieldErrors] = useState<AddressFormErrors>({});
   const [formSaving, setFormSaving] = useState(false);
   const cartItemLabel = `${cartItemCount} cart ${cartItemCount === 1 ? "item" : "items"}`;
+  const isAuthResolving = !isSessionReady;
 
   useEffect(() => {
     const savedDraft = readAddressDraft();
@@ -50,7 +53,21 @@ export default function CheckoutAddressDetailsPage() {
       setDraft((current) => ({ ...current, ...savedDraft }));
     }
     setDraftHydrated(true);
+    logCheckoutPerf("Draft Hydration", pageStartedAtRef.current);
   }, []);
+
+  useEffect(() => {
+    logCheckoutPerf("Address Page Render", pageStartedAtRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!isSessionReady) {
+      return;
+    }
+    logCheckoutPerf("Session Validation", pageStartedAtRef.current, {
+      source: session ? "authenticated" : "guest"
+    });
+  }, [isSessionReady, session]);
 
   useEffect(() => {
     if (!draftHydrated) {
@@ -83,8 +100,9 @@ export default function CheckoutAddressDetailsPage() {
     async (normalizedDraft: AddressDraft) => {
       setFormSaving(true);
       try {
+        const addressInput = addressOnlyInput(normalizedDraft);
         const response = await createCustomerAddress({
-          ...normalizedDraft,
+          ...addressInput,
           isDefault: true,
           label: normalizedDraft.label?.trim() || "Home"
         });
@@ -103,8 +121,13 @@ export default function CheckoutAddressDetailsPage() {
 
   async function saveAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!isSessionReady) {
+      toast.error("Still checking your secure session. Please try again in a moment.");
+      return;
+    }
+
     const normalizedDraft = normalizeAddressDraft(draft);
-    const errors = validateAddressDraft(normalizedDraft);
+    const errors = validateAddressDraft(normalizedDraft, !session);
     if (Object.keys(errors).length > 0) {
       setDraft(normalizedDraft);
       setFieldErrors(errors);
@@ -123,6 +146,7 @@ export default function CheckoutAddressDetailsPage() {
         const flow = await startCheckoutOnboarding(
           {
             ...normalizedDraft,
+            email: normalizedDraft.email ?? "",
             recipientPhone: normalizedDraft.recipientPhone ?? "",
             nextPath
           },
@@ -138,10 +162,6 @@ export default function CheckoutAddressDetailsPage() {
     }
 
     await saveNormalizedAddress(normalizedDraft);
-  }
-
-  if (!isSessionReady) {
-    return <AddressDetailsShell><LoadingPanel label="Checking your session..." /></AddressDetailsShell>;
   }
 
   return (
@@ -217,6 +237,21 @@ export default function CheckoutAddressDetailsPage() {
             required
             value={draft.recipientName ?? ""}
           />
+          {!session ? (
+            <TextInput
+              autoComplete="email"
+              className="sm:col-span-2"
+              error={fieldErrors.email}
+              inputMode="email"
+              label="Email"
+              onBlur={() => validateField("email")}
+              onChange={(value) => setDraftValue("email", value)}
+              placeholder="you@example.com"
+              required
+              type="email"
+              value={draft.email ?? ""}
+            />
+          ) : null}
           <TextInput
             autoComplete="tel"
             error={fieldErrors.recipientPhone}
@@ -276,15 +311,21 @@ export default function CheckoutAddressDetailsPage() {
 
           <button
             className="group relative mt-4 flex h-14 items-center justify-center overflow-hidden rounded-2xl bg-black text-[15px] font-bold text-white shadow-lg transition-colors hover:bg-zinc-900 active:scale-[0.99] disabled:opacity-50 sm:col-span-2"
-            disabled={formSaving}
+            disabled={formSaving || isAuthResolving}
             type="submit"
           >
             <div className="absolute inset-0 flex h-full w-full justify-center [transform:skew(-12deg)_translateX(-100%)] group-hover:duration-1000 group-hover:[transform:skew(-12deg)_translateX(100%)]">
               <div className="relative h-full w-8 bg-white/20" />
             </div>
             <span className="relative z-10 flex items-center gap-2">
-              {formSaving ? <Loader2 className="size-5 animate-spin" /> : null}
-              {formSaving ? "Saving address..." : session ? "Save and continue" : "Verify phone and continue"}
+              {formSaving || isAuthResolving ? <Loader2 className="size-5 animate-spin" /> : null}
+              {formSaving
+                ? "Saving address..."
+                : isAuthResolving
+                  ? "Checking session..."
+                  : session
+                    ? "Save and continue"
+                    : "Verify phone and continue"}
             </span>
           </button>
         </form>
@@ -303,15 +344,6 @@ function AddressDetailsShell({ children }: { children: ReactNode }) {
   );
 }
 
-function LoadingPanel({ label }: { label: string }) {
-  return (
-    <div className="flex min-h-[120px] items-center justify-center gap-3 rounded-3xl border border-zinc-200/60 bg-white px-6 text-[15px] font-semibold text-zinc-500 shadow-sm">
-      <Loader2 className="size-5 animate-spin text-black" />
-      {label}
-    </div>
-  );
-}
-
 function TextInput({
   autoComplete,
   className = "",
@@ -323,6 +355,7 @@ function TextInput({
   onChange,
   placeholder,
   required,
+  type = "text",
   value
 }: {
   autoComplete?: InputHTMLAttributes<HTMLInputElement>["autoComplete"];
@@ -335,6 +368,7 @@ function TextInput({
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  type?: InputHTMLAttributes<HTMLInputElement>["type"];
   value: string;
 }) {
   const inputId = useId();
@@ -358,6 +392,7 @@ function TextInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
+        type={type}
         value={value}
       />
       {error ? (
@@ -370,10 +405,11 @@ function TextInput({
 }
 
 function normalizeAddressDraft(draft: AddressDraft): AddressDraft {
-  return {
+  const normalized: AddressDraft = {
     ...draft,
     city: draft.city.trim(),
     deliveryInstructions: draft.deliveryInstructions?.trim() ?? "",
+    email: draft.email?.trim().toLowerCase() ?? "",
     label: draft.label?.trim() || "Home",
     line1: draft.line1.trim(),
     line2: draft.line2?.trim() ?? "",
@@ -382,11 +418,29 @@ function normalizeAddressDraft(draft: AddressDraft): AddressDraft {
     recipientPhone: formatIndianPhoneNumber(draft.recipientPhone ?? ""),
     state: draft.state.trim()
   };
+
+  const latitude = normalizeCoordinate(draft.latitude, -90, 90);
+  const longitude = normalizeCoordinate(draft.longitude, -180, 180);
+  if (latitude === undefined || longitude === undefined) {
+    delete normalized.latitude;
+    delete normalized.longitude;
+    return normalized;
+  }
+  normalized.latitude = latitude;
+  normalized.longitude = longitude;
+  return normalized;
 }
 
-function validateAddressDraft(draft: AddressDraft): AddressFormErrors {
+function addressOnlyInput(draft: AddressDraft) {
+  const addressInput = { ...draft };
+  delete addressInput.email;
+  return addressInput;
+}
+
+function validateAddressDraft(draft: AddressDraft, requireEmail: boolean): AddressFormErrors {
   const errors: AddressFormErrors = {};
-  for (const key of ADDRESS_FORM_ERROR_KEYS) {
+  const keys = requireEmail ? ADDRESS_FORM_ERROR_KEYS : ADDRESS_FORM_ERROR_KEYS.filter((key) => key !== "email");
+  for (const key of keys) {
     const message = validateAddressField(key, draft);
     if (message) {
       errors[key] = message;
@@ -396,6 +450,7 @@ function validateAddressDraft(draft: AddressDraft): AddressFormErrors {
 }
 
 const ADDRESS_FORM_ERROR_KEYS: AddressFormErrorKey[] = [
+  "email",
   "recipientName",
   "recipientPhone",
   "line1",
@@ -405,6 +460,17 @@ const ADDRESS_FORM_ERROR_KEYS: AddressFormErrorKey[] = [
 ];
 
 function validateAddressField(key: AddressFormErrorKey, draft: AddressDraft) {
+  if (key === "email") {
+    const value = draft.email?.trim() ?? "";
+    if (!value) {
+      return "Enter your email address.";
+    }
+    if (value.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return "Enter a valid email address.";
+    }
+    return undefined;
+  }
+
   if (key === "recipientName") {
     const value = draft.recipientName?.trim() ?? "";
     if (value.length < 2) {
@@ -492,4 +558,31 @@ function errorMessage(error: unknown, fallback: string) {
     return error.message || fallback;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function checkoutPerfNow() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function logCheckoutPerf(stage: string, startedAt: number, metadata?: Record<string, unknown>) {
+  if (!shouldLogCheckoutPerf()) {
+    return;
+  }
+  const durationMs = Math.max(0, Math.round(checkoutPerfNow() - startedAt));
+  const label = `${stage} ${".".repeat(Math.max(1, 26 - stage.length))}`;
+  console.info(`[CHECKOUT] ${label} ${durationMs}ms`, metadata ?? {});
+}
+
+function shouldLogCheckoutPerf() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  if (process.env.NODE_ENV !== "production") {
+    return true;
+  }
+  try {
+    return localStorage.getItem("namastore:checkout-perf") === "1";
+  } catch {
+    return false;
+  }
 }

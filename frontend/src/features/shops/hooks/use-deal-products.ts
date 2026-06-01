@@ -2,17 +2,19 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchShopProducts, type DealProduct } from "../shops-api";
+import { shopQueryKeys } from "../query-keys";
 
-export const dealProductsQueryKey = ["shops", "deal-products"] as const;
+export const dealProductsQueryKey = shopQueryKeys.deals();
 
 export function useDealProducts(initialData?: DealProduct[]) {
   return useQuery({
     queryKey: dealProductsQueryKey,
     queryFn: ({ signal }) => fetchShopProducts({ signal }),
     initialData: initialData && initialData.length > 0 ? initialData : undefined,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
     retry: 2,
     retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 5_000)
   });

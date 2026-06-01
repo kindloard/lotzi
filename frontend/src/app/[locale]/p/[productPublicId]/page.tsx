@@ -5,7 +5,8 @@ type ProductShortLinkPageProps = {
   params: Promise<{ locale: string; productPublicId: string }>;
 };
 
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ProductShortLinkPage({ params }: ProductShortLinkPageProps) {
   const { locale, productPublicId } = await params;

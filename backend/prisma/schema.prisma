@@ -140,6 +140,7 @@ enum DomainEventStatus {
   PENDING
   PUBLISHED
   FAILED
+  DEAD_LETTER
 }
 
 enum StoreMemberStatus {
@@ -190,6 +191,8 @@ enum OrderStatus {
 
 enum PaymentMethod {
   CASHFREE
+  PHONEPE
+  COD
 }
 
 enum PaymentStatus {
@@ -213,6 +216,8 @@ enum PaymentStatus {
 
 enum PaymentProvider {
   CASHFREE
+  PHONEPE
+  COD
 }
 
 enum PaymentAttemptStatus {
@@ -861,6 +866,9 @@ model Store {
   inventoryItems      InventoryItem[]
   inventoryReservations InventoryReservation[]
   inventoryLedgerEntries InventoryLedger[]
+  paymentSettings     ShopPaymentSettings[]
+  phonepeTransactions PhonepeTransaction[]
+  phonepeAuditLogs    PhonepeAuditLog[]
   createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1504,6 +1512,8 @@ model Payment {
   cashfreeOrderId   String?       @map("cashfree_order_id")
   cashfreeCfOrderId String?       @map("cashfree_cf_order_id")
   cashfreePaymentId String?       @map("cashfree_payment_id")
+  phonepeTransactionId String?     @unique @map("phonepe_transaction_id")
+  gatewayProvider    String?       @map("gateway_provider")
   currency          String        @default("INR") @db.Char(3)
   amount            Decimal       @db.Decimal(10, 2)
   amountPaise       BigInt        @default(0) @map("amount_paise")
@@ -1516,6 +1526,8 @@ model Payment {
   attempts          PaymentAttempt[]
   events            PaymentEvent[]
   webhookEvents     WebhookEvent[]
+  phonepeTransactions PhonepeTransaction[]
+  phonepeWebhookEvents PhonepeWebhookEvent[]
   refunds           Refund[]
   reconciliationRuns ReconciliationRun[]
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -1633,6 +1645,102 @@ model WebhookEvent {
   @@index([eventType, createdAt])
   @@index([paymentId, createdAt])
   @@map("webhook_events")
+}
+
+model ShopPaymentSettings {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId               String          @map("store_id") @db.Uuid
+  provider              PaymentProvider
+  enabled               Boolean         @default(false)
+  displayName           String?         @map("display_name")
+  displayPriority       Int             @default(0) @map("display_priority")
+  merchantId            String?         @map("merchant_id")
+  clientIdEncrypted     String?         @map("client_id_encrypted")
+  clientSecretEncrypted String?         @map("client_secret_encrypted")
+  clientVersion         String?         @default("1") @map("client_version")
+  saltKeyEncrypted      String?         @map("salt_key_encrypted")
+  saltIndex             String?         @map("salt_index")
+  environment           String?         @default("SANDBOX")
+  lastTestedAt          DateTime?       @map("last_tested_at") @db.Timestamptz(3)
+  configVersion         Int             @default(1) @map("config_version")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  store                 Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, provider])
+  @@index([storeId, enabled])
+  @@map("shop_payment_settings")
+}
+
+model PhonepeTransaction {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId             String    @map("payment_id") @db.Uuid
+  orderId               String    @map("order_id") @db.Uuid
+  storeId               String    @map("store_id") @db.Uuid
+  merchantTransactionId String    @unique @map("merchant_transaction_id")
+  phonepeMerchantId     String?   @map("phonepe_merchant_id")
+  phonepeTransactionId  String?   @unique @map("phonepe_transaction_id")
+  amountPaise           BigInt    @map("amount_paise")
+  currency              String    @default("INR") @db.Char(3)
+  status                String    @default("INITIATED")
+  instrumentType        String?   @map("instrument_type")
+  redirectUrl           String?   @map("redirect_url")
+  callbackUrl           String?   @map("callback_url")
+  gatewayRequest        Json      @default("{}") @map("gateway_request")
+  gatewayResponse       Json      @default("{}") @map("gateway_response")
+  checksum              String?
+  verifiedAt            DateTime? @map("verified_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  payment               Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  store                 Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, status])
+  @@index([orderId])
+  @@index([storeId, createdAt])
+  @@index([merchantTransactionId])
+  @@map("phonepe_transactions")
+}
+
+model PhonepeWebhookEvent {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId       String?            @map("store_id") @db.Uuid
+  paymentId     String?            @map("payment_id") @db.Uuid
+  eventType     String             @map("event_type")
+  dedupeKey     String             @unique @map("dedupe_key")
+  payloadHash   String             @map("payload_hash") @db.VarChar(64)
+  signatureHash String?            @map("signature_hash") @db.VarChar(64)
+  headers       Json               @default("{}")
+  rawPayload    Json               @default("{}") @map("raw_payload")
+  status        WebhookEventStatus @default(RECEIVED)
+  attempts      Int                @default(0)
+  nextRunAt     DateTime           @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  lastError     String?            @map("last_error")
+  processedAt   DateTime?          @map("processed_at") @db.Timestamptz(3)
+  payment       Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextRunAt])
+  @@index([eventType, createdAt])
+  @@index([paymentId, createdAt])
+  @@map("phonepe_webhook_events")
+}
+
+model PhonepeAuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId     String   @map("store_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  details     Json     @default("{}")
+  ipAddress   String?  @map("ip_address")
+  requestId   String?  @map("request_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("phonepe_audit_logs")
 }
 
 model Refund {

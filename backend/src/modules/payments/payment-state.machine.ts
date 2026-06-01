@@ -12,6 +12,7 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   ],
   [PaymentStatus.INITIATED]: [
     PaymentStatus.SESSION_CREATED,
+    PaymentStatus.AUTHORIZED,
     PaymentStatus.FAILED,
     PaymentStatus.EXPIRED,
     PaymentStatus.UNKNOWN_GATEWAY,

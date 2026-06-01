@@ -3,7 +3,9 @@ import { PaymentProvider, Prisma, WebhookEventStatus } from "@prisma/client";
 import { Request } from "express";
 import { createHash } from "node:crypto";
 import { CashfreeClient } from "../../integrations/cashfree/cashfree.client";
+import { PhonepeClient } from "../../integrations/phonepe/phonepe.client";
 import { PrismaService } from "../../database/prisma.service";
+import { PaymentSettingsService } from "../payment-settings/payment-settings.service";
 import { PaymentsService } from "./payments.service";
 
 const WEBHOOK_SKEW_MS = 5 * 60 * 1000;
@@ -16,6 +18,8 @@ export class WebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cashfree: CashfreeClient,
+    private readonly phonepe: PhonepeClient,
+    private readonly paymentSettings: PaymentSettingsService,
     private readonly payments: PaymentsService
   ) {}
 
@@ -84,6 +88,88 @@ export class WebhookService {
     return { apiVersion: "v1", status: "RECEIVED" };
   }
 
+  async ingestPhonepe(request: Request & { rawBody?: Buffer }) {
+    const rawBody = request.rawBody;
+    if (!rawBody?.length) {
+      throw new BadRequestException("Webhook raw body is missing.");
+    }
+
+    const xVerify = header(request, "x-verify");
+    const body = request.body as Record<string, unknown>;
+    const legacy = this.phonepe.legacyPayloadFromBody(body);
+    const payload = legacy?.payload ?? body;
+    const merchantTransactionId = phonepeMerchantOrderIdFromPayload(payload);
+    const phonepePaymentId = phonepePaymentIdFromPayload(payload);
+    const payloadHash = createHash("sha256").update(rawBody).digest("hex");
+    const eventType =
+      stringAt(payload, ["type"]) ??
+      stringAt(payload, ["event"]) ??
+      stringAt(payload, ["state"]) ??
+      stringAt(payload, ["status"]) ??
+      "phonepe.unknown";
+    const eventTime =
+      stringAt(payload, ["eventTime"]) ??
+      stringAt(payload, ["event_time"]) ??
+      stringAt(payload, ["timestamp"]) ??
+      new Date().toISOString();
+
+    const transaction = merchantTransactionId
+      ? await this.prisma.phonepeTransaction.findFirst({
+          where: { merchantTransactionId },
+          select: { paymentId: true, storeId: true }
+        })
+      : null;
+
+    if (xVerify && legacy && transaction) {
+      const credentials = await this.paymentSettings.resolvePhonepeCredentials(transaction.storeId, { requireEnabled: false });
+      const valid = this.phonepe.validateLegacyXVerify({
+        encodedResponse: legacy.encodedResponse,
+        path: request.path,
+        xVerify,
+        credentials
+      });
+      if (!valid) {
+        throw new BadRequestException("PhonePe webhook signature verification failed.");
+      }
+    }
+
+    const dedupeKey = createHash("sha256")
+      .update([eventType, merchantTransactionId, phonepePaymentId, eventTime, payloadHash].join(":"))
+      .digest("hex");
+
+    let eventId: string | null = null;
+    try {
+      const created = await this.prisma.phonepeWebhookEvent.create({
+        data: {
+          storeId: transaction?.storeId,
+          paymentId: transaction?.paymentId,
+          eventType,
+          dedupeKey,
+          payloadHash,
+          signatureHash: xVerify ? createHash("sha256").update(xVerify).digest("hex") : undefined,
+          headers: safePhonepeHeaders(request) as Prisma.InputJsonValue,
+          rawPayload: payload as Prisma.InputJsonValue,
+          status: WebhookEventStatus.RECEIVED,
+          nextRunAt: new Date()
+        },
+        select: { id: true }
+      });
+      eventId = created.id;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return { apiVersion: "v1", status: "DUPLICATE" };
+      }
+      throw error;
+    }
+
+    if (eventId) {
+      void this.processPhonepeWebhook(eventId).catch((error) => {
+        this.logger.error(`PhonePe webhook async processing failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    return { apiVersion: "v1", status: "RECEIVED" };
+  }
+
   async processWebhook(eventId: string) {
     const event = await this.prisma.webhookEvent.findUnique({ where: { id: eventId } });
     if (!event || event.status === WebhookEventStatus.PROCESSED || event.status === WebhookEventStatus.DLQ) {
@@ -131,6 +217,68 @@ export class WebhookService {
       }
     }
   }
+
+  async processPhonepeWebhook(eventId: string) {
+    const event = await this.prisma.phonepeWebhookEvent.findUnique({ where: { id: eventId } });
+    if (!event || event.status === WebhookEventStatus.PROCESSED || event.status === WebhookEventStatus.DLQ) {
+      return;
+    }
+    const staleProcessingBefore = new Date(Date.now() - WEBHOOK_PROCESSING_STALE_MS);
+    const claimed = await this.prisma.phonepeWebhookEvent.updateMany({
+      where: {
+        id: event.id,
+        OR: [
+          { status: { in: [WebhookEventStatus.RECEIVED, WebhookEventStatus.FAILED] } },
+          { status: WebhookEventStatus.PROCESSING, updatedAt: { lte: staleProcessingBefore } }
+        ]
+      },
+      data: {
+        status: WebhookEventStatus.PROCESSING,
+        attempts: { increment: 1 },
+        nextRunAt: new Date(Date.now() + WEBHOOK_PROCESSING_STALE_MS)
+      }
+    });
+    if (claimed.count !== 1) {
+      return;
+    }
+
+    try {
+      const payload = event.rawPayload as Record<string, unknown>;
+      let paymentId = event.paymentId;
+      if (!paymentId) {
+        const merchantTransactionId = phonepeMerchantOrderIdFromPayload(payload);
+        if (merchantTransactionId) {
+          const transaction = await this.prisma.phonepeTransaction.findFirst({
+            where: { merchantTransactionId },
+            select: { paymentId: true }
+          });
+          paymentId = transaction?.paymentId ?? null;
+        }
+      }
+      if (!paymentId) {
+        throw new BadRequestException("PhonePe payment reference is missing.");
+      }
+      await this.payments.verifyPhonepePayment(paymentId, event.id);
+      await this.prisma.phonepeWebhookEvent.update({
+        where: { id: event.id },
+        data: { status: WebhookEventStatus.PROCESSED, processedAt: new Date(), lastError: null }
+      });
+    } catch (error) {
+      const attempts = event.attempts + 1;
+      const dlq = attempts >= 8;
+      await this.prisma.phonepeWebhookEvent.update({
+        where: { id: event.id },
+        data: {
+          status: dlq ? WebhookEventStatus.DLQ : WebhookEventStatus.FAILED,
+          lastError: error instanceof Error ? error.message : String(error),
+          nextRunAt: new Date(Date.now() + webhookBackoffMs(attempts))
+        }
+      });
+      if (dlq) {
+        this.logger.error(`PhonePe webhook ${event.id} moved to DLQ.`);
+      }
+    }
+  }
 }
 
 function header(request: Request, name: string) {
@@ -153,6 +301,26 @@ function cashfreePaymentIdFromPayload(payload: Record<string, unknown>) {
   );
 }
 
+function phonepeMerchantOrderIdFromPayload(payload: Record<string, unknown>) {
+  return (
+    stringAt(payload, ["merchantOrderId"]) ??
+    stringAt(payload, ["merchantTransactionId"]) ??
+    stringAt(payload, ["transactionId"]) ??
+    stringAt(payload, ["data", "merchantOrderId"]) ??
+    stringAt(payload, ["data", "merchantTransactionId"]) ??
+    stringAt(payload, ["payload", "merchantOrderId"])
+  );
+}
+
+function phonepePaymentIdFromPayload(payload: Record<string, unknown>) {
+  return (
+    stringAt(payload, ["paymentId"]) ??
+    stringAt(payload, ["transactionId"]) ??
+    stringAt(payload, ["data", "paymentId"]) ??
+    stringAt(payload, ["data", "transactionId"])
+  );
+}
+
 function stringAt(payload: Record<string, unknown>, path: string[]): string | null {
   let current: unknown = payload;
   for (const key of path) {
@@ -169,6 +337,15 @@ function safeHeaders(request: Request) {
     "x-webhook-timestamp": request.header("x-webhook-timestamp"),
     "x-webhook-signature-sha256": request.header("x-webhook-signature")
       ? createHash("sha256").update(request.header("x-webhook-signature")!).digest("hex")
+      : undefined,
+    "user-agent": request.header("user-agent")
+  };
+}
+
+function safePhonepeHeaders(request: Request) {
+  return {
+    "x-verify-sha256": request.header("x-verify")
+      ? createHash("sha256").update(request.header("x-verify")!).digest("hex")
       : undefined,
     "user-agent": request.header("user-agent")
   };

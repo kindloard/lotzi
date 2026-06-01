@@ -22,6 +22,7 @@ import { accountOrdersKey } from "../lib/account-query-keys";
 import { currency, formatDate } from "../lib/account-utils";
 import { useToast } from "@/components/toast/toast-context";
 import { useCart } from "@/lib/cart-context";
+import { checkoutPaymentSummary } from "@/lib/payment-display";
 
 export function OrdersScreen() {
   const formatter = useFormatter();
@@ -153,10 +154,6 @@ export function OrdersScreen() {
     );
   };
 
-  const getGradientForString = (str: string) => {
-    return "from-slate-800 to-slate-900";
-  };
-
   if (!orders.length) {
     return (
       <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white to-slate-50/50 p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60">
@@ -236,7 +233,6 @@ export function OrdersScreen() {
             const isExpanded = !!expandedOrders[order.id];
             const displayId = order.id.substring(0, 8).toUpperCase();
             const initials = order.store.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase();
-            const avatarGradient = getGradientForString(order.store.id);
 
             return (
               <article 
@@ -322,7 +318,9 @@ export function OrdersScreen() {
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
                               <CreditCard size={12} /> Payment
                             </p>
-                            <p className="text-slate-800 font-bold">{order.paymentMethod} &bull; {order.paymentStatus}</p>
+                            <p className="text-slate-800 font-bold">
+                              {checkoutPaymentSummary({ method: order.paymentMethod, status: order.paymentStatus })}
+                            </p>
                           </div>
 
                           <div className="space-y-2">

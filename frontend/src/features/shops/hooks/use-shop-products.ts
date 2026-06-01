@@ -7,6 +7,7 @@ import {
   type ShopProductsFilters,
   type ShopProductsResponse
 } from "../shops-api";
+import { shopQueryKeys } from "../query-keys";
 
 export function shopProductsQueryKey(
   publicId: string,
@@ -14,18 +15,7 @@ export function shopProductsQueryKey(
   filters: ShopProductsFilters,
   options?: FetchShopCatalogOptions
 ) {
-  return [
-    "shops",
-    "catalog",
-    publicId,
-    publicSlug,
-    filters.q,
-    filters.category ?? "",
-    filters.sort,
-    filters.page,
-    filters.limit,
-    options?.includeFacets === false ? "no-facets" : "with-facets"
-  ] as const;
+  return shopQueryKeys.catalog(publicId, publicSlug, filters, options);
 }
 
 export function useShopProducts(
@@ -40,6 +30,9 @@ export function useShopProducts(
     queryFn: ({ signal }) => fetchShopCatalog(publicId, publicSlug, filters, options, { signal }),
     initialData,
     placeholderData: keepPreviousData,
-    staleTime: 5 * 60 * 1000
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    staleTime: 0
   });
 }

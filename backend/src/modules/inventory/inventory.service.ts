@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { paymentError } from "../payments/payment.errors";
 import { RedisService } from "../redis/redis.service";
+import { ShopsService } from "../shops/shops.service";
 import { InventoryAdjustmentDto, InventoryReconcileDto } from "./dto/inventory.dto";
 
 const MAX_INVENTORY_LOCK_LINES = 50;
@@ -34,6 +35,16 @@ interface ReserveOrderStockInput {
 interface ConfirmOrderStockInput {
   storeId: string;
   orderId: string;
+  idempotencyKey: string;
+  requestId?: string;
+}
+
+interface AuthorizeCodOrderStockInput {
+  storeId: string;
+  userId: string;
+  orderId: string;
+  items: Array<{ productVariantId: string; quantity: number }>;
+  expiresAt: Date;
   idempotencyKey: string;
   requestId?: string;
 }
@@ -91,7 +102,8 @@ export class InventoryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService
+    private readonly redis: RedisService,
+    private readonly shops: ShopsService
   ) {}
 
   hash(input: unknown): string {
@@ -113,13 +125,13 @@ export class InventoryService {
       end
       return current
     `;
-    for (const productVariantId of variants) {
+    await Promise.all(variants.map(async (productVariantId) => {
       const admitted = await this.redis
-        .eval(script, [`inventory:admit:v1:${input.storeId}:${productVariantId}`], [
-          INVENTORY_ADMISSION_LIMIT,
-          INVENTORY_ADMISSION_WINDOW_SECONDS
-        ])
-        .catch(() => 1);
+      .eval(script, [`inventory:admit:v1:${input.storeId}:${productVariantId}`], [
+        INVENTORY_ADMISSION_LIMIT,
+        INVENTORY_ADMISSION_WINDOW_SECONDS
+      ])
+      .catch(() => 1);
       if (Number(admitted) === 0) {
         throw paymentError(
           HttpStatus.TOO_MANY_REQUESTS,
@@ -130,6 +142,23 @@ export class InventoryService {
           2
         );
       }
+    }));
+  }
+
+  async evictPublicStockCache(storeId: string, productVariantIds: string[]) {
+    const variants = Array.from(new Set(productVariantIds));
+    await Promise.all(
+      variants
+      .map((productVariantId) =>
+        this.redis.del(`inventory:public:v1:${storeId}:${productVariantId}`).catch(() => undefined)
+      )
+    );
+    if (variants.length) {
+      await this.shops.invalidateStockSensitiveCaches({
+        operation: "inventory_stock_changed",
+        productVariantIds: variants,
+        storeId
+      });
     }
   }
 
@@ -307,6 +336,96 @@ export class InventoryService {
     }
 
     const response = { status: "RESERVED", reservations };
+    await this.completeOperation(tx, operation.operationKey, response);
+    return response;
+  }
+
+  async authorizeCodOrderStock(tx: Tx, input: AuthorizeCodOrderStockInput) {
+    const items = aggregateItems(input.items);
+    assertLockBudget(items.length);
+    await this.configureTx(tx, input.storeId);
+
+    const operation = await this.claimOperation(tx, {
+      operationKey: `inventory.cod_authorize:${input.orderId}`,
+      operationType: "inventory.cod_authorize_order.v1",
+      aggregateId: input.orderId,
+      requestHash: this.hash({ storeId: input.storeId, orderId: input.orderId, items })
+    });
+    if (operation.state === "replayed") {
+      return operation.response as { status: string; reservations?: unknown[] };
+    }
+
+    const location = await this.ensureDefaultLocation(tx, input.storeId);
+    const inventoryItems = await this.ensureInventoryItems(
+      tx,
+      input.storeId,
+      location.id,
+      items.map((item) => item.productVariantId)
+    );
+    const locked = await this.lockInventoryItems(tx, inventoryItems.map((item) => item.id));
+    const byVariant = new Map(locked.map((item) => [item.productVariantId, item]));
+    const reservations: Array<{ id: string; productVariantId: string; locationId: string; quantity: number }> = [];
+
+    for (const item of items) {
+      const row = byVariant.get(item.productVariantId);
+      if (!row || row.availableStock < item.quantity) {
+        throw paymentError(HttpStatus.CONFLICT, "CHECKOUT_OUT_OF_STOCK", "One or more items are out of stock.", false, {
+          variantId: item.productVariantId,
+          available: row?.availableStock ?? 0
+        });
+      }
+
+      const after = {
+        availableStock: row.availableStock - item.quantity,
+        reservedStock: row.reservedStock,
+        soldStock: row.soldStock + item.quantity,
+        version: row.version + 1
+      };
+      const reservation = await tx.inventoryReservation.create({
+        data: {
+          storeId: input.storeId,
+          orderId: input.orderId,
+          productVariantId: item.productVariantId,
+          locationId: row.locationId,
+          quantity: item.quantity,
+          status: InventoryReservationStatus.CONFIRMED,
+          expiresAt: input.expiresAt,
+          confirmedAt: new Date()
+        },
+        select: { id: true, productVariantId: true, locationId: true, quantity: true }
+      });
+      await this.updateInventoryItem(tx, row, after);
+      await this.createLedger(tx, {
+        row,
+        after,
+        type: InventoryLedgerType.SOLD,
+        quantity: item.quantity,
+        orderId: input.orderId,
+        reservationId: reservation.id,
+        actorType: "CUSTOMER",
+        actorUserId: input.userId,
+        reason: "cod_order_authorized",
+        idempotencyKey: input.idempotencyKey
+      });
+      await this.emitInventoryEvent(tx, {
+        eventType: "inventory.confirmed.v1",
+        aggregateId: row.id,
+        storeId: input.storeId,
+        idempotencyKey: `${input.idempotencyKey}:cod-confirmed:${reservation.id}`,
+        requestId: input.requestId,
+        payload: {
+          orderId: input.orderId,
+          reservationId: reservation.id,
+          productVariantId: item.productVariantId,
+          locationId: row.locationId,
+          quantity: item.quantity
+        }
+      });
+      await this.emitLowStockIfNeeded(tx, row, after, input.requestId);
+      reservations.push(reservation);
+    }
+
+    const response = { status: "CONFIRMED", reservations };
     await this.completeOperation(tx, operation.operationKey, response);
     return response;
   }
@@ -772,15 +891,21 @@ export class InventoryService {
   }
 
   private async configureTx(tx: Tx, storeId: string) {
-    await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
-    await tx.$executeRaw`SELECT set_config('app.current_store_id', ${storeId}, true)`;
-    await tx.$executeRaw`SELECT set_config('app.is_platform_admin', 'false', true)`;
+    await tx.$queryRaw`
+      SELECT
+        set_config('lock_timeout', '2s', true),
+        set_config('app.current_store_id', ${storeId}, true),
+        set_config('app.is_platform_admin', 'false', true)
+    `;
   }
 
   private async configurePlatformTx(tx: Tx) {
-    await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
-    await tx.$executeRaw`SELECT set_config('app.current_store_id', '', true)`;
-    await tx.$executeRaw`SELECT set_config('app.is_platform_admin', 'true', true)`;
+    await tx.$queryRaw`
+      SELECT
+        set_config('lock_timeout', '2s', true),
+        set_config('app.current_store_id', '', true),
+        set_config('app.is_platform_admin', 'true', true)
+    `;
   }
 
   private async ensureDefaultLocation(tx: Tx, storeId: string) {
@@ -903,25 +1028,27 @@ export class InventoryService {
     before: LockedInventoryItem,
     after: { availableStock: number; reservedStock: number; soldStock: number; version: number }
   ) {
-    await tx.inventoryItem.update({
-      where: { id: before.id },
-      data: {
-        availableStock: after.availableStock,
-        reservedStock: after.reservedStock,
-        soldStock: after.soldStock,
-        version: after.version
-      }
-    });
-    await tx.productVariant.update({
-      where: { id: before.productVariantId },
-      data: {
-        stock: after.availableStock,
-        stockOnHand: after.availableStock + after.reservedStock,
-        stockReserved: after.reservedStock,
-        stockVersion: after.version
-      }
-    });
-    await this.redis.del(`inventory:public:v1:${before.storeId}:${before.productVariantId}`).catch(() => undefined);
+    await tx.$executeRaw`
+      WITH updated_inventory AS (
+        UPDATE inventory_items
+        SET
+          available_stock = ${after.availableStock},
+          reserved_stock = ${after.reservedStock},
+          sold_stock = ${after.soldStock},
+          version = ${after.version},
+          updated_at = now()
+        WHERE id = ${before.id}::uuid
+        RETURNING product_variant_id
+      )
+      UPDATE product_variants
+      SET
+        stock = ${after.availableStock},
+        stock_on_hand = ${after.availableStock + after.reservedStock},
+        stock_reserved = ${after.reservedStock},
+        stock_version = ${after.version},
+        updated_at = now()
+      WHERE id = (SELECT product_variant_id FROM updated_inventory)
+    `;
   }
 
   private async createLedger(

@@ -25,10 +25,10 @@ function createMerchantQueryClient() {
     defaultOptions: {
       queries: {
         gcTime: 30 * 60 * 1000,
-        refetchOnReconnect: false,
-        refetchOnWindowFocus: false,
+        refetchOnReconnect: true,
+        refetchOnWindowFocus: true,
         retry: false,
-        staleTime: 5 * 60 * 1000
+        staleTime: 30_000
       }
     }
   });

@@ -83,6 +83,22 @@ export const envSchema = z
     CASHFREE_WEBHOOK_SECRET: optionalString,
     CASHFREE_RETURN_URL: optionalString.pipe(z.url().optional()),
     CASHFREE_NOTIFY_URL: optionalString.pipe(z.url().optional()),
+    PHONEPE_ENCRYPTION_KEY: z.string().min(32).optional(),
+    PHONEPE_BASE_URL: optionalString.pipe(z.url().optional()),
+    PHONEPE_RETURN_URL: optionalString.pipe(z.url().optional()),
+    PHONEPE_NOTIFY_URL: optionalString.pipe(z.url().optional()),
+    CHECKOUT_TRACE_ENABLED: booleanFromStringDefault(false),
+    CHECKOUT_TRACE_SAMPLE_RATE: z
+      .string()
+      .default("0.0")
+      .refine(
+        (value) => /^(0(\.\d+)?|1(\.0+)?)$/.test(value) && Number(value) >= 0 && Number(value) <= 1,
+        "CHECKOUT_TRACE_SAMPLE_RATE must be a decimal fraction from 0.0 to 1.0."
+      ),
+    CHECKOUT_QUERY_TRACE_ENABLED: booleanFromStringDefault(false),
+    CHECKOUT_TRACE_MAX_QUERIES_PER_REQUEST: z.coerce.number().int().positive().default(40),
+    CHECKOUT_TRACE_MAX_BYTES_PER_REQUEST: z.coerce.number().int().positive().default(32_768),
+    CHECKOUT_TRACE_ALLOW_HIGH_PROD_SAMPLE: booleanFromStringDefault(false),
     PHONE_CHECKOUT_ONBOARDING_ENABLED: booleanFromStringDefault(true),
     FAST2SMS_API_KEY: optionalString,
     FAST2SMS_OTP_MODE: z.enum(["BULKV2_OTP", "TEMPLATE_OTP", "DLT_SMS", "QUICK_SMS"]).default("BULKV2_OTP"),
@@ -100,6 +116,7 @@ export const envSchema = z
     PHONE_OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
     PHONE_OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
     PHONE_OTP_BLOCK_SECONDS: z.coerce.number().int().positive().default(900),
+    PHONE_OTP_DEV_TOAST_ENABLED: booleanFromStringDefault(true),
     CHECKOUT_ONBOARDING_FLOW_TTL_SECONDS: z.coerce.number().int().positive().default(900),
     CHECKOUT_PHONE_PROOF_TTL_SECONDS: z.coerce.number().int().positive().default(600),
     CHECKOUT_ONBOARDING_ENCRYPTION_KEY: z.string().min(32).optional(),
@@ -111,6 +128,19 @@ export const envSchema = z
     AUTH_RESET_HASH_LINKS_ENABLED: booleanFromStringDefault(true)
   })
   .superRefine((value, ctx) => {
+    if (
+      value.NODE_ENV === "production" &&
+      Number(value.CHECKOUT_TRACE_SAMPLE_RATE) > 0.01 &&
+      !value.CHECKOUT_TRACE_ALLOW_HIGH_PROD_SAMPLE
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "CHECKOUT_TRACE_SAMPLE_RATE must be <= 0.01 in production unless CHECKOUT_TRACE_ALLOW_HIGH_PROD_SAMPLE=true.",
+        path: ["CHECKOUT_TRACE_SAMPLE_RATE"]
+      });
+    }
+
     const strict = value.NODE_ENV === "production" || value.AUTH_REQUIRE_STRICT_SECRETS;
     if (!strict) {
       return;
@@ -133,7 +163,8 @@ export const envSchema = z
       "ADMIN_APPROVAL_PASSWORD_HASH",
       "INTERNAL_METRICS_TOKEN",
       "CASHFREE_APP_ID",
-      "CASHFREE_SECRET_KEY"
+      "CASHFREE_SECRET_KEY",
+      "PHONEPE_ENCRYPTION_KEY"
     ];
 
     if (value.PHONE_CHECKOUT_ONBOARDING_ENABLED) {
@@ -208,6 +239,9 @@ export function validateEnv(config: Record<string, unknown>) {
     CHECKOUT_PHONE_PROOF_PEPPER:
       parsed.CHECKOUT_PHONE_PROOF_PEPPER ??
       "local-dev-checkout-phone-proof-change-before-prod",
+    PHONEPE_ENCRYPTION_KEY:
+      parsed.PHONEPE_ENCRYPTION_KEY ??
+      "local-dev-phonepe-encryption-key-change-before-prod",
     ADMIN_APPROVAL_SESSION_SECRET:
       parsed.ADMIN_APPROVAL_SESSION_SECRET ??
       "local-dev-admin-approval-session-secret-change-before-prod"

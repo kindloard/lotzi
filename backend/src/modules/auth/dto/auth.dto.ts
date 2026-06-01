@@ -1,6 +1,4 @@
-import {
-  Type
-} from "class-transformer";
+import { Transform } from "class-transformer";
 import {
   IsBoolean,
   IsEmail,
@@ -11,7 +9,9 @@ import {
   ValidateIf,
   Length,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength
 } from "class-validator";
 
@@ -19,6 +19,25 @@ export const PASSWORD_POLICY_MESSAGE =
   "Password must be 8-128 characters and include at least one number or symbol.";
 
 const PASSWORD_NUMBER_OR_SYMBOL_PATTERN = /^(?=.*(?:\d|[^A-Za-z0-9])).+$/;
+const COORDINATE_DECIMAL_PLACES = 7;
+const COORDINATE_SCALE = 10 ** COORDINATE_DECIMAL_PLACES;
+
+function normalizeOptionalCoordinate(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return value;
+  }
+
+  return Math.round(numeric * COORDINATE_SCALE) / COORDINATE_SCALE;
+}
+
+function normalizeEmailInput(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : value;
+}
 
 export class SignupDto {
   @IsString()
@@ -77,6 +96,11 @@ export class LoginDto {
 }
 
 export class CheckoutOnboardingStartDto {
+  @Transform(({ value }) => normalizeEmailInput(value))
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(80)
@@ -122,13 +146,17 @@ export class CheckoutOnboardingStartDto {
   isDefault?: boolean;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 7 })
+  @Transform(({ value }) => normalizeOptionalCoordinate(value))
+  @IsNumber({ maxDecimalPlaces: COORDINATE_DECIMAL_PLACES })
+  @Min(-90)
+  @Max(90)
   latitude?: number;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 7 })
+  @Transform(({ value }) => normalizeOptionalCoordinate(value))
+  @IsNumber({ maxDecimalPlaces: COORDINATE_DECIMAL_PLACES })
+  @Min(-180)
+  @Max(180)
   longitude?: number;
 
   @IsString()

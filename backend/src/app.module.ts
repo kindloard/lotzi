@@ -16,6 +16,7 @@ import { ObservabilityModule } from "./modules/observability/observability.modul
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
+import { PaymentSettingsModule } from "./modules/payment-settings/payment-settings.module";
 import { ProductsModule } from "./modules/products/products.module";
 import { RateLimitModule } from "./modules/rate-limit/rate-limit.module";
 import { RedisModule } from "./modules/redis/redis.module";
@@ -49,6 +50,7 @@ import { RbacModule } from "./modules/rbac/rbac.module";
     CheckoutModule,
     OrdersModule,
     PaymentsModule,
+    PaymentSettingsModule,
     UploadsModule,
     AdminModule
   ]

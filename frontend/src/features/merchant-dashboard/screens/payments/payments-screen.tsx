@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useMerchantOrders } from "../../providers/merchant-orders-provider";
 import { useDashboardFormatters } from "../../lib/use-dashboard-formatters";
 import { Insight, KpiCard, PageTitle, Panel } from "../../components/ui/dashboard-ui";
+import { PaymentSettingsPage } from "../payment-settings/PaymentSettingsPage";
 
 export function PaymentsScreen() {
   const t = useTranslations("dashboard");
@@ -26,6 +27,7 @@ export function PaymentsScreen() {
           <Insight label={t("payments.bank")} value={t("payments.bankEnding", { digits: "4205" })} detail={t("payments.verifiedAccount")} />
         </div>
       </Panel>
+      <PaymentSettingsPage />
     </div>
   );
 }
