@@ -37,7 +37,12 @@ async function main() {
       prisma,
       inventory,
       {
-        storeAuthorization: async () => ({ permissions: [PERMISSIONS.PRODUCT_MANAGE] }),
+        storeAuthorization: async () => ({
+          permissions: [PERMISSIONS.PRODUCT_MANAGE],
+          storeDeletedAt: null,
+          storeExists: true,
+          storeStatus: StoreStatus.APPROVED
+        }),
         hasPermissions: () => true
       } as never,
       { invalidateShopCaches: async () => undefined } as never,
@@ -183,10 +188,16 @@ async function seedReadyAsset(
 }
 
 async function cleanup(prisma: PrismaService, productIds: string[], uploadAssetIds: string[]) {
-  if (productIds.length) {
-    await prisma.product.deleteMany({ where: { id: { in: productIds } } });
-  }
+  await prisma.product.deleteMany({
+    where: {
+      OR: [
+        ...(productIds.length ? [{ id: { in: productIds } }] : []),
+        { name: { startsWith: "Smoke Product" } }
+      ]
+    }
+  });
   if (uploadAssetIds.length) {
+    await prisma.productImage.deleteMany({ where: { uploadAssetId: { in: uploadAssetIds } } });
     await prisma.uploadAsset.deleteMany({ where: { id: { in: uploadAssetIds } } });
   }
 }

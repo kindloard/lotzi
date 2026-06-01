@@ -56,7 +56,7 @@ function resolveApiProxyOrigin() {
   );
 
   if (configured) {
-    return stripApiSuffix(configured);
+    return productionSafeApiProxyOrigin(configured);
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -66,6 +66,22 @@ function resolveApiProxyOrigin() {
   }
 
   return "http://127.0.0.1:4000";
+}
+
+function productionSafeApiProxyOrigin(value: string) {
+  const origin = stripApiSuffix(value);
+
+  if (!/^https?:\/\//i.test(origin)) {
+    throw new Error("API proxy URL must be an absolute http(s) URL.");
+  }
+
+  if (process.env.NODE_ENV === "production" && isLoopbackUrl(origin)) {
+    throw new Error(
+      "Production API proxy cannot point to localhost. Set API_PROXY_URL, BACKEND_URL, INTERNAL_API_URL, or NEXT_PUBLIC_API_URL to the deployed backend URL."
+    );
+  }
+
+  return origin;
 }
 
 function firstConfiguredValue(...values: Array<string | undefined>) {
@@ -87,6 +103,15 @@ function absoluteApiOrigin(value: string | undefined) {
 
 function stripApiSuffix(value: string) {
   return value.replace(/\/$/, "").replace(/\/api$/i, "");
+}
+
+function isLoopbackUrl(value: string) {
+  try {
+    const hostname = new URL(value).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
 }
 
 function localNetworkHosts() {

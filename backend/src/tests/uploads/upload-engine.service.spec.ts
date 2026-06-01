@@ -1,5 +1,5 @@
 import { HttpException } from "@nestjs/common";
-import { UploadPurpose, UploadRenditionKind } from "@prisma/client";
+import { StoreStatus, UploadPurpose, UploadRenditionKind } from "@prisma/client";
 import { UploadEngineService } from "@/modules/uploads/upload-engine.service";
 import { UploadPolicyRegistry } from "@/modules/uploads/upload-policy.registry";
 import { PERMISSIONS } from "@/modules/rbac/permissions";
@@ -179,7 +179,12 @@ describe("UploadEngineService provider safety", () => {
       } as never,
       { enforce: jest.fn() } as never,
       {
-        storeAuthorization: jest.fn().mockResolvedValue({ permissions: [PERMISSIONS.PRODUCT_MANAGE] }),
+        storeAuthorization: jest.fn().mockResolvedValue({
+          permissions: [PERMISSIONS.PRODUCT_MANAGE],
+          storeDeletedAt: null,
+          storeExists: true,
+          storeStatus: StoreStatus.APPROVED
+        }),
         hasPermissions: jest.fn().mockReturnValue(true)
       } as never,
       { tryAcquire: jest.fn(() => jest.fn()) } as never,

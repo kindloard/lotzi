@@ -119,21 +119,7 @@ function findBaseVariant(
   if (defaultVariant) {
     return defaultVariant;
   }
-
-  const matchingVariant = variants.find((variant) =>
-    sameSku(variant.sku, product.sku) &&
-    sameNumber(variant.price, product.price) &&
-    sameNumber(variant.mrp ?? 0, product.compareAtPrice ?? 0) &&
-    sameMeasurement(variant.measurement, productMeasurement) &&
-    (sameText(variant.name, product.name) || variants.length === 1)
-  );
-  return matchingVariant
-    ?? variants.find((variant) =>
-      sameSku(variant.sku, product.sku) &&
-      sameNumber(variant.price, product.price) &&
-      sameMeasurement(variant.measurement, productMeasurement)
-    )
-    ?? variants[0];
+  return null;
 }
 
 function normalizeVariantFlags(
@@ -162,25 +148,4 @@ function productImageToDraft(image: ProductImage, index: number): ProductImage {
     variantSkuIds: image.variantSkuIds ?? [],
     upload: undefined
   };
-}
-
-function sameMeasurement(left: ProductMeasurement, right: ProductMeasurement) {
-  return (
-    left.unitGroup === right.unitGroup &&
-    left.quantityValue === right.quantityValue &&
-    left.quantityUnit === right.quantityUnit &&
-    left.packType === right.packType
-  );
-}
-
-function sameSku(left: string, right: string) {
-  return left.trim().toUpperCase() === right.trim().toUpperCase();
-}
-
-function sameText(left: string, right: string) {
-  return left.trim().toLowerCase() === right.trim().toLowerCase();
-}
-
-function sameNumber(left: number, right: number) {
-  return Math.abs(left - right) < 0.0001;
 }

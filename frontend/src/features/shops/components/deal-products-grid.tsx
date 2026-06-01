@@ -24,9 +24,12 @@ export const DealProductsGrid = memo(function DealProductsGrid({
 
   const handleAddProduct = useCallback(
     (product: DealProduct) => {
+      if (!product.variantId) {
+        return;
+      }
       addToCart({
         id: product.id,
-        variantId: product.variantId ?? undefined,
+        variantId: product.variantId,
         name: product.name,
         price: product.price,
         shop: product.shop,

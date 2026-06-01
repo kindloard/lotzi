@@ -63,9 +63,11 @@ export function OrdersScreen() {
   };
 
   const handleReorder = (order: CustomerOrder) => {
-    order.items.forEach(item => {
+    const purchasableItems = order.items.filter((item) => item.variantId);
+    purchasableItems.forEach(item => {
       addToCart({
         id: item.productId,
+        variantId: item.variantId ?? undefined,
         name: item.name,
         price: item.unitPrice,
         shop: order.store.name,
@@ -74,7 +76,11 @@ export function OrdersScreen() {
         imageInitials: item.name.substring(0, 2).toUpperCase()
       });
     });
-    toast.success(`Added ${order.items.length} items from ${order.store.name} to basket!`);
+    if (purchasableItems.length) {
+      toast.success(`Added ${purchasableItems.length} items from ${order.store.name} to basket!`);
+    } else {
+      toast.error("These items are no longer available to reorder.");
+    }
   };
 
   const handleSupportRequest = (orderId: string) => {

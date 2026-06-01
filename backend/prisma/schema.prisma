@@ -1481,6 +1481,7 @@ model InventoryLedger {
   @@index([orderId, createdAt])
   @@index([reservationId, createdAt])
   @@index([type, createdAt])
+  @@index([idempotencyKey])
   @@map("inventory_ledger")
 }
 

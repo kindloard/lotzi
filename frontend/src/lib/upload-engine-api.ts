@@ -280,8 +280,8 @@ export function buildProductPatch(original: Product, draft: ProductDraft, storeI
 function toProductPayload(draft: ProductDraft, storeId: string, status: ProductStatus) {
   const uploadedImages = draft.images.filter((image) => image.uploadAssetId);
   const visibleVariants = draft.variants.filter((variant, index) => isVisibleStockVariant(variant, draft, index));
-  const payloadVariants = [toBaseVariantPayload(draft), ...visibleVariants.map((variant) => toVariantPayload(variant, draft))];
-  const stock = payloadVariants.reduce((total, variant) => total + variant.stock, 0);
+  const payloadVariants = visibleVariants.map((variant) => toVariantPayload(variant, draft));
+  const stock = draft.stock + payloadVariants.reduce((total, variant) => total + variant.stock, 0);
   const useProductImagesForEveryVariant = draft.sameImageAsProduct;
   return {
     storeId,
@@ -319,19 +319,6 @@ function toProductPayload(draft: ProductDraft, storeId: string, status: ProductS
       };
     }),
     variants: payloadVariants
-  };
-}
-
-function toBaseVariantPayload(draft: ProductDraft) {
-  return {
-    clientId: "base-product",
-    name: draft.name.trim() || "Default",
-    sku: draft.sku.trim() || undefined,
-    price: draft.price,
-    mrp: draft.compareAtPrice || undefined,
-    costPrice: draft.costPrice || undefined,
-    stock: draft.stock,
-    measurement: toMeasurementPayload(draft.measurement)
   };
 }
 

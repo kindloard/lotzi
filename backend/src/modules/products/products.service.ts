@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger, Optional } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import {
   Category as CategoryModel,
   Prisma,
@@ -73,6 +73,7 @@ const attachableAssetSelect = {
 };
 
 const HOT_CACHE_TTL_MS = 30_000;
+const CATEGORY_CACHE_TTL_MS = 10 * 60_000;
 
 type AttachableAsset = Prisma.UploadAssetGetPayload<{ select: typeof attachableAssetSelect }>;
 type CategoryRef = Pick<CategoryModel, "id" | "name">;
@@ -147,7 +148,7 @@ type ProductCreateGraphRow = {
 };
 
 @Injectable()
-export class ProductsService {
+export class ProductsService implements OnModuleInit {
   private readonly logger = new Logger(ProductsService.name);
   private readonly categoryCache = new Map<string, CacheEntry<CategoryRef | null>>();
   private readonly storeAccessCache = new Map<string, CacheEntry<true>>();
@@ -160,6 +161,12 @@ export class ProductsService {
     private readonly uploadEngine: UploadEngineService,
     @Optional() private readonly catalogEvents?: CatalogEventsService
   ) {}
+
+  async onModuleInit() {
+    await this.warmCategoryCache().catch((error) => {
+      this.logger.warn(`Unable to warm product category cache: ${messageOf(error)}`);
+    });
+  }
 
   async list(auth: AuthenticatedPrincipal, storeId: string) {
     await this.assertStoreAccess(auth, storeId);
@@ -819,19 +826,27 @@ export class ProductsService {
     if (getCached(this.storeAccessCache, cacheKey)) {
       return;
     }
-    const [store, authorization] = await Promise.all([
-      this.prisma.store.findFirst({
+    const authorization = await this.rbac.storeAuthorization(auth.userId, storeId, auth.authzVersion);
+    if (!authorization.isPlatformAdmin && (
+      authorization.storeExists === false ||
+      authorization.storeDeletedAt ||
+      !authorization.storeStatus ||
+      (authorization.storeStatus !== StoreStatus.APPROVED && authorization.storeStatus !== StoreStatus.PENDING)
+    )) {
+      throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+    }
+    if (authorization.isPlatformAdmin) {
+      const store = await this.prisma.store.findFirst({
         where: {
           id: storeId,
           deletedAt: null,
           status: { in: [StoreStatus.APPROVED, StoreStatus.PENDING] }
         },
         select: { id: true }
-      }),
-      this.rbac.storeAuthorization(auth.userId, storeId, auth.authzVersion)
-    ]);
-    if (!store) {
-      throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+      });
+      if (!store) {
+        throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+      }
     }
     if (!this.rbac.hasPermissions(authorization.permissions, [PERMISSIONS.PRODUCT_MANAGE])) {
       throw uploadError(HttpStatus.FORBIDDEN, "PRODUCT_FORBIDDEN", "Insufficient product permissions.");
@@ -1269,17 +1284,47 @@ export class ProductsService {
     if (cached !== undefined) {
       return cached;
     }
-    const category = await this.prisma.category.upsert({
+    const existing = await this.prisma.category.findUnique({
       where: { name: trimmed },
-      update: {},
-      create: {
-        name: trimmed,
-        slug: slugify(trimmed)
-      },
       select: { id: true, name: true }
     });
-    setCached(this.categoryCache, cacheKey, category, HOT_CACHE_TTL_MS);
-    return category;
+    if (existing) {
+      setCached(this.categoryCache, cacheKey, existing, CATEGORY_CACHE_TTL_MS);
+      return existing;
+    }
+    try {
+      const category = await this.prisma.category.create({
+        data: {
+          name: trimmed,
+          slug: slugify(trimmed)
+        },
+        select: { id: true, name: true }
+      });
+      setCached(this.categoryCache, cacheKey, category, CATEGORY_CACHE_TTL_MS);
+      return category;
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      const category = await this.prisma.category.findUnique({
+        where: { name: trimmed },
+        select: { id: true, name: true }
+      });
+      if (!category) {
+        throw error;
+      }
+      setCached(this.categoryCache, cacheKey, category, CATEGORY_CACHE_TTL_MS);
+      return category;
+    }
+  }
+
+  private async warmCategoryCache() {
+    const categories = await this.prisma.category.findMany({
+      select: { id: true, name: true }
+    });
+    for (const category of categories) {
+      setCached(this.categoryCache, category.name, category, CATEGORY_CACHE_TTL_MS);
+    }
   }
 
   private normalizeMeasurement(
@@ -1303,9 +1348,10 @@ export class ProductsService {
   }
 
   private normalizedVariants(dto: CreateProductDto, productMeasurement: NormalizedMeasurement) {
-    const dtoVariants = dto.variants ?? [];
-    const variants = dtoVariants.length
-      ? dtoVariants
+    const clientVariants = (dto.variants ?? []).filter((variant) => !isLegacyBaseProductVariant(variant));
+    const hasClientVariants = clientVariants.length > 0;
+    const variants = hasClientVariants
+      ? clientVariants
       : [{
           name: "Default",
           sku: dto.sku,
@@ -1316,24 +1362,24 @@ export class ProductsService {
           clientId: undefined,
           measurement: dto.measurement
         }];
-    const fallbackSku = dtoVariants.length ? null : normalizeOptionalSku(dto.sku);
+    const fallbackSku = hasClientVariants ? null : normalizeOptionalSku(dto.sku);
     return variants.map((variant, index) => {
       this.validateVariantPrice(variant);
       const measurement = this.normalizeMeasurement(variant.measurement ?? dto.measurement, dto, variant.price);
-      const isDefault = index === 0 || variant.clientId?.trim() === "base-product";
+      const isDefault = !hasClientVariants;
       return {
         clientId: variant.clientId?.trim() || null,
         name: variant.name.trim() || "Default",
         sku: normalizeOptionalSku(variant.sku) ?? fallbackSku,
         price: variant.price,
-        // toMrp() normalises 0 / undefined / null → null so the DB constraint
+        // toMrp() normalises 0 / undefined / null -> null so the DB constraint
         // (mrp IS NULL OR mrp >= price) is never violated by an unset MRP.
         mrp: toMrp(variant.mrp) ?? toMrp(dto.compareAtPrice) ?? null,
         costPrice: variant.costPrice ?? null,
         stock: variant.stock,
         measurement: variant.measurement ? measurement : { ...productMeasurement, pricePerBaseUnit: measurement.pricePerBaseUnit, pricePerBaseUnitDisplay: measurement.pricePerBaseUnitDisplay },
         isDefault,
-        position: isDefault ? 0 : index
+        position: index
       };
     });
   }
@@ -1455,6 +1501,10 @@ function setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, 
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
+function isLegacyBaseProductVariant(variant: ProductVariantInputDto) {
+  return variant.clientId?.trim() === "base-product";
+}
+
 function normalizeOptionalSku(value: string | undefined | null) {
   const sku = value?.trim().toUpperCase();
   return sku || null;
@@ -1471,7 +1521,7 @@ function normalizeOptionalText(value: string | undefined | null) {
  * The frontend uses 0 to represent "no MRP set" (a falsy sentinel). The DB
  * constraint requires: mrp IS NULL OR mrp >= price.
  * A value of 0 with price > 0 violates this constraint, so we normalise
- * 0 → null here before the value ever reaches a Prisma write.
+ * 0 -> null here before the value ever reaches a Prisma write.
  */
 function toMrp(value: number | undefined | null): number | null {
   if (value === undefined || value === null || value === 0) return null;

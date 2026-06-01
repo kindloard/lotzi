@@ -152,12 +152,12 @@ function serverApiBaseUrl() {
   const directBackend =
     firstConfiguredValue(process.env.INTERNAL_API_URL, process.env.API_PROXY_URL, process.env.BACKEND_URL);
   if (directBackend) {
-    return ensureApiBase(directBackend);
+    return productionSafeApiBase(directBackend);
   }
 
   const publicApiBase = firstConfiguredValue(process.env.NEXT_PUBLIC_API_URL) ?? "/api";
   if (isAbsoluteUrl(publicApiBase)) {
-    return ensureApiBase(publicApiBase);
+    return productionSafeApiBase(publicApiBase);
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -167,6 +167,16 @@ function serverApiBaseUrl() {
   }
 
   return ensureApiBase("http://127.0.0.1:4000");
+}
+
+function productionSafeApiBase(value: string) {
+  const base = ensureApiBase(value);
+  if (process.env.NODE_ENV === "production" && isLoopbackUrl(base)) {
+    throw new Error(
+      "Shop API URL cannot point to localhost in production. Set INTERNAL_API_URL, API_PROXY_URL, BACKEND_URL, or NEXT_PUBLIC_API_URL to the deployed backend URL."
+    );
+  }
+  return base;
 }
 
 function firstConfiguredValue(...values: Array<string | undefined>) {
@@ -195,6 +205,15 @@ function ensureApiBase(value: string) {
 
 function isAbsoluteUrl(value: string) {
   return /^https?:\/\//i.test(value);
+}
+
+function isLoopbackUrl(value: string) {
+  try {
+    const hostname = new URL(value).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeProductFilters(filters: Partial<ShopProductsFilters> = {}): ShopProductsFilters {

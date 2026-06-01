@@ -459,19 +459,27 @@ export class UploadEngineService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertStoreAccess(auth: AuthenticatedPrincipal, storeId: string, required: string[]) {
-    const [store, authorization] = await Promise.all([
-      this.prisma.store.findFirst({
+    const authorization = await this.rbac.storeAuthorization(auth.userId, storeId, auth.authzVersion);
+    if (!authorization.isPlatformAdmin && (
+      authorization.storeExists === false ||
+      authorization.storeDeletedAt ||
+      !authorization.storeStatus ||
+      (authorization.storeStatus !== StoreStatus.APPROVED && authorization.storeStatus !== StoreStatus.PENDING)
+    )) {
+      throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+    }
+    if (authorization.isPlatformAdmin) {
+      const store = await this.prisma.store.findFirst({
         where: {
           id: storeId,
           deletedAt: null,
           status: { in: [StoreStatus.APPROVED, StoreStatus.PENDING] }
         },
         select: { id: true }
-      }),
-      this.rbac.storeAuthorization(auth.userId, storeId, auth.authzVersion)
-    ]);
-    if (!store) {
-      throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+      });
+      if (!store) {
+        throw uploadError(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "Store not found.");
+      }
     }
     if (!this.rbac.hasPermissions(authorization.permissions, required)) {
       throw uploadError(HttpStatus.FORBIDDEN, "UPLOAD_FORBIDDEN", "You do not have permission to upload media for this store.");

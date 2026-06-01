@@ -78,6 +78,39 @@ export class RoleRepository {
     });
   }
 
+  findStoreAuthorizationRows(
+    userId: string,
+    storeId: string,
+    tx: Prisma.TransactionClient = this.prisma
+  ) {
+    return tx.$queryRaw<Array<{
+      store_id: string;
+      store_status: string;
+      store_deleted_at: Date | null;
+      member_id: string | null;
+      role_code: string | null;
+      permission_code: string | null;
+    }>>`
+      SELECT
+        s.id AS store_id,
+        s.status::text AS store_status,
+        s.deleted_at AS store_deleted_at,
+        sm.id AS member_id,
+        r.code AS role_code,
+        p.code AS permission_code
+      FROM stores s
+      LEFT JOIN store_members sm
+        ON sm.store_id = s.id
+       AND sm.user_id = ${userId}::uuid
+       AND sm.status = 'ACTIVE'
+      LEFT JOIN roles r ON r.id = sm.role_id
+      LEFT JOIN role_permissions rp ON rp.role_id = r.id
+      LEFT JOIN permissions p ON p.id = rp.permission_id
+      WHERE s.id = ${storeId}::uuid
+      ORDER BY r.code, p.code
+    `;
+  }
+
   listPermissions(scope?: RoleScope, tx: Prisma.TransactionClient = this.prisma) {
     return tx.permission.findMany({
       where: scope ? { scope } : undefined,

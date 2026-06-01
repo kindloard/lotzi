@@ -31,32 +31,37 @@ interface CartContextType {
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
+const CART_STORAGE_KEY = "namastore_cart";
 const starterCartItems: CartItem[] = [];
+const demoCartNames = new Set(["Organic Hass Avocados", "Sourdough Bread (Country)"]);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>(starterCartItems);
   const [isCartReady, setIsCartReady] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("namastore_cart");
+    const stored = localStorage.getItem(CART_STORAGE_KEY);
     if (stored) {
       try {
         const parsedCart = JSON.parse(stored) as CartItem[];
         if (Array.isArray(parsedCart)) {
-          setCartItems(
-            parsedCart
-              .filter((item) => item && typeof item.id === "string" && Number.isFinite(item.qty))
-              .map((item) => ({
-                ...item,
-                price: normalizedCartPrice(item.price),
-                qty: Math.max(1, Math.floor(item.qty)),
-                unit: item.unit ?? item.unitDisplay,
-                unitDisplay: item.unitDisplay ?? item.unit
-              }))
-          );
+          const sanitized = parsedCart
+            .filter(isRealCartItem)
+            .map((item) => ({
+              ...item,
+              price: normalizedCartPrice(item.price),
+              qty: Math.max(1, Math.floor(item.qty)),
+              unit: item.unit ?? item.unitDisplay,
+              unitDisplay: item.unitDisplay ?? item.unit
+            }));
+          setCartItems(sanitized);
+          if (sanitized.length !== parsedCart.length) {
+            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(sanitized));
+          }
         }
       } catch (error) {
         console.error("Error parsing cart from localStorage:", error);
+        localStorage.removeItem(CART_STORAGE_KEY);
       }
     }
     setIsCartReady(true);
@@ -64,11 +69,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isCartReady) {
-      localStorage.setItem("namastore_cart", JSON.stringify(cartItems));
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
     }
   }, [cartItems, isCartReady]);
 
   const addToCart = (newItem: Omit<CartItem, "qty">) => {
+    if (!isRealCartItem({ ...newItem, qty: 1 })) {
+      return;
+    }
     setCartItems((prev) => {
       const key = cartLineKey(newItem);
       const existing = prev.find((item) => cartLineKey(item) === key);
@@ -151,4 +159,19 @@ export function cartLineKey(item: Pick<CartItem, "id" | "variantId">) {
 
 function normalizedCartPrice(price: number, fallback = 0) {
   return Number.isFinite(price) && price >= 0 ? price : fallback;
+}
+
+function isRealCartItem(item: Partial<CartItem>): item is CartItem {
+  return Boolean(
+    item &&
+    typeof item.id === "string" &&
+    typeof item.variantId === "string" &&
+    item.variantId.trim() &&
+    typeof item.name === "string" &&
+    !demoCartNames.has(item.name) &&
+    typeof item.shopId === "string" &&
+    item.shopId.trim() &&
+    Number.isFinite(item.price) &&
+    Number.isFinite(item.qty)
+  );
 }

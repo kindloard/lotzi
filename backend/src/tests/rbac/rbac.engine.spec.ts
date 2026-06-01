@@ -6,15 +6,14 @@ describe("RbacEngine", () => {
     const cache = new Map<string, string>();
     const roles = {
       findPlatformAuthorizationRows: jest.fn(async () => []),
-      findActiveStoreMember: jest.fn(async () => ({
-        id: "member-1",
-        role: {
-          code: "STORE_OWNER",
-          permissions: [
-            { permission: { code: PERMISSIONS.PRODUCT_MANAGE } }
-          ]
-        }
-      })),
+      findStoreAuthorizationRows: jest.fn(async () => [{
+        store_id: "store-1",
+        store_status: "APPROVED",
+        store_deleted_at: null,
+        member_id: "member-1",
+        role_code: "STORE_OWNER",
+        permission_code: PERMISSIONS.PRODUCT_MANAGE
+      }]),
       listPermissions: jest.fn()
     };
     const redis = {
@@ -30,8 +29,13 @@ describe("RbacEngine", () => {
 
     expect(first).toEqual(second);
     expect(first.permissions).toEqual([PERMISSIONS.PRODUCT_MANAGE]);
+    expect(first).toMatchObject({
+      memberId: "member-1",
+      storeExists: true,
+      storeStatus: "APPROVED"
+    });
     expect(roles.findPlatformAuthorizationRows).toHaveBeenCalledTimes(1);
-    expect(roles.findActiveStoreMember).toHaveBeenCalledTimes(1);
+    expect(roles.findStoreAuthorizationRows).toHaveBeenCalledTimes(1);
     expect(redis.setEx).toHaveBeenCalledWith(
       "authz:user-1:7:store:store-1",
       30,
@@ -43,13 +47,14 @@ describe("RbacEngine", () => {
     const cache = new Map<string, string>();
     const roles = {
       findPlatformAuthorizationRows: jest.fn(async () => []),
-      findActiveStoreMember: jest.fn(async () => ({
-        id: "member-1",
-        role: {
-          code: "STORE_OWNER",
-          permissions: [{ permission: { code: PERMISSIONS.PRODUCT_MANAGE } }]
-        }
-      })),
+      findStoreAuthorizationRows: jest.fn(async () => [{
+        store_id: "store-1",
+        store_status: "APPROVED",
+        store_deleted_at: null,
+        member_id: "member-1",
+        role_code: "STORE_OWNER",
+        permission_code: PERMISSIONS.PRODUCT_MANAGE
+      }]),
       listPermissions: jest.fn()
     };
     const redis = {
@@ -63,6 +68,6 @@ describe("RbacEngine", () => {
     await engine.storeAuthorization("user-1", "store-1", 7);
     await engine.storeAuthorization("user-1", "store-1", 8);
 
-    expect(roles.findActiveStoreMember).toHaveBeenCalledTimes(2);
+    expect(roles.findStoreAuthorizationRows).toHaveBeenCalledTimes(2);
   });
 });

@@ -34,8 +34,14 @@ describe("ProductsService product save hot path", () => {
     });
 
     expect(response.product.images).toHaveLength(2);
-    expect(response.product.variants).toHaveLength(2);
-    expect(response.product.images[0].variantIds).toEqual([response.product.variants[1].id]);
+    expect(response.product.variants).toHaveLength(1);
+    expect(response.product.variants[0]).toMatchObject({
+      isDefault: false,
+      name: "50g",
+      price: 20,
+      stock: 10
+    });
+    expect(response.product.images[0].variantIds).toEqual([response.product.variants[0].id]);
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(inventory.initializeCatalogInventory).toHaveBeenCalledWith(tx, expect.objectContaining({
@@ -97,8 +103,9 @@ describe("ProductsService product save hot path", () => {
     await service.create(auth(), draft({ images: [{ uploadAssetId: assetA, sortOrder: 0, isPrimary: true }] }));
     await service.create(auth(), draft({ images: [{ uploadAssetId: assetB, sortOrder: 0, isPrimary: true }] }));
 
-    expect(prisma.category.upsert).toHaveBeenCalledTimes(1);
-    expect(prisma.store.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.category.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.category.create).not.toHaveBeenCalled();
+    expect(prisma.store.findFirst).not.toHaveBeenCalled();
     expect(rbac.storeAuthorization).toHaveBeenCalledTimes(1);
   });
 
@@ -122,7 +129,8 @@ describe("ProductsService product save hot path", () => {
     await expect(service.create(auth(), draft())).rejects.toMatchObject({
       response: expect.objectContaining({ code: "PRODUCT_FORBIDDEN" })
     });
-    expect(prisma.category.upsert).not.toHaveBeenCalled();
+    expect(prisma.category.findUnique).not.toHaveBeenCalled();
+    expect(prisma.category.create).not.toHaveBeenCalled();
     expect(prisma.uploadAsset.findMany).not.toHaveBeenCalled();
   });
 
@@ -159,7 +167,8 @@ describe("ProductsService product save hot path", () => {
     expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
     expect(tx.productVariant.createMany).not.toHaveBeenCalled();
     expect(prisma.uploadAsset.findMany).not.toHaveBeenCalled();
-    expect(prisma.category.upsert).not.toHaveBeenCalled();
+    expect(prisma.category.findUnique).not.toHaveBeenCalled();
+    expect(prisma.category.create).not.toHaveBeenCalled();
   });
 
   it("rejects sparse updates with a stale catalog version", async () => {
@@ -233,12 +242,13 @@ function createHarness(options: {
       updateMany: jest.fn(async () => ({ count: 1 }))
     }
   };
-  const prisma = {
+    const prisma = {
     store: {
       findFirst: jest.fn(async () => ({ id: storeId, status: StoreStatus.APPROVED }))
     },
     category: {
-      upsert: jest.fn(async () => ({ id: "category-1", name: "Grocery" }))
+      create: jest.fn(async () => ({ id: "category-1", name: "Grocery" })),
+      findUnique: jest.fn(async () => ({ id: "category-1", name: "Grocery" }))
     },
     uploadAsset: {
       findMany: jest.fn()
@@ -258,7 +268,12 @@ function createHarness(options: {
     $transaction: jest.fn(async (callback: (txArg: typeof tx) => Promise<unknown>) => callback(tx))
   };
   const rbac = {
-    storeAuthorization: jest.fn(async () => ({ permissions: [PERMISSIONS.PRODUCT_MANAGE] })),
+    storeAuthorization: jest.fn(async () => ({
+      permissions: [PERMISSIONS.PRODUCT_MANAGE],
+      storeDeletedAt: null,
+      storeExists: true,
+      storeStatus: StoreStatus.APPROVED
+    })),
     hasPermissions: jest.fn(() => options.hasPermissions ?? true)
   };
   const shops = {

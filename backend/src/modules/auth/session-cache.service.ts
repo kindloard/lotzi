@@ -5,6 +5,11 @@ import { RedisService } from "../redis/redis.service";
 const SESSION_CACHE_TTL_SECONDS = 60;
 const CACHE_ERROR_LOG_INTERVAL_MS = 60_000;
 
+interface LocalSessionCacheEntry {
+  expiresAt: number;
+  value: CachedSessionPrincipal;
+}
+
 export interface CachedSessionPrincipal {
   id: string;
   userId: string;
@@ -24,17 +29,26 @@ export interface CachedSessionPrincipal {
 @Injectable()
 export class SessionCacheService {
   private readonly logger = new Logger(SessionCacheService.name);
+  private readonly localCache = new Map<string, LocalSessionCacheEntry>();
   private lastErrorLogAt = 0;
 
   constructor(private readonly redis: RedisService) {}
 
   async get(sessionId: string): Promise<CachedSessionPrincipal | null> {
+    const local = this.getLocal(sessionId);
+    if (local) {
+      return local;
+    }
     try {
       const cached = await this.redis.get(this.key(sessionId));
       if (!cached) {
         return null;
       }
-      return this.parse(cached);
+      const parsed = this.parse(cached);
+      if (parsed) {
+        this.setLocal(parsed);
+      }
+      return parsed;
     } catch (error) {
       this.logCacheError("read", error);
       return null;
@@ -47,6 +61,7 @@ export class SessionCacheService {
       return;
     }
 
+    this.setLocal(principal);
     try {
       await this.redis.setEx(this.key(principal.id), ttl, JSON.stringify(principal));
     } catch (error) {
@@ -55,6 +70,7 @@ export class SessionCacheService {
   }
 
   async invalidate(sessionId: string): Promise<void> {
+    this.localCache.delete(sessionId);
     try {
       await this.redis.del(this.key(sessionId));
     } catch (error) {
@@ -68,6 +84,30 @@ export class SessionCacheService {
 
   private key(sessionId: string) {
     return `session:${sessionId}`;
+  }
+
+  private getLocal(sessionId: string): CachedSessionPrincipal | null {
+    const entry = this.localCache.get(sessionId);
+    if (!entry) {
+      return null;
+    }
+    if (entry.expiresAt <= Date.now()) {
+      this.localCache.delete(sessionId);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private setLocal(principal: CachedSessionPrincipal): void {
+    const ttl = this.ttlSeconds(principal.expiresAt);
+    if (ttl <= 0) {
+      this.localCache.delete(principal.id);
+      return;
+    }
+    this.localCache.set(principal.id, {
+      expiresAt: Date.now() + ttl * 1000,
+      value: principal
+    });
   }
 
   private ttlSeconds(expiresAt: string) {

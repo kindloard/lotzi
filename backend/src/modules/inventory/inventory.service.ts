@@ -19,8 +19,14 @@ const OPERATION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const LOW_STOCK_DEDUPE_MS = 24 * 60 * 60 * 1000;
 const INVENTORY_ADMISSION_WINDOW_SECONDS = 30;
 const INVENTORY_ADMISSION_LIMIT = 500;
+const DEFAULT_LOCATION_CACHE_TTL_MS = 60_000;
 
 type Tx = Prisma.TransactionClient;
+
+interface CacheEntry<T> {
+  expiresAt: number;
+  value: T;
+}
 
 interface ReserveOrderStockInput {
   storeId: string;
@@ -99,6 +105,7 @@ type ReservationForRelease = Pick<
 @Injectable()
 export class InventoryService {
   private readonly logger = new Logger(InventoryService.name);
+  private readonly defaultLocationCache = new Map<string, CacheEntry<{ id: string }>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -175,80 +182,150 @@ export class InventoryService {
     }
     await this.configureTx(tx, input.storeId);
     const location = await this.ensureDefaultLocation(tx, input.storeId);
-    await tx.inventoryItem.createMany({
-      data: variants.map((variant) => ({
-        storeId: input.storeId,
-        productVariantId: variant.productVariantId,
-        locationId: location.id,
-        availableStock: variant.availableStock,
-        reservedStock: 0,
-        soldStock: 0,
-        version: 1
-      })),
-      skipDuplicates: true
-    });
-    const rows = await tx.inventoryItem.findMany({
-      where: {
-        storeId: input.storeId,
-        locationId: location.id,
-        productVariantId: { in: variants.map((variant) => variant.productVariantId) }
-      }
-    });
-    let initialized = 0;
-    for (const row of rows) {
-      const ledgerKey = `${input.idempotencyKey}:${row.productVariantId}`;
-      const existingLedger = await tx.inventoryLedger.findFirst({
-        where: { idempotencyKey: ledgerKey },
-        select: { id: true, createdAt: true }
-      });
-      if (existingLedger) {
-        continue;
-      }
-      const availableStock = row.availableStock;
-      if (availableStock <= 0) {
-        continue;
-      }
-      const before: LockedInventoryItem = {
-        id: row.id,
-        storeId: row.storeId,
-        productVariantId: row.productVariantId,
-        locationId: row.locationId,
-        availableStock: 0,
-        reservedStock: 0,
-        soldStock: 0,
-        lowStockThreshold: row.lowStockThreshold,
-        version: 1
-      };
-      const after = {
-        availableStock: row.availableStock,
-        reservedStock: row.reservedStock,
-        soldStock: row.soldStock,
-        version: row.version
-      };
-      await this.createLedger(tx, {
-        row: before,
-        after,
-        type: InventoryLedgerType.MANUAL_ADJUSTMENT,
-        quantity: availableStock,
-        actorType: "SYSTEM",
-        reason: input.reason,
-        idempotencyKey: ledgerKey
-      });
-      await this.emitInventoryEvent(tx, {
-        eventType: "inventory.initialized.v1",
-        aggregateId: row.id,
-        storeId: input.storeId,
-        idempotencyKey: ledgerKey,
-        requestId: input.requestId,
-        payload: {
-          productVariantId: row.productVariantId,
-          locationId: row.locationId,
-          availableStock
-        }
-      });
-      initialized += 1;
-    }
-    return { initialized };
+    const rows = await tx.$queryRaw<Array<{ initialized: number }>>(Prisma.sql`
+      WITH
+      variant_input AS (
+        SELECT *
+        FROM jsonb_to_recordset(${JSON.stringify(variants)}::jsonb) AS variant(
+          "productVariantId" uuid,
+          "availableStock" integer
+        )
+      ),
+      insert_items AS (
+        INSERT INTO inventory_items (
+          store_id,
+          product_variant_id,
+          location_id,
+          available_stock,
+          reserved_stock,
+          sold_stock,
+          version,
+          created_at,
+          updated_at
+        )
+        SELECT
+          ${input.storeId}::uuid,
+          variant."productVariantId",
+          ${location.id}::uuid,
+          GREATEST(variant."availableStock", 0),
+          0,
+          0,
+          1,
+          now(),
+          now()
+        FROM variant_input variant
+        ON CONFLICT (store_id, product_variant_id, location_id) DO NOTHING
+        RETURNING id
+      ),
+      initialized_items AS (
+        SELECT
+          item.id,
+          item.store_id,
+          item.product_variant_id,
+          item.location_id,
+          item.available_stock,
+          (${input.idempotencyKey} || ':' || item.product_variant_id::text) AS ledger_key
+        FROM inventory_items item
+        JOIN variant_input variant ON variant."productVariantId" = item.product_variant_id
+        WHERE item.store_id = ${input.storeId}::uuid
+          AND item.location_id = ${location.id}::uuid
+          AND item.available_stock > 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM inventory_ledger existing_ledger
+            WHERE existing_ledger.idempotency_key = (${input.idempotencyKey} || ':' || item.product_variant_id::text)
+          )
+      ),
+      insert_ledger AS (
+        INSERT INTO inventory_ledger (
+          schema_version,
+          store_id,
+          product_variant_id,
+          location_id,
+          type,
+          quantity,
+          before_available_stock,
+          after_available_stock,
+          before_reserved_stock,
+          after_reserved_stock,
+          before_sold_stock,
+          after_sold_stock,
+          actor_type,
+          reason,
+          idempotency_key,
+          created_at
+        )
+        SELECT
+          1,
+          item.store_id,
+          item.product_variant_id,
+          item.location_id,
+          ${InventoryLedgerType.MANUAL_ADJUSTMENT}::"InventoryLedgerType",
+          GREATEST(item.available_stock, 1),
+          0,
+          item.available_stock,
+          0,
+          0,
+          0,
+          0,
+          'SYSTEM',
+          ${input.reason},
+          item.ledger_key,
+          now()
+        FROM initialized_items item
+        RETURNING product_variant_id
+      ),
+      insert_events AS (
+        INSERT INTO domain_events (
+          schema_version,
+          event_type,
+          aggregate_type,
+          aggregate_id,
+          idempotency_key,
+          producer,
+          status,
+          payload,
+          occurred_at,
+          next_run_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          1,
+          'inventory.initialized.v1',
+          'inventory',
+          item.id,
+          item.ledger_key,
+          'namastore-api',
+          ${DomainEventStatus.PENDING}::"DomainEventStatus",
+          jsonb_build_object(
+            'eventId', item.ledger_key,
+            'eventType', 'inventory.initialized.v1',
+            'schemaVersion', 1,
+            'aggregateType', 'inventory',
+            'aggregateId', item.id,
+            'storeId', item.store_id,
+            'idempotencyKey', item.ledger_key,
+            'occurredAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+            'producer', 'namastore-api',
+            'traceId', ${input.requestId ?? null}::text,
+            'payload', jsonb_build_object(
+              'productVariantId', item.product_variant_id,
+              'locationId', item.location_id,
+              'availableStock', item.available_stock
+            )
+          ),
+          now(),
+          now(),
+          now(),
+          now()
+        FROM initialized_items item
+        JOIN insert_ledger ledger ON ledger.product_variant_id = item.product_variant_id
+        RETURNING id
+      )
+      SELECT COALESCE((SELECT COUNT(*)::integer FROM insert_ledger), 0) AS initialized
+    `);
+    return { initialized: rows[0]?.initialized ?? 0 };
   }
 
   async reserveOrderStock(tx: Tx, input: ReserveOrderStockInput) {
@@ -909,11 +986,16 @@ export class InventoryService {
   }
 
   private async ensureDefaultLocation(tx: Tx, storeId: string) {
+    const cached = getCached(this.defaultLocationCache, storeId);
+    if (cached) {
+      return cached;
+    }
     const existing = await tx.inventoryLocation.findFirst({
       where: { storeId, isDefault: true },
       select: { id: true }
     });
     if (existing) {
+      setCached(this.defaultLocationCache, storeId, existing, DEFAULT_LOCATION_CACHE_TTL_MS);
       return existing;
     }
     await tx.inventoryLocation.createMany({
@@ -925,10 +1007,12 @@ export class InventoryService {
       },
       skipDuplicates: true
     });
-    return tx.inventoryLocation.findFirstOrThrow({
+    const created = await tx.inventoryLocation.findFirstOrThrow({
       where: { storeId, isDefault: true },
       select: { id: true }
     });
+    setCached(this.defaultLocationCache, storeId, created, DEFAULT_LOCATION_CACHE_TTL_MS);
+    return created;
   }
 
   private async ensureInventoryItems(tx: Tx, storeId: string, locationId: string, productVariantIds: string[]) {
@@ -1273,6 +1357,22 @@ function aggregateItems(items: Array<{ productVariantId: string; quantity: numbe
 
 function inventoryKey(productVariantId: string, locationId: string) {
   return `${productVariantId}:${locationId}`;
+}
+
+function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number) {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 function isUniqueConflict(error: unknown): boolean {
