@@ -1,10 +1,10 @@
 export const DEFAULT_BUSINESS_HOURS = {
-  monday: "9:00 AM - 6:00 PM",
-  tuesday: "9:00 AM - 6:00 PM",
-  wednesday: "9:00 AM - 6:00 PM",
-  thursday: "9:00 AM - 6:00 PM",
-  friday: "9:00 AM - 6:00 PM",
-  saturday: "10:00 AM - 4:00 PM",
+  monday: "9:00 AM - 8:00 PM",
+  tuesday: "9:00 AM - 8:00 PM",
+  wednesday: "9:00 AM - 8:00 PM",
+  thursday: "9:00 AM - 8:00 PM",
+  friday: "9:00 AM - 8:00 PM",
+  saturday: "10:00 AM - 8:00 PM",
   sunday: "closed"
 };
 

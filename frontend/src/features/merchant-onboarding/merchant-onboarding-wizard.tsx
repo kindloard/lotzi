@@ -101,7 +101,7 @@ export function MerchantOnboardingWizard() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-white text-zinc-950 selection:bg-zinc-900 selection:text-white font-sans tracking-[-0.01em]">
+    <main className="min-h-[100dvh] bg-white font-sans font-medium text-zinc-950 selection:bg-zinc-900 selection:text-white">
       <div className="mx-auto grid min-h-[100dvh] max-w-[1440px] grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_340px]">
         {/* Left Sidebar */}
         <aside className="hidden sticky top-0 h-screen overflow-y-auto border-r border-zinc-200 bg-zinc-50/50 px-6 py-8 lg:block">

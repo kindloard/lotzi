@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { Geist, Geist_Mono, Noto_Sans_Tamil } from "next/font/google";
+import { Geist_Mono, Noto_Sans_Tamil, Sora } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { IntlClientBridge } from "@/components/i18n/intl-client-bridge";
 import { directionForLocale } from "@/i18n/locale-meta";
@@ -10,10 +10,11 @@ import { getLocaleFallbackKeys, loadMessages } from "@/i18n/messages";
 import { routing, type AppLocale } from "@/i18n/routing";
 import "../globals.css";
 
-const appSans = Geist({
+const appSans = Sora({
   adjustFontFallback: true,
   display: "swap",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-app-sans"
 });
 
