@@ -97,7 +97,7 @@ export const CategoryFilter = memo(function CategoryFilter({
               onClick={() => onSelectCategory(category.id)}
               className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-4 py-3 transition-all duration-300 ${
                 isSelected
-                  ? "border-slate-900 bg-slate-900 text-white shadow-md"
+                  ? "border-black bg-black text-white shadow-md"
                   : `bg-gradient-to-r ${category.color} hover:shadow-sm`
               }`}
             >

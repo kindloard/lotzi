@@ -96,7 +96,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
           </p>
         </div>
         {!locationNeedsAction ? (
-          <span className="hidden md:inline-flex shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
+          <span className="hidden md:inline-flex shrink-0 rounded-full bg-black px-3 py-1.5 text-xs font-bold text-white shadow-sm">
             {isInitialLoading
               ? t("statusLoading")
               : visibleShops.length === 0
@@ -123,7 +123,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
             <button
               type="button"
               onClick={() => requestLocation({ ignoreCache: true })}
-              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-slate-950 px-5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 sm:h-10"
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-black px-5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 sm:h-10"
             >
               {t("enableLocation")}
             </button>

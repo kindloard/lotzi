@@ -45,7 +45,7 @@ const STEP_COMPLETION: Record<Exclude<OnboardingStep, "REVIEW">, { nextStep: Onb
 };
 const MEDIA_LIMITS = {
   LOGO: { maxBytes: 3 * 1024 * 1024, minWidth: 128, minHeight: 128 },
-  BANNER: { maxBytes: 6 * 1024 * 1024, minWidth: 1200, minHeight: 360 }
+  BANNER: { maxBytes: 6 * 1024 * 1024, minWidth: 0, minHeight: 0 }
 } as const;
 const ALLOWED_MEDIA_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
@@ -711,10 +711,10 @@ function validateMediaDimensions(
   const limit = MEDIA_LIMITS[kind];
   const label = kind === "LOGO" ? "Logo" : "Banner";
   const path = kind.toLowerCase();
-  if (dimensions.width && dimensions.width < limit.minWidth) {
+  if (limit.minWidth > 0 && dimensions.width && dimensions.width < limit.minWidth) {
     return { path, message: `${label} image must be at least ${limit.minWidth}px wide.` };
   }
-  if (dimensions.height && dimensions.height < limit.minHeight) {
+  if (limit.minHeight > 0 && dimensions.height && dimensions.height < limit.minHeight) {
     return { path, message: `${label} image must be at least ${limit.minHeight}px tall.` };
   }
   return null;

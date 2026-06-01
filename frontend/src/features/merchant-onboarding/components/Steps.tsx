@@ -96,7 +96,7 @@ export function BusinessStep({ errors, rules, updateValue, values }: StepProps) 
         dataField="category"
         error={errors.category}
         label="Business Category"
-        onChange={(event) => updateValue("BUSINESS", "category", event.target.value)}
+        onValueChange={(value) => updateValue("BUSINESS", "category", value)}
         options={rules.options.categories}
         value={text(values.category)}
       />
@@ -104,7 +104,7 @@ export function BusinessStep({ errors, rules, updateValue, values }: StepProps) 
         dataField="businessType"
         error={errors.businessType}
         label="Business Type"
-        onChange={(event) => updateValue("BUSINESS", "businessType", event.target.value)}
+        onValueChange={(value) => updateValue("BUSINESS", "businessType", value)}
         options={businessTypeOptions}
         value={text(values.businessType)}
       />

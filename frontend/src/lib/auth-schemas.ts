@@ -4,7 +4,7 @@ type TranslationFn = (key: string, values?: Record<string, number | string>) => 
 
 const englishAuthMessages: Record<string, string> = {
   "validation.emailInvalid": "Enter a valid email address.",
-  "validation.identifierInvalid": "Enter a valid email or Indian mobile number.",
+  "validation.identifierInvalid": "Enter a valid email or phone.",
   "validation.nameRequired": "Enter your name.",
   "validation.otpLength": "Enter the {length}-digit code.",
   "validation.passwordMin": "Password must be at least {min} characters.",

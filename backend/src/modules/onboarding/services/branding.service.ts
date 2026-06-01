@@ -143,11 +143,11 @@ export class BrandingService {
       throw new BadRequestException(`${input.kind.toLowerCase()} image is too large.`);
     }
 
-    if (input.width && input.width < limit.minWidth) {
+    if (limit.minWidth > 0 && input.width && input.width < limit.minWidth) {
       throw new BadRequestException(`${input.kind.toLowerCase()} image is too narrow.`);
     }
 
-    if (input.height && input.height < limit.minHeight) {
+    if (limit.minHeight > 0 && input.height && input.height < limit.minHeight) {
       throw new BadRequestException(`${input.kind.toLowerCase()} image is too short.`);
     }
   }

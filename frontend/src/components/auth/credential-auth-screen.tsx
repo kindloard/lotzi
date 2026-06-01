@@ -538,11 +538,11 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
               <AuthInput
                 autoComplete={isRegistration ? "email" : "username"}
                 error={fieldErrors.email}
-                label={isRegistration ? t("fields.email.label") : "Email or phone"}
+                label={isRegistration ? t("fields.email.label") : t("fields.loginIdentifier.label")}
                 name="email"
                 onBlur={touchField}
                 onChange={updateField}
-                placeholder={isRegistration ? t("fields.email.placeholder") : "you@example.com or +91 98765 43210"}
+                placeholder={isRegistration ? t("fields.email.placeholder") : t("fields.loginIdentifier.placeholder")}
                 required
                 touched={touched.email}
                 type={isRegistration ? "email" : "text"}

@@ -91,7 +91,7 @@ export const STEP_COMPLETION: Record<
 
 export const MEDIA_LIMITS: Record<StoreMediaKind, { maxBytes: number; minWidth: number; minHeight: number }> = {
   [StoreMediaKind.LOGO]: { maxBytes: 3 * 1024 * 1024, minWidth: 128, minHeight: 128 },
-  [StoreMediaKind.BANNER]: { maxBytes: 6 * 1024 * 1024, minWidth: 1200, minHeight: 360 }
+  [StoreMediaKind.BANNER]: { maxBytes: 6 * 1024 * 1024, minWidth: 0, minHeight: 0 }
 };
 
 export const ALLOWED_MEDIA_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
