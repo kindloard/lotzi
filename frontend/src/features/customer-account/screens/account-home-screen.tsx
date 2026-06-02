@@ -38,7 +38,7 @@ export function AccountHomeScreen() {
         <Avatar avatarUrl={identity.account.avatarUrl} initials={initials} size="lg" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-lg font-bold tracking-tight text-zinc-950">
-            {identity.account.fullName ?? "Namastore user"}
+            {identity.account.fullName ?? "Lotzi user"}
           </h2>
           <p className="truncate text-[13px] font-medium text-zinc-500">{identity.account.email}</p>
         </div>

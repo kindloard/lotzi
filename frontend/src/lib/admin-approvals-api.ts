@@ -144,7 +144,7 @@ async function adminFetch<TResponse>(path: string, init: RequestInit = {}) {
 
   const method = init.method ?? "GET";
   if (method.toUpperCase() !== "GET") {
-    const csrf = cookieValue("namastore_admin_csrf");
+    const csrf = cookieValue("lotzi_admin_csrf");
     if (csrf) {
       headers.set("x-admin-csrf", csrf);
     }

@@ -1,6 +1,6 @@
 # AI Flows
 
-This folder is for external AI agent and workflow references used while building Namastore.
+This folder is for external AI agent and workflow references used while building Lotzi.
 
 ## Installed Sources
 

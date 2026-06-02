@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     const detail = await getShopProductDetailForPage(slug, shopSlug, productRef);
     const canonical = `/${locale}${detail.product.canonicalPath}`;
     return {
-      title: `${detail.product.seoTitle} | ${detail.store.name} | Namastore`,
+      title: `${detail.product.seoTitle} | ${detail.store.name} | Lotzi`,
       description: detail.product.seoDescription.slice(0, 155),
       alternates: {
         canonical
@@ -48,11 +48,11 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
           index: false,
           follow: false
         },
-        title: "Product unavailable | Namastore"
+        title: "Product unavailable | Lotzi"
       };
     }
     return {
-      title: "Product | Namastore"
+      title: "Product | Lotzi"
     };
   }
 }

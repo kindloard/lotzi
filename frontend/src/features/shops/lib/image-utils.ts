@@ -1,8 +1,12 @@
 interface CloudinaryOptions {
   width?: number;
+  height?: number;
   quality?: "auto" | number;
   format?: "auto" | "webp" | "avif";
+  crop?: "fill" | "limit" | "scale" | "crop";
+  gravity?: "auto" | "center";
   blur?: boolean;
+  trim?: boolean | number;
 }
 
 const CLOUDINARY_UPLOAD_MARKER = "/image/upload/";
@@ -12,13 +16,13 @@ export function optimizedCloudinaryUrl(url: string | null | undefined, options: 
     return url ?? null;
   }
 
-  const transforms = buildTransforms(options);
-  if (!transforms.length) {
+  const transformChain = buildTransformChain(options);
+  if (!transformChain.length) {
     return url;
   }
 
   const [prefix, suffix] = url.split(CLOUDINARY_UPLOAD_MARKER);
-  return `${prefix}${CLOUDINARY_UPLOAD_MARKER}${transforms.join(",")}/${suffix}`;
+  return `${prefix}${CLOUDINARY_UPLOAD_MARKER}${transformChain.join("/")}/${suffix}`;
 }
 
 export function blurDataUrl(color = "#f1f5f9") {
@@ -26,7 +30,13 @@ export function blurDataUrl(color = "#f1f5f9") {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-function buildTransforms(options: CloudinaryOptions) {
+function buildTransformChain(options: CloudinaryOptions) {
+  const chain: string[] = [];
+
+  if (options.trim) {
+    chain.push(typeof options.trim === "number" ? `e_trim:${options.trim}` : "e_trim");
+  }
+
   const transforms: string[] = [];
 
   if (options.format ?? "auto") {
@@ -36,13 +46,29 @@ function buildTransforms(options: CloudinaryOptions) {
   const quality = options.quality ?? "auto";
   transforms.push(typeof quality === "number" ? `q_${quality}` : "q_auto:good");
 
+  if (options.crop) {
+    transforms.push(`c_${options.crop}`);
+  }
+
+  if (options.gravity) {
+    transforms.push(`g_${options.gravity}`);
+  }
+
   if (options.width) {
     transforms.push(`w_${options.width}`);
+  }
+
+  if (options.height) {
+    transforms.push(`h_${options.height}`);
   }
 
   if (options.blur) {
     transforms.push("e_blur:1000");
   }
 
-  return transforms;
+  if (transforms.length) {
+    chain.push(transforms.join(","));
+  }
+
+  return chain;
 }

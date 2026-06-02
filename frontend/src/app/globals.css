@@ -8,6 +8,8 @@
   --font-mono:
     var(--font-app-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
+  --color-brand: #9ef01a;
+  --color-brand-strong: #8ae012;
 }
 
 :root {
@@ -17,10 +19,10 @@
   --border-subtle: #e4e4e7;      /* Clean zinc-200 border */
   --text-strong: #09090b;        /* Deep black zinc-950 */
   --text-muted: #71717a;         /* Soft gray zinc-500 */
-  --brand-primary: #09090b;      /* Pure black primary */
-  --brand-primary-strong: #18181b;/* Heavy dark gray primary hover */
-  --brand-accent: #09090b;       /* Dark accent */
-  --focus-ring: rgba(9, 9, 11, 0.08); /* Minimal focus outline */
+  --brand-primary: #9ef01a;      /* Bright Lime Brand */
+  --brand-primary-strong: #8ae012;/* Strong hover variant */
+  --brand-accent: #9ef01a;       /* Dark accent -> Lime accent */
+  --focus-ring: rgba(158, 240, 26, 0.3); /* Lime focus outline */
   --shadow-nav: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
   --transition-fast: 160ms ease;
 }
@@ -53,7 +55,7 @@ a,
 input,
 select,
 textarea {
-  font: inherit;
+  font-family: inherit;
 }
 
 button,

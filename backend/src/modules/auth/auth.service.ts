@@ -982,7 +982,7 @@ export class AuthService {
             }
 
             const passwordHash = await passwordHashPromise;
-            const fullName = this.sanitizeName(address.recipientName || "Namastore customer");
+            const fullName = this.sanitizeName(address.recipientName || "Lotzi customer");
             const created = await timer.time("account_bundle_create", () =>
               tx.user.create({
                 data: {
@@ -2096,7 +2096,7 @@ export class AuthService {
       return fallback;
     }
     try {
-      const parsed = new URL(trimmed, "https://namastore.local");
+      const parsed = new URL(trimmed, "https://lotzi.local");
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
       return fallback;
@@ -2423,7 +2423,7 @@ export class AuthService {
   }
 
   private shadowEmailForPhone(phoneNumber: string): string {
-    return `phone_${phoneNumber.replace(/\D/g, "")}@phone.namastore.local`;
+    return `phone_${phoneNumber.replace(/\D/g, "")}@phone.lotzi.local`;
   }
 
   private normalizeLoginIdentifier(raw: string): LoginIdentifier {

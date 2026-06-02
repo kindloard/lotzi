@@ -10,10 +10,10 @@ test.describe("locale routing and Tamil layout", () => {
     await page.goto("/en/auth/login");
     await page.getByRole("button", { name: "தமிழ்" }).click();
     await expect(page).toHaveURL(/\/ta\/auth\/login/);
-    await expect(page.getByRole("heading", { name: /Namastore-ல் உள்நுழையவும்/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Lotzi-ல் உள்நுழையவும்/ })).toBeVisible();
 
     const cookies = await context.cookies();
-    expect(cookies.find((cookie) => cookie.name === "namastore_locale")?.value).toBe("ta");
+    expect(cookies.find((cookie) => cookie.name === "lotzi_locale")?.value).toBe("ta");
   });
 
   test("Tamil auth screen has no horizontal overflow or clipped fit controls", async ({ page }) => {

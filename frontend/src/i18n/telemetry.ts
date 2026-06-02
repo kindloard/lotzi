@@ -63,7 +63,7 @@ export function routeTemplateForPathname(pathname: string) {
 }
 
 function sessionFingerprint() {
-  const key = "namastore:i18n-telemetry-session";
+  const key = "lotzi:i18n-telemetry-session";
   try {
     const existing = sessionStorage.getItem(key);
     if (existing) {

@@ -53,7 +53,7 @@ export const accountSections: AccountSectionItem[] = [
     id: "orders",
     label: "Orders",
     shortLabel: "Orders",
-    description: "Current and past Namastore purchases.",
+    description: "Current and past Lotzi purchases.",
     eyebrow: "Purchases",
     href: "/account/orders",
     icon: Package
@@ -120,7 +120,7 @@ export const accountHomeNav = {
   id: "home" as const,
   label: "Account",
   shortLabel: "Home",
-  description: "Your Namastore account hub.",
+  description: "Your Lotzi account hub.",
   eyebrow: "Overview",
   href: "/account" as const,
   icon: Home

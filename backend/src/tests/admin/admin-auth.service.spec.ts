@@ -45,8 +45,8 @@ describe("AdminAuthService", () => {
     const res = response();
 
     const login = await service.login("correct-password", request(), res);
-    const sessionCookie = res.cookie.mock.calls.find(([name]) => name === "namastore_admin_session")?.[1];
-    const csrfCookie = res.cookie.mock.calls.find(([name]) => name === "namastore_admin_csrf")?.[1];
+    const sessionCookie = res.cookie.mock.calls.find(([name]) => name === "lotzi_admin_session")?.[1];
+    const csrfCookie = res.cookie.mock.calls.find(([name]) => name === "lotzi_admin_csrf")?.[1];
 
     expect(login.authenticated).toBe(true);
     expect(sessionCookie).toBeTruthy();
@@ -56,8 +56,8 @@ describe("AdminAuthService", () => {
 
     const guardedRequest = request({
       cookies: {
-        namastore_admin_session: sessionCookie,
-        namastore_admin_csrf: csrfCookie
+        lotzi_admin_session: sessionCookie,
+        lotzi_admin_csrf: csrfCookie
       },
       header: jest.fn((name: string) => (name.toLowerCase() === "x-admin-csrf" ? csrfCookie : undefined))
     });
@@ -80,13 +80,13 @@ describe("AdminAuthService", () => {
     const res = response();
 
     await service.login("correct-password", request(), res);
-    const sessionCookie = res.cookie.mock.calls.find(([name]) => name === "namastore_admin_session")?.[1];
-    const csrfCookie = res.cookie.mock.calls.find(([name]) => name === "namastore_admin_csrf")?.[1];
+    const sessionCookie = res.cookie.mock.calls.find(([name]) => name === "lotzi_admin_session")?.[1];
+    const csrfCookie = res.cookie.mock.calls.find(([name]) => name === "lotzi_admin_csrf")?.[1];
 
     const guardedRequest = request({
       cookies: {
-        namastore_admin_session: sessionCookie,
-        namastore_admin_csrf: csrfCookie
+        lotzi_admin_session: sessionCookie,
+        lotzi_admin_csrf: csrfCookie
       },
       header: jest.fn(() => "wrong-token")
     });

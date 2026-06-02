@@ -1,41 +1,41 @@
 {
   "root": {
-    "title": "Namastore",
+    "title": "Lotzi",
     "description": "அருகிலுள்ள கடைகளுக்கும் வாடிக்கையாளர்களுக்கும் நம்பகமான உள்ளூர் மார்க்கெட்பிளேஸ்."
   },
   "auth": {
     "login": {
-      "title": "உள்நுழை | Namastore",
-      "description": "உங்கள் Namastore கணக்கில் உள்நுழையவும்."
+      "title": "உள்நுழை | Lotzi",
+      "description": "உங்கள் Lotzi கணக்கில் உள்நுழையவும்."
     },
     "signup": {
-      "title": "பதிவு செய் | Namastore",
-      "description": "Namastore வாடிக்கையாளர் கணக்கை உருவாக்கவும்."
+      "title": "பதிவு செய் | Lotzi",
+      "description": "Lotzi வாடிக்கையாளர் கணக்கை உருவாக்கவும்."
     },
     "merchantSignup": {
-      "title": "வணிகர் பதிவு | Namastore",
+      "title": "வணிகர் பதிவு | Lotzi",
       "description": "வணிகர் கணக்கை உருவாக்கி உள்ளூரில் விற்பனை தொடங்கவும்."
     },
     "otp": {
-      "title": "கணக்கு சரிபார்ப்பு | Namastore",
-      "description": "ஒருமுறை பயன்படும் குறியீடு மூலம் உங்கள் Namastore கணக்கை சரிபார்க்கவும்."
+      "title": "கணக்கு சரிபார்ப்பு | Lotzi",
+      "description": "ஒருமுறை பயன்படும் குறியீடு மூலம் உங்கள் Lotzi கணக்கை சரிபார்க்கவும்."
     },
     "resetPassword": {
-      "title": "கடவுச்சொல் மீட்டமைப்பு | Namastore",
-      "description": "உங்கள் Namastore கணக்கு கடவுச்சொல்லை மீட்டமைக்கவும்."
+      "title": "கடவுச்சொல் மீட்டமைப்பு | Lotzi",
+      "description": "உங்கள் Lotzi கணக்கு கடவுச்சொல்லை மீட்டமைக்கவும்."
     }
   },
   "dashboard": {
-    "title": "வணிகர் டாஷ்போர்டு | Namastore",
+    "title": "வணிகர் டாஷ்போர்டு | Lotzi",
     "description": "ஆர்டர்கள், பொருட்கள், சரக்கு, வாடிக்கையாளர்கள், பகுப்பாய்வு, பணம் பெறுதல் ஆகியவற்றை நிர்வகிக்கவும்."
   },
   "cart": {
-    "title": "கார்ட் | Namastore",
+    "title": "கார்ட் | Lotzi",
     "description": "செக் அவுட் முன் உங்கள் கார்ட்டை சரிபார்க்கவும்."
   },
   "admin": {
     "merchantApprovals": {
-      "title": "வணிகர் ஒப்புதல்கள் | Namastore",
+      "title": "வணிகர் ஒப்புதல்கள் | Lotzi",
       "description": "வணிகர் onboarding சமர்ப்பிப்புகளை மதிப்பாய்வு செய்து ஒப்புதல் அளிக்கவும்."
     }
   }

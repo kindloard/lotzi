@@ -12,7 +12,7 @@ type ApiHandler = (request: {
 
 const customerSession = session(["CUSTOMER"]);
 const merchantSession = session(["MERCHANT_OWNER"]);
-const SESSION_ENVELOPE_KEY = "namastore:session-envelope:v2";
+const SESSION_ENVELOPE_KEY = "lotzi:session-envelope:v2";
 
 test.beforeEach(async ({ page }) => {
   await page.context().clearCookies();
@@ -33,8 +33,8 @@ test("protected account route redirects to login with section-safe next", async 
 test("navbar My Profile opens the protected account dashboard", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -85,7 +85,7 @@ test("navbar My Profile opens the protected account dashboard", async ({ page })
 test("session boot with csrf and no cache refreshes before reading session", async ({ page }) => {
   const calls: string[] = [];
   await page.context().addCookies([
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await mockApi(page, {
     "POST /auth/refresh": () => {
@@ -107,7 +107,7 @@ test("session boot with csrf and no cache refreshes before reading session", asy
 test("session boot uses a cached envelope beyond the skew window without blocking network", async ({ page }) => {
   const calls: string[] = [];
   await page.context().addCookies([
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -142,8 +142,8 @@ test("merchant dashboard reuses cached session and preserves chrome across route
   const productHeaders: Record<string, string>[] = [];
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -221,8 +221,8 @@ test("merchant dashboard profile shows a retryable error instead of fallback ide
   const calls: string[] = [];
   await page.setViewportSize({ width: 390, height: 844 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -271,8 +271,8 @@ test("merchant products do not auto-retry identical failed catalog requests", as
   const calls: string[] = [];
   await page.setViewportSize({ width: 390, height: 844 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -332,8 +332,8 @@ test("merchant products do not auto-retry identical failed catalog requests", as
 test("merchant onboarding stays outside the persistent dashboard shell", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "refresh-token", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -398,8 +398,8 @@ test("merchant onboarding stays outside the persistent dashboard shell", async (
 
 test("merchant dashboard clears stale auth and redirects when refresh recovery fails", async ({ page }) => {
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "stale-refresh", url: "http://127.0.0.1:3000" },
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_refresh", value: "stale-refresh", url: "http://127.0.0.1:3000" },
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await mockApi(page, {
     "POST /auth/refresh": () => ({
@@ -433,7 +433,7 @@ test("login honors safe next redirects and sends remember=true", async ({ page }
 
 test("marketplace navbar logout redirects to login after clearing session", async ({ page }) => {
   await page.context().addCookies([
-    { name: "namastore_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
+    { name: "lotzi_csrf", value: "csrf-token", url: "http://127.0.0.1:3000" }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));

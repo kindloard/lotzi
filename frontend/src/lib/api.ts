@@ -190,7 +190,7 @@ function shouldRefreshForAuthCode(body: unknown) {
 }
 
 function csrfToken() {
-  return cookieValue("namastore_csrf") ?? cookieValue("__Host-csrf");
+  return cookieValue("lotzi_csrf") ?? cookieValue("__Host-csrf");
 }
 
 function cookieValue(name: string) {

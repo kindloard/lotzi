@@ -1,7 +1,7 @@
 {
   "shell": {
     "title": "வணிகர் டாஷ்போர்டு",
-    "brand": "Namastore",
+    "brand": "Lotzi",
     "workspace": "வணிகர் பணியிடம்",
     "openNavigation": "வழிசெலுத்தலைத் திறக்கவும்",
     "closeNavigationBackdrop": "வழிசெலுத்தல் பின்னணியை மூடவும்",
@@ -29,7 +29,7 @@
     "expandSidebar": "பக்கப்பட்டியை விரிக்கவும்",
     "collapseSidebar": "பக்கப்பட்டியைச் சுருக்கவும்",
     "storeLogo": "{name} லோகோ",
-    "brandLogo": "Namastore லோகோ"
+    "brandLogo": "Lotzi லோகோ"
   },
   "nav": {
     "overview": "மேலோட்டம்",

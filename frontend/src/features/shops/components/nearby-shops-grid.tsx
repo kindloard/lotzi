@@ -83,20 +83,24 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
   }, []);
 
   const isInitialLoading = shopsQuery.isLoading && shops.length === 0;
+  const shopsGridClassName =
+    visibleShops.length === 1 && !isInitialLoading
+      ? "grid w-full max-w-[440px] gap-4"
+      : "grid gap-4 sm:grid-cols-2 xl:grid-cols-3";
 
   return (
     <div id="shops-section" className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-2">
-          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
+          <h2 className="text-2xl font-bold text-black sm:text-3xl">
             {t("title")}
           </h2>
-          <p className="hidden md:block text-sm text-slate-500">
+          <p className="hidden text-sm font-medium text-slate-500 md:block">
             {locationSubtitle}
           </p>
         </div>
         {!locationNeedsAction ? (
-          <span className="hidden md:inline-flex shrink-0 rounded-full bg-black px-3 py-1.5 text-xs font-bold text-white shadow-sm">
+          <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
             {isInitialLoading
               ? t("statusLoading")
               : visibleShops.length === 0
@@ -107,13 +111,13 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       </div>
 
       {locationNeedsAction ? (
-        <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm text-slate-950 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white px-4 py-4 text-sm text-black shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 gap-3">
-            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-slate-50 text-slate-900">
+            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-neutral-100 bg-neutral-50 text-black">
               <MapPin size={18} aria-hidden="true" />
             </span>
             <div className="space-y-1">
-              <p className="font-black">{locationNoticeTitle}</p>
+              <p className="font-bold">{locationNoticeTitle}</p>
               <p className="text-xs font-semibold leading-5 text-slate-600">
                 {locationNoticeDescription}
               </p>
@@ -123,7 +127,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
             <button
               type="button"
               onClick={() => requestLocation({ ignoreCache: true })}
-              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-black px-5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 sm:h-10"
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-black px-5 text-xs font-bold uppercase text-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 sm:h-10"
             >
               {t("enableLocation")}
             </button>
@@ -132,7 +136,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       ) : null}
 
       {!locationNeedsAction ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={shopsGridClassName}>
           {isInitialLoading ? (
             Array.from({ length: 6 }).map((_, index) => (
               <ShopCardSkeleton key={index} />
@@ -143,7 +147,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                 <ShoppingBag size={24} />
               </div>
               <div className="space-y-1">
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-base font-bold text-black">
                   {t("noShopsTitle")}
                 </h3>
                 <p className="mx-auto max-w-xs text-xs text-slate-500">

@@ -9,7 +9,7 @@ type ApiHandler = (request: {
   headers?: Record<string, string>;
 };
 
-const SESSION_ENVELOPE_KEY = "namastore:session-envelope:v2";
+const SESSION_ENVELOPE_KEY = "lotzi:session-envelope:v2";
 const appUrl = `http://127.0.0.1:${process.env.PLAYWRIGHT_PERF_PORT ?? "3100"}`;
 const merchantSession = {
   accessTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
@@ -38,8 +38,8 @@ test("merchant dashboard route transitions meet network and web-vitals budgets",
   const calls: string[] = [];
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.context().addCookies([
-    { name: "namastore_refresh", value: "refresh-token", url: appUrl },
-    { name: "namastore_csrf", value: "csrf-token", url: appUrl }
+    { name: "lotzi_refresh", value: "refresh-token", url: appUrl },
+    { name: "lotzi_csrf", value: "csrf-token", url: appUrl }
   ]);
   await page.addInitScript(({ key, value }) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -106,7 +106,7 @@ test("merchant dashboard route transitions meet network and web-vitals budgets",
   await waitForVital(page, "LCP");
   await waitForVital(page, "CLS");
   await waitForVital(page, "INP");
-  const vitals = await page.evaluate(() => window.__NAMASTORE_WEB_VITALS__ ?? {});
+  const vitals = await page.evaluate(() => window.__LOTZI_WEB_VITALS__ ?? {});
   expect(Math.max(...vitals.LCP)).toBeLessThan(2500);
   expect(Math.max(...vitals.CLS)).toBeLessThan(0.1);
   expect(Math.max(...vitals.INP)).toBeLessThan(200);
@@ -136,7 +136,7 @@ async function timedNavigation(page: Page, label: string, urlPattern: RegExp) {
 
 async function waitForVital(page: Page, name: "CLS" | "INP" | "LCP") {
   await page.waitForFunction(
-    (metricName) => Boolean(window.__NAMASTORE_WEB_VITALS__?.[metricName]?.length),
+    (metricName) => Boolean(window.__LOTZI_WEB_VITALS__?.[metricName]?.length),
     name,
     { timeout: 10_000 }
   );

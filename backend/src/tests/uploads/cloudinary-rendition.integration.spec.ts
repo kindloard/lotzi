@@ -30,13 +30,13 @@ describe("Cloudinary product rendition integration", () => {
         width: 800
       }
     }).jpeg().toBuffer();
-    const publicId = `namastore-tests/uploads/${Date.now()}-${Math.random().toString(36).slice(2)}/original`;
+    const publicId = `lotzi-tests/uploads/${Date.now()}-${Math.random().toString(36).slice(2)}/original`;
 
     const original = await provider.uploadOriginalImage({
       buffer,
       contentType: "image/jpeg",
       publicId,
-      tags: ["namastore-test"],
+      tags: ["lotzi-test"],
       eagerTransformations: policy.renditions
         .filter((rendition) => rendition.warmOnUpload)
         .map((rendition) => ({

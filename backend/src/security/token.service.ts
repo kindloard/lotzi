@@ -73,19 +73,19 @@ export class TokenService implements OnModuleInit {
   }
 
   accessCookieName(): string {
-    return this.usesHostPrefix() ? ACCESS_COOKIE : "namastore_access";
+    return this.usesHostPrefix() ? ACCESS_COOKIE : "lotzi_access";
   }
 
   refreshCookieName(): string {
-    return this.usesHostPrefix() ? REFRESH_COOKIE : "namastore_refresh";
+    return this.usesHostPrefix() ? REFRESH_COOKIE : "lotzi_refresh";
   }
 
   csrfCookieName(): string {
-    return this.usesHostPrefix() ? CSRF_COOKIE : "namastore_csrf";
+    return this.usesHostPrefix() ? CSRF_COOKIE : "lotzi_csrf";
   }
 
   clientCookieName(): string {
-    return this.usesHostPrefix() ? CLIENT_COOKIE : "namastore_client";
+    return this.usesHostPrefix() ? CLIENT_COOKIE : "lotzi_client";
   }
 
   async issueAccessToken(subject: AccessTokenSubject): Promise<{

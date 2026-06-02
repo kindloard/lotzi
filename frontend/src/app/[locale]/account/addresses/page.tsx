@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { AddressesScreen } from "@/features/customer-account/screens/addresses-screen";
 
 export const metadata: Metadata = {
-  title: "Addresses | Namastore Account",
-  description: "Manage your Namastore delivery addresses.",
+  title: "Addresses | Lotzi Account",
+  description: "Manage your Lotzi delivery addresses.",
   robots: {
     follow: false,
     index: false

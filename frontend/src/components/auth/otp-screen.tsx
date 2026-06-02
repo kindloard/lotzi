@@ -75,14 +75,14 @@ export function OtpScreen() {
   );
 
   useEffect(() => {
-    const nextEmail = searchParams.get("email") ?? localStorage.getItem("namastore:pending-signup-email") ?? "";
+    const nextEmail = searchParams.get("email") ?? localStorage.getItem("lotzi:pending-signup-email") ?? "";
     if (!nextEmail) {
       toastWarning(t("otp.missingSignup"));
       router.replace("/auth/signup");
       return;
     }
     setEmail(nextEmail.trim().toLowerCase());
-    localStorage.setItem("namastore:pending-signup-email", nextEmail.trim().toLowerCase());
+    localStorage.setItem("lotzi:pending-signup-email", nextEmail.trim().toLowerCase());
     router.prefetch("/");
     // Do not prefetch protected post-auth routes before cookies are issued.
     router.prefetch("/auth/signup");
@@ -176,7 +176,7 @@ export function OtpScreen() {
     try {
       const session = await verifySignup({ email, otp: otp.join("") }, { signal: controller.signal });
       setSession(session);
-      localStorage.removeItem("namastore:pending-signup-email");
+      localStorage.removeItem("lotzi:pending-signup-email");
       setStatus("success");
       toastSuccess(t("otp.success"));
       navigated = true;

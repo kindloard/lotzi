@@ -45,12 +45,12 @@ describe("TokenService cookie persistence", () => {
     );
 
     expect(response.cookie).toHaveBeenCalledWith(
-      "namastore_refresh",
+      "lotzi_refresh",
       "refresh",
       expect.objectContaining({ maxAge: 30 * 24 * 60 * 60 * 1000 })
     );
     expect(response.cookie).toHaveBeenCalledWith(
-      "namastore_csrf",
+      "lotzi_csrf",
       expect.any(String),
       expect.objectContaining({ httpOnly: false, maxAge: 30 * 24 * 60 * 60 * 1000 })
     );
@@ -70,7 +70,7 @@ describe("TokenService cookie persistence", () => {
     );
 
     expect(response.cookie).toHaveBeenCalledWith(
-      "namastore_client",
+      "lotzi_client",
       "client-secret",
       expect.objectContaining({ httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 })
     );
@@ -97,7 +97,7 @@ describe("TokenService cookie persistence", () => {
 
 describe("TokenService development signing keys", () => {
   it("reuses the persisted development keypair across service instances", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "namastore-jwt-"));
+    const dir = mkdtempSync(join(tmpdir(), "lotzi-jwt-"));
     const keyPairPath = join(dir, "jwt-dev-keypair.json");
     const config = new ConfigService({
       NODE_ENV: "development",
@@ -128,7 +128,7 @@ describe("TokenService development signing keys", () => {
   });
 
   it("regenerates a malformed persisted development keypair without crashing dev startup", () => {
-    const dir = mkdtempSync(join(tmpdir(), "namastore-jwt-"));
+    const dir = mkdtempSync(join(tmpdir(), "lotzi-jwt-"));
     const keyPairPath = join(dir, "dev-jwt-keypair.json");
     writeFileSync(keyPairPath, "{bad-json", "utf8");
     const config = new ConfigService({

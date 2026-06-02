@@ -47,7 +47,7 @@ function guardWith(overrides: {
 } = {}) {
   const tokens = {
     verifyAccessToken: jest.fn(async () => token),
-    accessCookieName: jest.fn(() => "namastore_access")
+    accessCookieName: jest.fn(() => "lotzi_access")
   };
   const prisma = {
     session: {

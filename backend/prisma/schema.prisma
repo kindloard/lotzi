@@ -1024,7 +1024,7 @@ model DomainEvent {
   aggregateType String            @map("aggregate_type")
   aggregateId   String            @map("aggregate_id") @db.Uuid
   idempotencyKey String?          @map("idempotency_key")
-  producer      String            @default("namastore-api")
+  producer      String            @default("lotzi-api")
   occurredAt    DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(3)
   payload       Json              @default("{}")
   status        DomainEventStatus @default(PENDING)

@@ -115,7 +115,7 @@ export function MerchantOnboardingWizard() {
               <Store size={16} />
             </div>
             <div className="min-w-0">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-zinc-400">Namastore</p>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-zinc-400">Lotzi</p>
               <p className="text-[13px] font-semibold text-zinc-950 truncate leading-tight">{bootstrap.store.name}</p>
             </div>
           </div>

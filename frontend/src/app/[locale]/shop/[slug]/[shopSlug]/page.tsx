@@ -29,7 +29,7 @@ export async function generateMetadata({ params, searchParams }: ShopPageProps):
 
   try {
     const shop = await getShopDetailForPage(shopCode, shopSlug);
-    const title = `${shop.name} | Namastore`;
+    const title = `${shop.name} | Lotzi`;
     const description = metaDescription(shop);
     const canonical = canonicalPath(locale, shop.publicId, shop.publicSlug);
 
@@ -69,11 +69,11 @@ export async function generateMetadata({ params, searchParams }: ShopPageProps):
           follow: false,
           index: false
         },
-        title: "Store unavailable | Namastore"
+        title: "Store unavailable | Lotzi"
       };
     }
     return {
-      title: "Store | Namastore"
+      title: "Store | Lotzi"
     };
   }
 }
@@ -364,7 +364,7 @@ function hasIndexChangingQuery(searchParams: Record<string, string | string[] | 
 }
 
 function metaDescription(shop: ShopDetail) {
-  return (shop.description ?? shop.tagline ?? `Shop ${shop.name} on Namastore.`).slice(0, 155);
+  return (shop.description ?? shop.tagline ?? `Shop ${shop.name} on Lotzi.`).slice(0, 155);
 }
 
 function canonicalPath(locale: string, publicId: string, publicSlug: string) {

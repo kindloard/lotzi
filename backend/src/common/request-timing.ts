@@ -5,8 +5,8 @@ export interface StageTiming {
   durationMs: number;
 }
 
-const timingsKey = Symbol.for("namastore.request.timings");
-const startedAtKey = Symbol.for("namastore.request.startedAt");
+const timingsKey = Symbol.for("lotzi.request.timings");
+const startedAtKey = Symbol.for("lotzi.request.startedAt");
 
 type TimedRequest = Request & {
   [timingsKey]?: StageTiming[];

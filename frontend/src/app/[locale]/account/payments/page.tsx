@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { PaymentsScreen } from "@/features/customer-account/screens/placeholder-screen";
 
 export const metadata: Metadata = {
-  title: "Payments | Namastore Account",
-  description: "Manage saved payment methods for Namastore checkout.",
+  title: "Payments | Lotzi Account",
+  description: "Manage saved payment methods for Lotzi checkout.",
   robots: {
     follow: false,
     index: false

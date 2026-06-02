@@ -83,7 +83,7 @@
     "next": "Next",
     "pageStatus": "Page {page} of {totalPages}",
     "replaceCartTitle": "Replace cart with items from this store?",
-    "replaceCartDescription": "Your cart has items from another store. Namastore keeps one store per order for accurate pricing and pickup.",
+    "replaceCartDescription": "Your cart has items from another store. Lotzi keeps one store per order for accurate pricing and pickup.",
     "cancel": "Cancel",
     "replaceCart": "Replace cart",
     "viewImage": "View {name} image",
@@ -211,7 +211,7 @@
       },
       "company": {
         "title": "Company",
-        "about": "About Namastore",
+        "about": "About Lotzi",
         "trustSafety": "Trust & safety",
         "localPartners": "Local partners",
         "careers": "Careers"
@@ -222,7 +222,7 @@
       "support": "24/7 support",
       "location": "Bengaluru, India"
     },
-    "copyright": "© 2026 Namastore Technologies",
+    "copyright": "© 2026 Lotzi Technologies",
     "mission": "Built for fast, local, rupee-first commerce.",
     "legal": {
       "terms": "Terms",

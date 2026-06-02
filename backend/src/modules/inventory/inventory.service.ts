@@ -296,7 +296,7 @@ export class InventoryService {
           'inventory',
           item.id,
           item.ledger_key,
-          'namastore-api',
+          'lotzi-api',
           ${DomainEventStatus.PENDING}::"DomainEventStatus",
           jsonb_build_object(
             'eventId', item.ledger_key,
@@ -307,7 +307,7 @@ export class InventoryService {
             'storeId', item.store_id,
             'idempotencyKey', item.ledger_key,
             'occurredAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-            'producer', 'namastore-api',
+            'producer', 'lotzi-api',
             'traceId', ${input.requestId ?? null}::text,
             'payload', jsonb_build_object(
               'productVariantId', item.product_variant_id,
@@ -1228,7 +1228,7 @@ export class InventoryService {
         aggregateType: "inventory",
         aggregateId: input.aggregateId,
         idempotencyKey: input.idempotencyKey,
-        producer: "namastore-api",
+        producer: "lotzi-api",
         status: DomainEventStatus.PENDING,
         payload: {
           eventId: input.idempotencyKey,
@@ -1239,7 +1239,7 @@ export class InventoryService {
           storeId: input.storeId,
           idempotencyKey: input.idempotencyKey,
           occurredAt: new Date().toISOString(),
-          producer: "namastore-api",
+          producer: "lotzi-api",
           traceId: input.requestId ?? null,
           payload: input.payload
         } as Prisma.InputJsonValue

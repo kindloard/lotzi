@@ -798,7 +798,7 @@ export class CheckoutService {
               aggregateType: "payment",
               aggregateId: paymentId,
               idempotencyKey: `cod:${paymentId}`,
-              producer: "namastore-api",
+              producer: "lotzi-api",
               payload: {
                 orderId: order.id,
                 paymentId,
@@ -1330,7 +1330,7 @@ export class CheckoutService {
           'inventory',
           updated_inventory.id,
           ${input.dto.idempotencyKey} || ':cod-confirmed:' || updated_inventory.reservation_id::text,
-          'namastore-api',
+          'lotzi-api',
           jsonb_build_object(
             'eventId', ${input.dto.idempotencyKey} || ':cod-confirmed:' || updated_inventory.reservation_id::text,
             'eventType', 'inventory.confirmed.v1',
@@ -1340,7 +1340,7 @@ export class CheckoutService {
             'storeId', ${input.storeId},
             'idempotencyKey', ${input.dto.idempotencyKey} || ':cod-confirmed:' || updated_inventory.reservation_id::text,
             'occurredAt', now(),
-            'producer', 'namastore-api',
+            'producer', 'lotzi-api',
             'traceId', ${input.requestId ?? null},
             'payload', jsonb_build_object(
               'orderId', ${input.orderId},
@@ -1369,7 +1369,7 @@ export class CheckoutService {
           'inventory',
           updated_inventory.id,
           'low-stock:' || updated_inventory.id::text || ':' || to_char(now(), 'YYYY-MM-DD'),
-          'namastore-api',
+          'lotzi-api',
           jsonb_build_object(
             'eventId', 'low-stock:' || updated_inventory.id::text || ':' || to_char(now(), 'YYYY-MM-DD'),
             'eventType', 'inventory.low_stock.v1',
@@ -1379,7 +1379,7 @@ export class CheckoutService {
             'storeId', ${input.storeId},
             'idempotencyKey', 'low-stock:' || updated_inventory.id::text || ':' || to_char(now(), 'YYYY-MM-DD'),
             'occurredAt', now(),
-            'producer', 'namastore-api',
+            'producer', 'lotzi-api',
             'traceId', ${input.requestId ?? null},
             'payload', jsonb_build_object(
               'productVariantId', updated_inventory.product_variant_id,
@@ -1530,7 +1530,7 @@ export class CheckoutService {
           'payment',
           ${input.paymentId}::uuid,
           ${`cod:${input.paymentId}`},
-          'namastore-api',
+          'lotzi-api',
           ${codDomainPayloadJson}::jsonb
         WHERE EXISTS (SELECT 1 FROM insert_order)
         RETURNING id
@@ -1607,7 +1607,7 @@ export class CheckoutService {
           aggregateType: "payment",
           aggregateId: prepared.paymentId,
           idempotencyKey: prepared.attemptId,
-          producer: "namastore-api",
+          producer: "lotzi-api",
           payload: {
             orderId: prepared.orderId,
             paymentId: prepared.paymentId,
@@ -1698,7 +1698,7 @@ export class CheckoutService {
           aggregateType: "payment",
           aggregateId: prepared.paymentId,
           idempotencyKey: prepared.attemptId,
-          producer: "namastore-api",
+          producer: "lotzi-api",
           payload: {
             orderId: prepared.orderId,
             paymentId: prepared.paymentId,
@@ -1834,7 +1834,7 @@ export class CheckoutService {
           aggregateType: "payment",
           aggregateId: prepared.paymentId,
           idempotencyKey: `cod:${prepared.paymentId}`,
-          producer: "namastore-api",
+          producer: "lotzi-api",
           payload: {
             orderId: prepared.orderId,
             paymentId: prepared.paymentId,

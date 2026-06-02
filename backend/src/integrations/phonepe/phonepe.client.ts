@@ -93,7 +93,7 @@ export class PhonepeClient {
       metaInfo: phonepeMetaInfo(input.metadata),
       paymentFlow: {
         type: "PG_CHECKOUT",
-        message: "Namastore checkout",
+        message: "Lotzi checkout",
         merchantUrls: {
           redirectUrl: input.redirectUrl
         }

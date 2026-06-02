@@ -261,7 +261,7 @@ export class Fast2SmsOtpProvider implements OtpProvider {
     return this.config
       .get<string>(
         "FAST2SMS_QUICK_SMS_TEMPLATE",
-        "Your Namastore verification code is {otp}. It expires in {minutes} minutes."
+        "Your Lotzi verification code is {otp}. It expires in {minutes} minutes."
       )
       .replaceAll("{otp}", otp)
       .replaceAll("{minutes}", String(minutes));

@@ -14,7 +14,7 @@ describeIntegration("merchant onboarding location migration integration", () => 
   beforeAll(async () => {
     container = await new GenericContainer("postgres:16-alpine")
       .withEnvironment({
-        POSTGRES_DB: "namastore_test",
+        POSTGRES_DB: "lotzi_test",
         POSTGRES_PASSWORD: "postgres",
         POSTGRES_USER: "postgres"
       })
@@ -27,7 +27,7 @@ describeIntegration("merchant onboarding location migration integration", () => 
     prisma = new PrismaClient({
       datasources: {
         db: {
-          url: `postgresql://postgres:postgres@${host}:${port}/namastore_test`
+          url: `postgresql://postgres:postgres@${host}:${port}/lotzi_test`
         }
       }
     });

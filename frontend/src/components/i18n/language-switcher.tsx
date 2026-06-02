@@ -8,7 +8,7 @@ import { localeMeta } from "@/i18n/locale-meta";
 import { beforeLocaleSwitchEvent } from "@/i18n/onboarding-snapshot";
 import { localeCookie, routing, type AppLocale } from "@/i18n/routing";
 
-export const localeStorageKey = "namastore:locale";
+export const localeStorageKey = "lotzi:locale";
 
 export function LanguageSwitcher({ compact = false, className }: { compact?: boolean; className?: string }) {
   const locale = useLocale() as AppLocale;
@@ -44,7 +44,7 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
     <div className="relative inline-block text-left" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={className || "flex size-10 items-center justify-center rounded-2xl border border-transparent bg-transparent text-slate-700 shadow-none transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none md:border md:border-slate-200 md:bg-slate-50 md:text-slate-700 md:shadow-none md:hover:bg-white md:hover:-translate-y-0.5 cursor-pointer"}
+        className={className || "flex size-10 items-center justify-center rounded-lg bg-transparent text-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-950/5 md:bg-white md:text-slate-800 cursor-pointer"}
         aria-label={t("switcher")}
         aria-expanded={isOpen}
         aria-haspopup="true"
@@ -65,7 +65,7 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
                   className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all duration-200 text-left cursor-pointer w-full ${
                     isActive
                       ? "bg-zinc-100 text-black"
-                      : "text-zinc-900 hover:bg-zinc-50 hover:text-zinc-955"
+                      : "text-zinc-900"
                   }`}
                   type="button"
                 >

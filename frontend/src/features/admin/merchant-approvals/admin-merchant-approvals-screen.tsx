@@ -241,7 +241,7 @@ export function AdminMerchantApprovalsScreen() {
                 </span>
                 <div className="min-w-0">
                   <p className="text-[11px] font-black uppercase tracking-[0.16em] text-teal-700">
-                    Namastore admin
+                    Lotzi admin
                   </p>
                   <h1 className="truncate text-2xl font-black tracking-tight text-slate-950">
                     Merchant approvals

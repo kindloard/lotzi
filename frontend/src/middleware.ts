@@ -3,8 +3,8 @@ import createIntlMiddleware from "next-intl/middleware";
 import { routing, type AppLocale } from "@/i18n/routing";
 
 const protectedPaths = ["/merchant", "/account"];
-const refreshCookieNames = ["namastore_refresh", "__Host-refresh"];
-const csrfCookieNames = ["namastore_csrf", "__Host-csrf"];
+const refreshCookieNames = ["lotzi_refresh", "__Host-refresh"];
+const csrfCookieNames = ["lotzi_csrf", "__Host-csrf"];
 const intlMiddleware = createIntlMiddleware(routing);
 const legacyAuthRedirects = new Map([
   ["/login", "/en/auth/login"],

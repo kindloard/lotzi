@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
       follow: true,
       index: false
     },
-    title: "Redirecting store | Namastore"
+    title: "Redirecting store | Lotzi"
   };
 }
 

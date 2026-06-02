@@ -32,54 +32,54 @@ export class MailService {
   async sendSignupOtp(email: string, otp: string, idempotencyKey: string): Promise<void> {
     await this.enqueueAndTrySend({
       to: email,
-      subject: "Verify your Namastore account",
+      subject: "Verify your Lotzi account",
       template: "signup_otp",
       idempotencyKey,
       payload: { purpose: "EMAIL_SIGNUP" },
-      html: `<p>Your Namastore verification code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
+      html: `<p>Your Lotzi verification code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
     });
   }
 
   async sendPasswordReset(email: string, resetUrl: string, idempotencyKey: string): Promise<void> {
     await this.enqueueAndTrySend({
       to: email,
-      subject: "Reset your Namastore password",
+      subject: "Reset your Lotzi password",
       template: "password_reset",
       idempotencyKey,
       payload: { resetUrl },
-      html: `<p>Use this secure link to reset your Namastore password:</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires in 30 minutes.</p>`
+      html: `<p>Use this secure link to reset your Lotzi password:</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires in 30 minutes.</p>`
     });
   }
 
   async sendPasswordChangedNotice(email: string): Promise<void> {
     await this.enqueueAndTrySend({
       to: email,
-      subject: "Your Namastore password was changed",
+      subject: "Your Lotzi password was changed",
       template: "password_changed",
       payload: {},
-      html: "<p>Your Namastore password was changed. If this was not you, contact support immediately.</p>"
+      html: "<p>Your Lotzi password was changed. If this was not you, contact support immediately.</p>"
     });
   }
 
   async sendEmailChangeOtp(email: string, otp: string, idempotencyKey: string): Promise<void> {
     await this.enqueueAndTrySend({
       to: email,
-      subject: "Confirm your Namastore email change",
+      subject: "Confirm your Lotzi email change",
       template: "email_change_otp",
       idempotencyKey,
       payload: { purpose: "EMAIL_CHANGE" },
-      html: `<p>Your Namastore email-change code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
+      html: `<p>Your Lotzi email-change code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
     });
   }
 
   async sendAccountDeletionOtp(email: string, otp: string, idempotencyKey: string): Promise<void> {
     await this.enqueueAndTrySend({
       to: email,
-      subject: "Confirm Namastore account deletion",
+      subject: "Confirm Lotzi account deletion",
       template: "account_delete_otp",
       idempotencyKey,
       payload: { purpose: "ACCOUNT_DELETE" },
-      html: `<p>Your Namastore account deletion code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes. Do not share it with anyone.</p>`
+      html: `<p>Your Lotzi account deletion code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes. Do not share it with anyone.</p>`
     });
   }
 

@@ -10,7 +10,7 @@ describe("Fast2SmsOtpProvider", () => {
         FAST2SMS_API_KEY: "test-api-key",
         FAST2SMS_BASE_URL: "https://www.fast2sms.com",
         FAST2SMS_OTP_MODE: "BULKV2_OTP",
-        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Namastore verification code is {otp}. It expires in {minutes} minutes.",
+        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Lotzi verification code is {otp}. It expires in {minutes} minutes.",
         FAST2SMS_RETRY_COUNT: 0,
         FAST2SMS_TIMEOUT_MS: 5000
       };
@@ -64,7 +64,7 @@ describe("Fast2SmsOtpProvider", () => {
         FAST2SMS_API_KEY: "test-api-key",
         FAST2SMS_BASE_URL: "https://www.fast2sms.com",
         FAST2SMS_OTP_MODE: "QUICK_SMS",
-        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Namastore verification code is {otp}.",
+        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Lotzi verification code is {otp}.",
         FAST2SMS_RETRY_COUNT: 0,
         FAST2SMS_TIMEOUT_MS: 5000
       };
@@ -112,7 +112,7 @@ describe("Fast2SmsOtpProvider", () => {
         FAST2SMS_API_KEY: "test-api-key",
         FAST2SMS_BASE_URL: "https://www.fast2sms.com",
         FAST2SMS_OTP_MODE: "QUICK_SMS",
-        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Namastore verification code is {otp}. It expires in {minutes} minutes.",
+        FAST2SMS_QUICK_SMS_TEMPLATE: "Your Lotzi verification code is {otp}. It expires in {minutes} minutes.",
         FAST2SMS_RETRY_COUNT: 0,
         FAST2SMS_TIMEOUT_MS: 5000
       };
@@ -140,7 +140,7 @@ describe("Fast2SmsOtpProvider", () => {
         method: "POST",
         body: JSON.stringify({
           route: "q",
-          message: "Your Namastore verification code is 123456. It expires in 5 minutes.",
+          message: "Your Lotzi verification code is 123456. It expires in 5 minutes.",
           schedule_time: "",
           flash: 0,
           numbers: "6383634873"

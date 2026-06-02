@@ -1,11 +1,11 @@
 # Architecture
 
-Namastore is a Next.js frontend and NestJS backend backed by Supabase-managed PostgreSQL. The backend owns all identity, sessions, JWT issuance, refresh token lifecycle, revocation, RBAC, and audit logging.
+Lotzi is a Next.js frontend and NestJS backend backed by Supabase-managed PostgreSQL. The backend owns all identity, sessions, JWT issuance, refresh token lifecycle, revocation, RBAC, and audit logging.
 
 ## Auth Ownership
 
 - Backend/Postgres is the only source of truth for users and sessions.
-- Firebase Auth is used only to prove Google identity. The backend verifies a Firebase ID token once, maps it to `identity_providers`, then creates a Namastore session.
+- Firebase Auth is used only to prove Google identity. The backend verifies a Firebase ID token once, maps it to `identity_providers`, then creates a Lotzi session.
 - Supabase is used only as PostgreSQL. Supabase Auth is not used.
 - Refresh tokens are opaque, rotated, hashed at rest, and tracked by token family.
 - Access tokens are short-lived backend JWTs with `authz_version` for role/status invalidation.
@@ -24,7 +24,7 @@ Namastore is a Next.js frontend and NestJS backend backed by Supabase-managed Po
 - OTP verification backend p95 must stay below 300 ms, excluding network time.
 - Password login backend p95 must stay below 200 ms, excluding network time.
 - Session fetch backend p95 must stay below 100 ms.
-- Auth endpoints emit `Server-Timing` and Prometheus `namastore_auth_step_duration_seconds`
+- Auth endpoints emit `Server-Timing` and Prometheus `lotzi_auth_step_duration_seconds`
   samples so rate limit, OTP lookup, SQL verify, session insert, JWT signing, RBAC, and
   email enqueue time can be tracked separately.
 

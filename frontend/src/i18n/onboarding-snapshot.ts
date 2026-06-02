@@ -1,9 +1,9 @@
 import type { OnboardingPayload, OnboardingStep } from "@/lib/merchant-onboarding-api";
 
-const snapshotKey = "namastore:onboarding-locale-switch";
+const snapshotKey = "lotzi:onboarding-locale-switch";
 const ttlMs = 30 * 60 * 1000;
 
-export const beforeLocaleSwitchEvent = "namastore:before-locale-switch";
+export const beforeLocaleSwitchEvent = "lotzi:before-locale-switch";
 
 export interface OnboardingLocaleSnapshot {
   createdAt: number;

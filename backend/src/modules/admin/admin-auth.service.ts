@@ -9,8 +9,8 @@ import { CryptoService } from "../../security/crypto.service";
 import { PasswordService } from "../../security/password.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service";
 
-const ADMIN_SESSION_COOKIE = "namastore_admin_session";
-const ADMIN_CSRF_COOKIE = "namastore_admin_csrf";
+const ADMIN_SESSION_COOKIE = "lotzi_admin_session";
+const ADMIN_CSRF_COOKIE = "lotzi_admin_csrf";
 const SESSION_VERSION = "v1";
 
 export interface AdminSession {

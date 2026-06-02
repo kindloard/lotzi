@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { Geist_Mono, Noto_Sans_Tamil, Nunito_Sans } from "next/font/google";
+import { Geist_Mono, Noto_Sans_Tamil, Plus_Jakarta_Sans } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { IntlClientBridge } from "@/components/i18n/intl-client-bridge";
 import { directionForLocale } from "@/i18n/locale-meta";
@@ -10,11 +10,11 @@ import { getLocaleFallbackKeys, loadMessages } from "@/i18n/messages";
 import { routing, type AppLocale } from "@/i18n/routing";
 import "../globals.css";
 
-const appSans = Nunito_Sans({
+const appSans = Plus_Jakarta_Sans({
   adjustFontFallback: true,
   display: "swap",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-app-sans"
 });
 
@@ -59,6 +59,10 @@ export async function generateMetadata({ params }: Pick<LocaleLayoutProps, "para
     title: t("title")
   };
 }
+
+export const viewport: Viewport = {
+  themeColor: "#9ef01a",
+};
 
 export default async function RootLayout({ children, params }: LocaleLayoutProps) {
   const { locale } = await params;

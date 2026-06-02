@@ -32,7 +32,7 @@ import {
 } from "../onboarding-utils";
 import { validateStepPayload } from "../onboarding-schemas";
 
-const STORAGE_KEY = "namastore:merchant-onboarding-draft:v2";
+const STORAGE_KEY = "lotzi:merchant-onboarding-draft:v2";
 const LOCAL_DRAFT_WRITE_DELAY_MS = 500;
 const SERVER_AUTO_SAVE_DELAY_MS = 2000;
 

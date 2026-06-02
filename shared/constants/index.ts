@@ -1,4 +1,4 @@
-export const APP_NAME = "Namastore";
+export const APP_NAME = "Lotzi";
 
 export const DEFAULT_CURRENCY = "INR";
 

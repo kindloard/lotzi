@@ -80,7 +80,7 @@ END $$;
 ALTER TABLE "domain_events"
   ADD COLUMN IF NOT EXISTS "schema_version" INTEGER NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS "idempotency_key" TEXT,
-  ADD COLUMN IF NOT EXISTS "producer" TEXT NOT NULL DEFAULT 'namastore-api',
+  ADD COLUMN IF NOT EXISTS "producer" TEXT NOT NULL DEFAULT 'lotzi-api',
   ADD COLUMN IF NOT EXISTS "occurred_at" TIMESTAMPTZ(3) NOT NULL DEFAULT now();
 
 ALTER TABLE "orders"

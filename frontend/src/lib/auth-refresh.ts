@@ -2,12 +2,12 @@ import { resolveApiBaseUrl } from "@/lib/api-base";
 import type { SessionResponse } from "@/lib/auth-api";
 import { isAbortError } from "@/lib/abort";
 
-export const SESSION_ENVELOPE_KEY = "namastore:session-envelope:v2";
+export const SESSION_ENVELOPE_KEY = "lotzi:session-envelope:v2";
 
-const SESSION_MIRROR_KEY = "namastore:session-envelope-tab:v2";
-const CHANNEL_NAME = "namastore-auth-session";
-const LOCK_NAME = "namastore-auth-refresh";
-const FALLBACK_LOCK_KEY = "namastore:auth-refresh-lock:v2";
+const SESSION_MIRROR_KEY = "lotzi:session-envelope-tab:v2";
+const CHANNEL_NAME = "lotzi-auth-session";
+const LOCK_NAME = "lotzi-auth-refresh";
+const FALLBACK_LOCK_KEY = "lotzi:auth-refresh-lock:v2";
 const CLOCK_SKEW_MS = 45_000;
 const REFRESH_LEAD_MS = 60_000;
 const RACE_RETRY_DELAY_MS = 500;
@@ -440,7 +440,7 @@ function broadcast(event: SessionEvent): void {
 }
 
 function csrfToken() {
-  return cookieValue("namastore_csrf") ?? cookieValue("__Host-csrf");
+  return cookieValue("lotzi_csrf") ?? cookieValue("__Host-csrf");
 }
 
 function cookieValue(name: string) {
@@ -515,7 +515,7 @@ function shouldLogCheckoutPerf() {
     return true;
   }
   try {
-    return localStorage.getItem("namastore:checkout-perf") === "1";
+    return localStorage.getItem("lotzi:checkout-perf") === "1";
   } catch {
     return false;
   }

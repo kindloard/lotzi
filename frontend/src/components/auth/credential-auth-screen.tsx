@@ -389,7 +389,7 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
           },
           { signal: controller.signal }
         );
-        localStorage.setItem("namastore:pending-signup-email", email);
+        localStorage.setItem("lotzi:pending-signup-email", email);
         setStatus("success");
         toast.success(isMerchantSignup ? t("merchantSignup.success") : t("signup.success"));
         navigated = true;

@@ -451,19 +451,21 @@ export default function CartPage() {
 
         {cartItems.length === 0 ? (
           /* Empty Basket State */
-          <div className="text-center py-20 bg-white border border-slate-200 rounded-[32px] shadow-sm max-w-xl mx-auto p-8 animate-scale-up">
-            <span className="flex size-16 items-center justify-center rounded-full bg-slate-100 mx-auto text-slate-400 mb-5">
-              <ShoppingBag size={28} />
-            </span>
-            <h2 className="text-lg font-bold text-slate-900">Your basket is empty</h2>
-            <p className="text-xs text-slate-450 mt-2 max-w-sm mx-auto">
-              Add items from nearby stores to get started.
-            </p>
+          <div className="flex flex-col items-center justify-center text-center py-16 bg-white rounded-[40px] shadow-sm max-w-2xl mx-auto animate-scale-up w-full mt-12 md:mt-24">
+            <div className="relative w-[320px] h-[320px] mb-4">
+              <Image 
+                src="/empty-cart-illustration.png" 
+                alt="Empty Cart" 
+                fill 
+                className="object-contain mix-blend-multiply" 
+                priority
+              />
+            </div>
             <Link
               href="/"
-              className="mt-6 inline-flex h-11 items-center justify-center px-6 rounded-xl bg-black text-xs font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90"
+              className="inline-flex h-14 items-center justify-center px-12 rounded-full bg-brand text-[15px] font-bold text-[#111827] shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgb(0,0,0,0.12)]"
             >
-              {tCart("browseProducts")}
+              Start Shopping
             </Link>
           </div>
         ) : (

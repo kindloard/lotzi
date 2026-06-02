@@ -29,7 +29,7 @@ async function main() {
       },
       create: {
         email,
-        fullName: "Namastore Admin",
+        fullName: "Lotzi Admin",
         providerType: UserProviderType.EMAIL,
         status: UserStatus.ACTIVE,
         emailVerified: true
@@ -64,7 +64,7 @@ async function main() {
     await prisma.emailOutbox.create({
       data: {
         toEmail: email,
-        subject: "Set up your Namastore admin password",
+        subject: "Set up your Lotzi admin password",
         template: "admin_bootstrap_password_setup",
         payload: { resetUrl },
         idempotencyKey: `admin-bootstrap:${user.id}:${selector}`

@@ -469,7 +469,7 @@ export class PaymentsService {
           aggregateType: "payment",
           aggregateId: payment.id,
           idempotencyKey: gatewayPaymentId || `${providerLabel(gatewayProvider)}:${payment.id}`,
-          producer: "namastore-api",
+          producer: "lotzi-api",
           payload: {
             orderId: payment.orderId,
             paymentId: payment.id,

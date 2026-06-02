@@ -248,7 +248,7 @@ uploaded = await this.stage(timings, purpose, "cloudinary-upload", sourceFormat,
             buffer: rendition.buffer,
             contentType: `image/${rendition.format}`,
             publicId,
-            tags: ["namastore", purpose.toLowerCase()],
+            tags: ["lotzi", purpose.toLowerCase()],
             context: {
               storeId: input.dto.storeId,
               uploadAssetId: assetId,
@@ -683,7 +683,7 @@ const { original, renditions: eagerRenditions } = await this.stage(
           buffer: file.buffer,                // ✅ Upload ORIGINAL, not resized copies
           contentType: magic.mimeType,
           publicId: originalPublicId,
-          tags: ["namastore", purpose.toLowerCase()],
+          tags: ["lotzi", purpose.toLowerCase()],
           context: {
             storeId: input.dto.storeId,
             uploadAssetId: assetId,

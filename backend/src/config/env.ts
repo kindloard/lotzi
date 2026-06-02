@@ -106,7 +106,7 @@ export const envSchema = z
     FAST2SMS_DLT_SENDER_ID: optionalString,
     FAST2SMS_DLT_MESSAGE_ID: optionalString,
     FAST2SMS_DLT_VARIABLES_TEMPLATE: z.string().default("{otp}"),
-    FAST2SMS_QUICK_SMS_TEMPLATE: z.string().default("Your Namastore verification code is {otp}. It expires in {minutes} minutes."),
+    FAST2SMS_QUICK_SMS_TEMPLATE: z.string().default("Your Lotzi verification code is {otp}. It expires in {minutes} minutes."),
     FAST2SMS_BASE_URL: optionalString.pipe(z.url().optional()),
     FAST2SMS_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
     FAST2SMS_RETRY_COUNT: z.coerce.number().int().min(0).default(1),

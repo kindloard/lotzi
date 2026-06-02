@@ -230,10 +230,10 @@ function AnimatedLocationTicker({
               className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
                 compact
                   ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
-                  : "h-[28px] text-lg font-black leading-[28px] text-slate-950 [font-weight:950]"
+                  : "h-[28px] text-base font-black leading-[28px] text-slate-950 [font-weight:950]"
               }`}
             >
-              {tick.label}
+              {tick.label.length > 10 ? tick.label.substring(0, 10) + "..." : tick.label}
             </span>
           ))}
           {/* Duplicate first tick for seamless loop */}
@@ -242,10 +242,10 @@ function AnimatedLocationTicker({
               className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
                 compact
                   ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
-                  : "h-[28px] text-lg font-black leading-[28px] text-slate-950 [font-weight:950]"
+                  : "h-[28px] text-base font-black leading-[28px] text-slate-950 [font-weight:950]"
               }`}
             >
-              {ticks[0].label}
+              {ticks[0].label.length > 10 ? ticks[0].label.substring(0, 10) + "..." : ticks[0].label}
             </span>
           )}
         </div>
@@ -464,14 +464,14 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
   if (isCartPage) {
     return (
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 animate-fade-in">
+      <header className="sticky top-0 z-50 w-full bg-brand transition-all duration-300 animate-fade-in">
         <nav
           aria-label={tAria("navigation")}
           className="mx-auto flex h-[64px] w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6 lg:px-8"
         >
           <Link
             href="/"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-950/5 cursor-pointer"
+            className="flex size-9 shrink-0 items-center justify-center text-slate-900 focus:outline-none cursor-pointer"
             aria-label="Go back"
           >
             <ArrowLeft className="size-4" strokeWidth={2.4} />
@@ -484,7 +484,13 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
   return (
     <>
-      <header className={`sticky top-0 z-50 w-full border-b border-slate-200 bg-white transition-all duration-300 ${isShopPage ? "hidden md:block" : ""}`}>
+      <header className={`sticky top-0 z-50 w-full transition-all duration-300 ${isShopPage ? "hidden md:block" : ""}`}>
+        {/* Background layers */}
+        <div className="absolute inset-0 -z-10 flex flex-col md:hidden">
+          <div className="h-[52px] bg-brand" />
+          <div className="flex-1 bg-white" />
+        </div>
+        <div className="absolute inset-0 -z-10 hidden bg-brand md:block" />
       <nav
         aria-label={tAria("navigation")}
         className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-3 px-3 py-2 sm:gap-x-4 sm:px-6 md:h-[64px] md:grid-cols-[minmax(0,1fr)_minmax(320px,520px)_minmax(0,1fr)] md:py-0 lg:grid-cols-[minmax(0,1fr)_minmax(420px,600px)_minmax(0,1fr)] lg:gap-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_minmax(460px,640px)_minmax(0,1fr)]"
@@ -541,8 +547,8 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   onClick={() => searchInputRef.current?.focus()}
                   className={`flex items-center gap-3 w-full rounded-full transition-all duration-200 cursor-text ${
                     isSearchFocused 
-                      ? "px-4 py-2 bg-slate-100 border border-transparent shadow-none md:bg-white md:border-slate-900 md:shadow-[0_4px_12px_rgba(0,0,0,0.05)] md:py-2" 
-                      : "px-4 py-2 border border-slate-300 md:border-black bg-slate-50 md:bg-white hover:shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
+                      ? "px-4 py-2 bg-white shadow-none md:border md:border-slate-900 md:shadow-[0_4px_12px_rgba(0,0,0,0.05)] md:py-2 border border-black" 
+                      : "px-4 py-2 bg-white border border-black"
                   }`}
                 >
                   {isSearchFocused ? (
@@ -551,7 +557,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                         e.stopPropagation();
                         setIsSearchFocused(false);
                       }}
-                      className="md:hidden p-1 -ml-2 text-slate-500 hover:text-slate-900 transition-colors"
+                      className="md:hidden p-1 -ml-2 text-slate-500"
                       aria-label="Close search"
                     >
                       <ArrowLeft size={20} strokeWidth={2.5} />
@@ -595,7 +601,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                         setSearchQuery("");
                         searchInputRef.current?.focus();
                       }} 
-                      className="p-1 rounded-full text-slate-400 hover:text-slate-700 transition-all cursor-pointer bg-slate-200 md:bg-slate-100 md:bg-transparent"
+                      className="p-1 rounded-full text-slate-400 cursor-pointer bg-slate-200 md:bg-slate-100 md:bg-transparent"
                     >
                       <X size={14} strokeWidth={2.5} />
                     </button>
@@ -621,7 +627,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                                   onClick={() => {
                                     setSearchQuery(search);
                                   }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-full transition-colors"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-full"
                                 >
                                   {search}
                                 </button>
@@ -658,7 +664,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                               });
                               setIsSearchFocused(false);
                             }}
-                            className="w-full flex items-center justify-between p-3 rounded-[18px] hover:bg-slate-50 md:hover:bg-white hover:shadow-sm transition-all text-left cursor-pointer border border-transparent hover:border-slate-200"
+                            className="w-full flex items-center justify-between p-3 rounded-[18px] text-left cursor-pointer border border-transparent"
                           >
                             <div className="flex items-center gap-4">
                               <div className="relative flex size-14 shrink-0 overflow-hidden rounded-[14px] bg-slate-100 shadow-sm border border-slate-200/50">
@@ -707,7 +713,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
           <div className="relative hidden md:block" ref={cartRef}>
             <button
               onClick={() => setIsCartOpen(!isCartOpen)}
-              className={`relative flex size-9 items-center justify-center rounded-xl bg-slate-50/50 border border-slate-250/60 text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm cursor-pointer focus:outline-none focus:ring-4 focus:ring-slate-950/5 ${
+              className={`relative flex size-10 items-center justify-center rounded-lg bg-white text-slate-800 cursor-pointer focus:outline-none focus:ring-4 focus:ring-slate-950/5 ${
                 isCartBouncing ? "animate-cart-bounce" : ""
               }`}
               aria-expanded={isCartOpen}
@@ -745,21 +751,21 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                             <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
                               <button
                                 onClick={() => handleUpdateQty(item.id, -1)}
-                                className="p-1 hover:bg-slate-200 text-slate-500 transition-all cursor-pointer"
+                                className="p-1 text-slate-500 cursor-pointer"
                               >
                                 <Minus size={10} strokeWidth={3} />
                               </button>
                               <span className="text-[11px] font-bold px-2 text-slate-700">{item.qty}</span>
                               <button
                                 onClick={() => handleUpdateQty(item.id, 1)}
-                                className="p-1 hover:bg-slate-200 text-slate-500 transition-all cursor-pointer"
+                                className="p-1 text-slate-500 cursor-pointer"
                               >
                                 <Plus size={10} strokeWidth={3} />
                               </button>
                             </div>
                             <button
                               onClick={() => handleRemoveItem(item.id)}
-                              className="p-1 text-slate-400 hover:text-rose-650 transition-all cursor-pointer"
+                              className="p-1 text-slate-400 cursor-pointer"
                               title="Delete item"
                             >
                               <Trash2 size={12} />
@@ -777,7 +783,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       <Link
                         href="/cart"
                         onClick={() => setIsCartOpen(false)}
-                        className="flex h-9 w-full items-center justify-center rounded-xl bg-black text-xs font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90"
+                        className="flex h-9 w-full items-center justify-center rounded-xl bg-black text-xs font-bold text-white shadow-sm"
                       >
                         {tCart("summary.checkout")}
                       </Link>
@@ -790,7 +796,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <Link
                       href="/"
                       onClick={() => setIsCartOpen(false)}
-                      className="mt-3 inline-flex px-3 py-1.5 rounded-lg border border-slate-250 hover:border-slate-300 text-[10px] font-bold text-slate-650 transition-all cursor-pointer"
+                      className="mt-3 inline-flex px-3 py-1.5 rounded-lg border border-slate-250 text-[10px] font-bold text-slate-650 cursor-pointer"
                     >
                       {tCart("browseProducts")}
                     </Link>
@@ -806,7 +812,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
               <button
                 aria-label={profileUser?.fullName || profileUser?.email || "User menu"}
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="flex items-center gap-1.5 rounded-full p-0.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-950/5 cursor-pointer"
+                className="flex items-center gap-1.5 rounded-lg bg-white p-1 focus:outline-none focus:ring-4 focus:ring-slate-950/5 cursor-pointer"
                 aria-expanded={isProfileOpen}
                 aria-haspopup="true"
               >
@@ -820,13 +826,13 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 <LanguageSwitcher compact />
                 <AuthNavigationLink
                   href="/auth/login"
-                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-slate-900/5 cursor-pointer"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-lg bg-white px-5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/5 cursor-pointer"
                 >
                   {tNav("login")}
                 </AuthNavigationLink>
                 <AuthNavigationLink
                   href="/auth/signup"
-                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-xl bg-black px-5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90 focus:outline-none focus:ring-4 focus:ring-black/10 cursor-pointer"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center rounded-lg bg-black px-5 text-sm font-bold text-white focus:outline-none focus:ring-4 focus:ring-black/10 cursor-pointer"
                 >
                   {tNav("signup")}
                 </AuthNavigationLink>
@@ -837,7 +843,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
               <div className="absolute right-0 mt-2.5 w-56 origin-top-right rounded-2xl border border-slate-100 bg-white p-2.5 shadow-[0_12px_40px_-4px_rgba(15,23,42,0.06),0_4px_20px_-2px_rgba(15,23,42,0.02)] animate-scale-up z-50">
                 <div className="px-2.5 py-2 border-b border-slate-100">
                   <p className="text-xs font-bold text-slate-800">
-                    {profileUser?.fullName || "Namastore user"}
+                    {profileUser?.fullName || "Lotzi user"}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5 truncate">{profileUser?.email}</p>
                 </div>
@@ -846,7 +852,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <Link
                     href="/account/profile"
                     onClick={() => setIsProfileOpen(false)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate-600 font-medium"
                   >
                     <UserIcon size={13} className="text-slate-450" />
                     My Profile
@@ -854,7 +860,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <Link
                     href="/account/orders"
                     onClick={() => setIsProfileOpen(false)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate-600 font-medium"
                   >
                     <History size={13} className="text-slate-450" />
                     Order History
@@ -863,7 +869,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <Link
                       href="/merchant/dashboard"
                       onClick={() => setIsProfileOpen(false)}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-xs text-slate-600 hover:text-slate-900 transition-all font-medium"
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate-600 font-medium"
                     >
                       <Store size={13} className="text-slate-450" />
                       Manage Store
@@ -875,7 +881,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
 
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-rose-50 text-xs text-rose-650 transition-all font-bold text-left cursor-pointer"
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-rose-650 font-bold text-left cursor-pointer"
                 >
                   <LogOut size={13} />
                   Sign Out
@@ -891,7 +897,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
           {/* Mobile hamburger menu drawer button */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="flex size-11 items-center justify-center rounded-2xl bg-transparent text-slate-950 transition-all duration-200 hover:bg-slate-50 md:hidden cursor-pointer"
+              className="flex size-11 items-center justify-center rounded-2xl bg-transparent text-slate-950 md:hidden cursor-pointer"
               aria-label="Open mobile menu"
             >
               <Menu size={22} strokeWidth={2.25} />
@@ -926,7 +932,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                 }}
-                className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100/80 hover:text-slate-800 transition-all duration-200 cursor-pointer"
+                className="flex size-9 items-center justify-center rounded-xl text-slate-400 cursor-pointer"
               >
                 <X size={18} strokeWidth={2.4} />
               </button>
@@ -940,9 +946,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <Link
                     href="/"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                       <ShoppingBag size={16} strokeWidth={2.2} />
                     </span>
                     <span>{tNav("home")}</span>
@@ -951,10 +957,10 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <Link
                     href="/cart"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-11 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                    className="flex min-h-11 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-slate-700"
                   >
                     <span className="flex items-center gap-3.5">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                         <ShoppingCart size={16} strokeWidth={2.2} />
                       </span>
                       <span>{tNav("cart")}</span>
@@ -970,9 +976,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <Link
                       href="/merchant/dashboard"
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                      className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700"
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                         <Store size={16} strokeWidth={2.2} />
                       </span>
                       Manage Store
@@ -984,9 +990,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       <Link
                         href="/account"
                         onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700"
                       >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                           <UserIcon size={16} strokeWidth={2.2} />
                         </span>
                         My Profile
@@ -994,9 +1000,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                       <Link
                         href="/account/orders"
                         onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                        className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700"
                       >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                           <History size={16} strokeWidth={2.2} />
                         </span>
                         Order History
@@ -1007,9 +1013,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   <Link
                     href="#support"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-100/50 hover:text-slate-955 transition-all duration-200 group"
+                    className="flex min-h-11 items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-sm font-bold text-slate-700"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700 transition-colors group-hover:bg-slate-100 group-hover:text-slate-955">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100/50 text-slate-700">
                       <HelpCircle size={16} strokeWidth={2.2} />
                     </span>
                     <span>Help & Support</span>
@@ -1018,9 +1024,9 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                   {isLoggedIn && (
                     <button
                       onClick={handleLogout}
-                      className="flex min-h-11 w-full items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-rose-600 hover:bg-rose-50/50 transition-all duration-200 group"
+                      className="flex min-h-11 w-full items-center gap-3.5 rounded-xl px-2.5 py-1.5 text-left text-sm font-bold text-rose-600"
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-rose-50/50 text-rose-600 transition-colors group-hover:bg-rose-100/50">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-rose-50/50 text-rose-600">
                         <LogOut size={16} strokeWidth={2.2} />
                       </span>
                       Sign Out
@@ -1038,7 +1044,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-slate-950 leading-tight">
-                        {profileUser?.fullName || "Namastore user"}
+                        {profileUser?.fullName || "Lotzi user"}
                       </p>
                       <p className="truncate text-[10px] font-medium text-slate-400 mt-0.5 leading-none">
                         {profileUser?.email}
@@ -1050,7 +1056,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <AuthNavigationLink
                       href="/auth/login"
                       onNavigateStart={() => setIsMobileMenuOpen(false)}
-                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-955 shadow-sm hover:bg-slate-50 transition-all duration-200"
+                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-slate-100 text-sm font-bold text-slate-955"
                     >
                       <UserIcon size={16} strokeWidth={2.2} />
                       {tNav("login")}
@@ -1058,7 +1064,7 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     <AuthNavigationLink
                       href="/auth/signup"
                       onNavigateStart={() => setIsMobileMenuOpen(false)}
-                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl bg-black text-sm font-bold text-white shadow-sm hover:opacity-90 transition-all duration-200"
+                      className="flex h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-black text-sm font-bold text-white"
                     >
                       <Sparkles size={16} strokeWidth={2.2} />
                       {tNav("signup")}

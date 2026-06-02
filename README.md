@@ -1,12 +1,12 @@
-# Namastore
+# Lotzi
 
-Namastore is a hyperlocal local-commerce marketplace for connecting nearby customers with local shops such as grocery stores, kirana shops, vegetable shops, bakeries, pharmacies, and local retailers.
+Lotzi is a hyperlocal local-commerce marketplace for connecting nearby customers with local shops such as grocery stores, kirana shops, vegetable shops, bakeries, pharmacies, and local retailers.
 
 The MVP goal is simple: onboard 10 real shops, upload real products, and enable real customers to place orders quickly.
 
 ## Core Business Idea
 
-Namastore helps local shops sell online without needing their own app or website. Customers can either browse products across all shops or discover nearby shops and order directly from a selected store.
+Lotzi helps local shops sell online without needing their own app or website. Customers can either browse products across all shops or discover nearby shops and order directly from a selected store.
 
 ## User Roles
 
@@ -84,7 +84,7 @@ Namastore helps local shops sell online without needing their own app or website
 ## Folder Structure
 
 ```txt
-namastore/
+lotzi/
   README.md
   .gitignore
   .env.example

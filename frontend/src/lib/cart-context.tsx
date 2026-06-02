@@ -31,7 +31,7 @@ interface CartContextType {
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
-const CART_STORAGE_KEY = "namastore_cart";
+const CART_STORAGE_KEY = "lotzi_cart";
 const starterCartItems: CartItem[] = [];
 const demoCartNames = new Set(["Organic Hass Avocados", "Sourdough Bread (Country)"]);
 

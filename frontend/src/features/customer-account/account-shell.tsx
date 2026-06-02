@@ -65,7 +65,7 @@ function AccountShellFrame({ children }: { children: ReactNode }) {
             email={identity.account.email ?? "Account"}
             initials={initials}
             isLoggingOut={identity.isLoggingOut}
-            name={identity.account.fullName ?? "Namastore user"}
+            name={identity.account.fullName ?? "Lotzi user"}
             onLogout={identity.logout}
           />
         </div>
@@ -75,7 +75,7 @@ function AccountShellFrame({ children }: { children: ReactNode }) {
           <div className="hidden lg:block">
             <DesktopAccountHeader
               activeSection={activeSection}
-              name={identity.account.fullName ?? "Namastore user"}
+              name={identity.account.fullName ?? "Lotzi user"}
             />
           </div>
           <div key={pathname}>

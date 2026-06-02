@@ -27,8 +27,8 @@ export function LandingShopBrowser({
       }
     };
 
-    window.addEventListener("namastore:select-category", handler);
-    return () => window.removeEventListener("namastore:select-category", handler);
+    window.addEventListener("lotzi:select-category", handler);
+    return () => window.removeEventListener("lotzi:select-category", handler);
   }, []);
 
   const handleSelectCategory = useCallback((category: string) => {

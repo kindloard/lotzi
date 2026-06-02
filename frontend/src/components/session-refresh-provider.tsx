@@ -22,7 +22,7 @@ import {
   subscribeToSessionEvents
 } from "@/lib/auth-refresh";
 
-const PENDING_SIGNUP_EMAIL_KEY = "namastore:pending-signup-email";
+const PENDING_SIGNUP_EMAIL_KEY = "lotzi:pending-signup-email";
 const OUTAGE_RETRY_BASE_MS = 30_000;
 const OUTAGE_RETRY_MAX_MS = 120_000;
 

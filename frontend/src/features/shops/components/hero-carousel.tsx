@@ -72,7 +72,7 @@ export const HeroCarousel = memo(function HeroCarousel() {
   }, [isHovered]);
 
   const handleSlideCta = useCallback((category: string) => {
-    window.dispatchEvent(new CustomEvent("namastore:select-category", { detail: { category } }));
+    window.dispatchEvent(new CustomEvent("lotzi:select-category", { detail: { category } }));
     document.getElementById("shops-section")?.scrollIntoView({ behavior: "smooth" });
   }, []);
 

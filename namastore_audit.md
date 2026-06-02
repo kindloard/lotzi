@@ -1,4 +1,4 @@
-# Namastore — Production-Grade Architecture Audit
+# Lotzi — Production-Grade Architecture Audit
 
 > **Reviewer level:** FAANG Staff Engineer / Principal Systems Architect  
 > **Codebase:** Next.js 15 (App Router) + NestJS + Prisma  
@@ -19,7 +19,7 @@ The good news: the token/refresh infrastructure (`auth-refresh.ts`) is productio
 
 ### Bug 1 — CRITICAL: Full `MerchantDashboard` remount on every route change
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx)  
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx)  
 **File:** Each sub-route page (`products/page.tsx`, `orders/page.tsx`, etc.)
 
 ```tsx
@@ -48,7 +48,7 @@ After remount, `merchantChrome` resets to `fallbackMerchantChrome` (storeId = `"
 
 ### Bug 2 — CRITICAL: `ensureSession({ forceRefresh: true })` on every mount
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 111–115
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 111–115
 
 ```tsx
 ensureSession({
@@ -66,7 +66,7 @@ ensureSession({
 
 ### Bug 3 — HIGH: `popstate` listener fighting against Next.js router
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 208–219
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 208–219
 
 ```tsx
 useEffect(() => {
@@ -93,8 +93,8 @@ The listener is on a dead component 90% of the time. It also doesn't fire for so
 
 ### Bug 4 — HIGH: Merchant `forceRefresh` doesn't check if session is already fresh
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 110–126  
-**File:** [`auth-refresh.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/lib/auth-refresh.ts), Lines 33–64
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 110–126  
+**File:** [`auth-refresh.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/lib/auth-refresh.ts), Lines 33–64
 
 The `ensureSession` function **does** check cache first when `forceRefresh` is false:
 ```ts
@@ -112,7 +112,7 @@ But the dashboard hardcodes `forceRefresh: true`, bypassing this optimization en
 
 ### Bug 5 — MEDIUM: Merchant `products` state doesn't survive navigation
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 53–57
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 53–57
 
 ```tsx
 const [products, setProducts] = useState<Product[]>([]);
@@ -126,9 +126,9 @@ Because this is local component state, every remount starts with an empty `[]`. 
 ### Bug 6 — MEDIUM: Duplicate `isAbortError` implementations
 
 **Files:** 
-- [`dashboard-utils.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/features/merchant-dashboard/lib/dashboard-utils.ts), Lines 155–161
-- [`api.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/lib/api.ts), Lines 156–162
-- [`auth-refresh.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/lib/auth-refresh.ts), Lines 422–428
+- [`dashboard-utils.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/features/merchant-dashboard/lib/dashboard-utils.ts), Lines 155–161
+- [`api.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/lib/api.ts), Lines 156–162
+- [`auth-refresh.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/lib/auth-refresh.ts), Lines 422–428
 
 Three independent identical implementations. A drift bug here would be silent and hard to track.
 
@@ -136,7 +136,7 @@ Three independent identical implementations. A drift bug here would be silent an
 
 ### Bug 7 — MEDIUM: Middleware auth check is too weak
 
-**File:** [`middleware.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/middleware.ts), Lines 33–36
+**File:** [`middleware.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/middleware.ts), Lines 33–36
 
 ```ts
 const hasAuthCookie = authCookieNames.some((name) => request.cookies.has(name));
@@ -147,17 +147,17 @@ if (hasAuthCookie) {
 
 **Root Cause:** The middleware only checks for cookie **existence**, not validity. A user with an **expired** access cookie and **expired** refresh cookie will still pass the middleware guard and enter the merchant dashboard, only to be redirected out after the bootstrap fetch fails. This creates a flash: render skeleton → session check fails → redirect to login.
 
-The middleware cannot validate JWT signatures (it's edge runtime), but it **can** check `__Host-csrf` presence as a more reliable "definitely logged in" signal. The current list includes `namastore_access` which is an HttpOnly cookie not readable by JS — this only works because Next.js middleware reads it server-side from the request. But the check should also validate that the CSRF cookie is present, as it's the only client-readable auth signal.
+The middleware cannot validate JWT signatures (it's edge runtime), but it **can** check `__Host-csrf` presence as a more reliable "definitely logged in" signal. The current list includes `lotzi_access` which is an HttpOnly cookie not readable by JS — this only works because Next.js middleware reads it server-side from the request. But the check should also validate that the CSRF cookie is present, as it's the only client-readable auth signal.
 
 ---
 
 ### Bug 8 — LOW: `document.title` set 3 times with identical values
 
-**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop\namastore/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 221–236
+**File:** [`merchant-dashboard.tsx`](file:///c:/Users/Sugan001/Desktop\lotzi/frontend/src/features/merchant-dashboard/merchant-dashboard.tsx), Lines 221–236
 
 ```tsx
 useEffect(() => {
-  const title = `${t(navLabelKeyById[activeNav] as never)} | Namastore`;
+  const title = `${t(navLabelKeyById[activeNav] as never)} | Lotzi`;
   document.title = title;
 
   const frame = window.requestAnimationFrame(() => {
@@ -175,7 +175,7 @@ This is defensive code against browser title restoration, but it's cargo-culted 
 
 ### Bug 9 — LOW: Logout doesn't navigate, only clears state
 
-**File:** [`top-navbar.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/components/top-navbar.tsx), Lines 337–342
+**File:** [`top-navbar.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/components/top-navbar.tsx), Lines 337–342
 
 ```tsx
 const handleLogout = () => {
@@ -584,8 +584,8 @@ import type { Metadata } from "next";
 import { OverviewScreen } from "@/features/merchant-dashboard/screens/overview/overview-screen";
 
 export const metadata: Metadata = {
-  title: "Merchant Dashboard | Namastore",
-  description: "Run your Namastore merchant business from one premium operating dashboard.",
+  title: "Merchant Dashboard | Lotzi",
+  description: "Run your Lotzi merchant business from one premium operating dashboard.",
 };
 
 export default function MerchantDashboardPage() {
@@ -600,8 +600,8 @@ import type { Metadata } from "next";
 import { ProductsScreen } from "@/features/merchant-dashboard/screens/products/products-screen";
 
 export const metadata: Metadata = {
-  title: "Products | Namastore",
-  description: "Manage your merchant products in Namastore.",
+  title: "Products | Lotzi",
+  description: "Manage your merchant products in Lotzi.",
 };
 
 export default function MerchantProductsPage() {
@@ -650,7 +650,7 @@ The existing `merchant-dashboard.tsx` can stay as a fallback or be decomposed gr
 
 ### Fix 6: Fix the navbar logout (Bug 9)
 
-**File:** [`top-navbar.tsx`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/components/top-navbar.tsx), Lines 337–342
+**File:** [`top-navbar.tsx`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/components/top-navbar.tsx), Lines 337–342
 
 ```diff
 - const handleLogout = () => {
@@ -693,13 +693,13 @@ Remove the three duplicate implementations from `dashboard-utils.ts`, `api.ts`, 
 
 ### Fix 8: Strengthen middleware auth signal check
 
-**File:** [`middleware.ts`](file:///c:/Users/Sugan001/Desktop/namastore/frontend/src/middleware.ts)
+**File:** [`middleware.ts`](file:///c:/Users/Sugan001/Desktop/lotzi/frontend/src/middleware.ts)
 
 ```diff
-- const authCookieNames = ["namastore_access", "__Host-access", "namastore_refresh", "__Host-refresh"];
+- const authCookieNames = ["lotzi_access", "__Host-access", "lotzi_refresh", "__Host-refresh"];
 + // Access and refresh tokens are HttpOnly. Also require CSRF to confirm client JS can communicate.
-+ const accessCookieNames = ["namastore_access", "__Host-access"];
-+ const refreshCookieNames = ["namastore_refresh", "__Host-refresh"];
++ const accessCookieNames = ["lotzi_access", "__Host-access"];
++ const refreshCookieNames = ["lotzi_refresh", "__Host-refresh"];
 
   // ...
 

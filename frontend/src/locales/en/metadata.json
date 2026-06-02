@@ -1,41 +1,41 @@
 {
   "root": {
-    "title": "Namastore",
+    "title": "Lotzi",
     "description": "Premium local marketplace for nearby shops and customers."
   },
   "auth": {
     "login": {
-      "title": "Log in | Namastore",
-      "description": "Log in to your Namastore account."
+      "title": "Log in | Lotzi",
+      "description": "Log in to your Lotzi account."
     },
     "signup": {
-      "title": "Sign up | Namastore",
-      "description": "Create a Namastore customer account."
+      "title": "Sign up | Lotzi",
+      "description": "Create a Lotzi customer account."
     },
     "merchantSignup": {
-      "title": "Merchant signup | Namastore",
+      "title": "Merchant signup | Lotzi",
       "description": "Create a merchant account and start selling locally."
     },
     "otp": {
-      "title": "Verify account | Namastore",
-      "description": "Verify your Namastore account with a one-time code."
+      "title": "Verify account | Lotzi",
+      "description": "Verify your Lotzi account with a one-time code."
     },
     "resetPassword": {
-      "title": "Reset password | Namastore",
-      "description": "Reset your Namastore account password."
+      "title": "Reset password | Lotzi",
+      "description": "Reset your Lotzi account password."
     }
   },
   "dashboard": {
-    "title": "Merchant dashboard | Namastore",
+    "title": "Merchant dashboard | Lotzi",
     "description": "Manage orders, products, inventory, customers, analytics, and payouts."
   },
   "cart": {
-    "title": "Cart | Namastore",
+    "title": "Cart | Lotzi",
     "description": "Review your cart before checkout."
   },
   "admin": {
     "merchantApprovals": {
-      "title": "Merchant approvals | Namastore",
+      "title": "Merchant approvals | Lotzi",
       "description": "Review and approve merchant onboarding submissions."
     }
   }

@@ -242,7 +242,7 @@ export class UploadEngineService implements OnModuleInit, OnModuleDestroy {
               buffer: file.buffer,
               contentType: magic.mimeType,
               publicId: `${folder}/original`,
-              tags: ["namastore", purpose.toLowerCase()],
+              tags: ["lotzi", purpose.toLowerCase()],
               context: {
                 storeId: input.dto.storeId,
                 uploadAssetId: assetId,

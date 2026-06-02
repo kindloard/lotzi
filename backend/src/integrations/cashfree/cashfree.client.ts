@@ -84,7 +84,7 @@ export class CashfreeClient {
         return_url: input.returnUrl,
         notify_url: input.notifyUrl
       },
-      order_note: "Namastore checkout",
+      order_note: "Lotzi checkout",
       order_tags: input.metadata
     };
     return this.gatewayFetch<CashfreeOrderResponse>("/pg/orders", {

@@ -581,7 +581,7 @@ function shouldLogCheckoutPerf() {
     return true;
   }
   try {
-    return localStorage.getItem("namastore:checkout-perf") === "1";
+    return localStorage.getItem("lotzi:checkout-perf") === "1";
   } catch {
     return false;
   }

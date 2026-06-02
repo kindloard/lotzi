@@ -240,7 +240,7 @@ export class CustomerAccountService {
       buffer: processed.data,
       contentType: "image/webp",
       publicId,
-      tags: ["namastore", "user_avatar"],
+      tags: ["lotzi", "user_avatar"],
       context: {
         userId: auth.userId,
         uploadAssetId: assetId,
@@ -902,7 +902,7 @@ export class CustomerAccountService {
       where: { userId: auth.userId, revoked: false },
       select: { id: true }
     });
-    const anonymizedEmail = `deleted-${auth.userId}@deleted.namastore.local`;
+    const anonymizedEmail = `deleted-${auth.userId}@deleted.lotzi.local`;
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: auth.userId },
