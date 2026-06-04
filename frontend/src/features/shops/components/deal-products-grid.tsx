@@ -2,12 +2,13 @@
 
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Percent, Plus, TrendingUp } from "lucide-react";
+import { ChevronRight, Plus, TrendingUp } from "lucide-react";
 import { formatIndianRupees } from "@/lib/currency";
 import { useCart } from "@/lib/cart-context";
 import { blurDataUrl, optimizedCloudinaryUrl } from "../lib/image-utils";
 import { useDealProducts } from "../hooks/use-deal-products";
 import type { DealProduct } from "../shops-api";
+import { OfferBadge } from "./offer-badge";
 import { ProductCardSkeleton } from "./shop-card-skeleton";
 
 interface DealProductsGridProps {
@@ -143,12 +144,11 @@ const DealProductCard = memo(function DealProductCard({
       className="relative flex min-h-[265px] flex-col rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm"
       style={{ contentVisibility: "auto", containIntrinsicSize: "265px" }}
     >
-      {product.discount ? (
-        <span className="absolute left-3.5 top-3.5 z-10 flex items-center gap-0.5 rounded-lg bg-rose-600 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-sm">
-          <Percent size={8} />
-          {product.discount}
-        </span>
-      ) : null}
+      <OfferBadge
+        className="absolute right-3.5 top-3.5 z-10"
+        compareAtPrice={product.originalPrice}
+        price={product.price}
+      />
 
       {imageUrl && shouldRenderMedia ? (
         <div className="relative flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl border border-slate-100 bg-white p-3 shadow-inner sm:h-44 lg:h-40 xl:h-44">

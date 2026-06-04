@@ -129,6 +129,10 @@ describe("OnboardingService", () => {
         completedAtField: "businessCompletedAt"
       }))
     };
+    const geoLocationWriter = {
+      bumpEpochs: jest.fn(async () => undefined),
+      updateStoreLocationInTransaction: jest.fn()
+    };
     const service = new OnboardingService(
       prisma as never,
       stores as never,
@@ -137,7 +141,8 @@ describe("OnboardingService", () => {
       ruleEngine as never,
       stateMachine as never,
       {} as never,
-      authStateInvalidator as never
+      authStateInvalidator as never,
+      geoLocationWriter as never
     );
 
     await expect(
@@ -210,7 +215,8 @@ describe("OnboardingService", () => {
       {} as never,
       { assertCanLaunch: jest.fn(() => "already-launched") } as never,
       {} as never,
-      authStateInvalidator as never
+      authStateInvalidator as never,
+      { bumpEpochs: jest.fn(), updateStoreLocationInTransaction: jest.fn() } as never
     );
 
     await expect(

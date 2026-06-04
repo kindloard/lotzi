@@ -7,6 +7,10 @@ interface LimitResult {
   degraded: boolean;
 }
 
+interface RateLimitOptions {
+  degradedLimit?: number;
+}
+
 interface MemoryBucket {
   count: number;
   resetAt: number;
@@ -42,7 +46,7 @@ export class RateLimitService {
 
   constructor(private readonly redis: RedisService) {}
 
-  async consume(key: string, limit: number, windowSeconds: number): Promise<LimitResult> {
+  async consume(key: string, limit: number, windowSeconds: number, options: RateLimitOptions = {}): Promise<LimitResult> {
     const now = Date.now();
     const windowMs = windowSeconds * 1000;
     const intervalMs = Math.ceil(windowMs / limit);
@@ -73,7 +77,7 @@ export class RateLimitService {
       }
     }
 
-    return this.consumeInMemory(key, Math.max(limit * 3, limit), windowMs);
+    return this.consumeInMemory(key, options.degradedLimit ?? Math.max(limit * 3, limit), windowMs);
   }
 
   async enforce(key: string, limit: number, windowSeconds: number): Promise<void> {

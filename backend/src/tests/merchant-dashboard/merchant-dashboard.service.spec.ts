@@ -39,11 +39,34 @@ function serviceWithMembership(membership: unknown) {
   const shops = {
     invalidateShopCaches: jest.fn(async () => undefined)
   };
+  const geoLocationWriter = {
+    updateStoreLocation: jest.fn(async (input: {
+      latitude: number;
+      longitude: number;
+      addressLine?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+    }) => ({
+      id: "store-1",
+      name: "Fresh Mart",
+      slug: "fresh-mart",
+      status: StoreStatus.APPROVED,
+      addressLine: input.addressLine?.trim() || null,
+      city: input.city?.trim() || null,
+      state: input.state?.trim() || null,
+      pincode: input.pincode?.trim() || null,
+      latitude: Math.round(input.latitude * 10_000_000) / 10_000_000,
+      longitude: Math.round(input.longitude * 10_000_000) / 10_000_000,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z")
+    }))
+  };
   return {
     prisma,
     transitions,
     shops,
-    service: new MerchantDashboardService(prisma as never, transitions as never, shops as never)
+    geoLocationWriter,
+    service: new MerchantDashboardService(prisma as never, transitions as never, shops as never, geoLocationWriter as never)
   };
 }
 
@@ -203,7 +226,7 @@ describe("MerchantDashboardService", () => {
   });
 
   it("saves rounded coordinates and invalidates public shop caches", async () => {
-    const { prisma, shops, service } = serviceWithMembership({
+    const { geoLocationWriter, shops, service } = serviceWithMembership({
       user_id: "user-1",
       user_email: "raja@example.com",
       full_name: null,
@@ -225,20 +248,6 @@ describe("MerchantDashboardService", () => {
       role_code: "MERCHANT_OWNER",
       role_name: "Merchant owner"
     });
-    prisma.store.update.mockResolvedValue({
-      id: "store-1",
-      name: "Auxi store",
-      slug: "mr-aj",
-      status: StoreStatus.APPROVED,
-      addressLine: "Market road",
-      city: "Tirunelveli",
-      state: "Tamil Nadu",
-      pincode: "627001",
-      latitude: "8.7128181",
-      longitude: "77.4215382",
-      updatedAt: new Date("2026-05-28T11:00:00.000Z")
-    });
-
     await expect(service.updateStoreLocation(auth, {
       latitude: 8.712818123,
       longitude: 77.421538234,
@@ -252,13 +261,12 @@ describe("MerchantDashboardService", () => {
       googleMapsUrl: "https://www.google.com/maps/search/?api=1&query=8.7128181,77.4215382"
     });
 
-    expect(prisma.store.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "store-1" },
-      data: expect.objectContaining({
-        latitude: 8.7128181,
-        longitude: 77.4215382,
-        addressLine: "Market road"
-      })
+    expect(geoLocationWriter.updateStoreLocation).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: "store-1",
+      latitude: 8.712818123,
+      longitude: 77.421538234,
+      addressLine: " Market road ",
+      operation: "merchant.location.update"
     }));
     expect(shops.invalidateShopCaches).toHaveBeenCalledWith({
       keyFamily: "all",

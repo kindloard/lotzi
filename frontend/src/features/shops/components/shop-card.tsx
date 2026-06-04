@@ -68,10 +68,10 @@ export const ShopCard = memo(function ShopCard({
   return (
     <article
       ref={cardRef}
-      className="relative flex flex-col overflow-hidden rounded-[20px] border border-neutral-200 bg-white"
+      className="relative flex flex-col mx-auto w-full max-w-[360px] overflow-hidden rounded-[20px] border border-neutral-200 bg-white"
       style={{ contentVisibility: "auto", containIntrinsicSize: "285px" }}
     >
-      <div className="relative w-full overflow-hidden rounded-t-[20px] bg-neutral-100 aspect-[21/9] sm:aspect-[2.5/1]">
+      <div className="relative w-full overflow-hidden rounded-t-[20px] bg-neutral-100 aspect-[3.15/1] sm:aspect-[3.6/1]">
         {bannerUrl && shouldRenderMedia ? (
           <>
             <Image
@@ -96,28 +96,33 @@ export const ShopCard = memo(function ShopCard({
             e.preventDefault();
             onToggleFavorite(shop.id);
           }}
-          className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white/90 text-black shadow-sm backdrop-blur-md active:scale-95"
+          className={`absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full shadow-sm backdrop-blur-md transition-all active:scale-95 ${
+            isFavorite
+              ? "bg-brand text-black ring-2 ring-black/10"
+              : "bg-white/90 text-black"
+          }`}
           title="Add to favorites"
           aria-label={isFavorite ? `Remove ${shop.name} from favorites` : `Add ${shop.name} to favorites`}
+          aria-pressed={isFavorite}
         >
           <Heart
             size={18}
-            fill={isFavorite ? "#f43f5e" : "none"}
-            className={isFavorite ? "text-rose-500" : "text-black"}
+            fill={isFavorite ? "currentColor" : "none"}
+            className="text-current"
           />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col justify-between gap-3 p-4 pt-0">
         <div className="flex items-start gap-3">
-          <div className="z-10 -mt-6 rounded-full bg-white p-1 shadow-sm">
-            <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-neutral-100 bg-neutral-50 text-sm font-bold text-black">
+          <div className="z-10 -mt-5 rounded-full bg-white p-1 shadow-sm">
+            <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-neutral-100 bg-neutral-50 text-sm font-bold text-black">
               {logoUrl && shouldRenderMedia ? (
                 <Image
                   src={logoUrl}
                   alt={`${shop.name} logo`}
                   fill
-                  sizes="56px"
+                  sizes="40px"
                   placeholder="blur"
                   blurDataURL={blurDataUrl("#f8fafc")}
                   className="object-cover"
@@ -144,7 +149,7 @@ export const ShopCard = memo(function ShopCard({
         <div className="mt-2">
           <Link
             href={viewStoreHref}
-            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-neutral-900 px-4 text-sm font-bold text-white active:scale-[0.98]"
+            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-black px-4 text-sm font-bold text-white active:scale-[0.98]"
           >
             View Store
             <ChevronRight size={16} className="ml-1 opacity-70" />

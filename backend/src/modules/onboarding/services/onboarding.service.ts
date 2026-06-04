@@ -8,6 +8,8 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../../auth/auth.types";
+import { GeoLocationWriter } from "../../geo-discovery/geo-location-writer.service";
+import type { GeoLocationChange } from "../../geo-discovery/geo-utils";
 import { AuthStateInvalidator } from "../../rbac/auth-state-invalidator.service";
 import { CompleteStepDto, DraftPayloadDto, LaunchOnboardingDto } from "../dto/onboarding.dto";
 import { JsonRecord, OnboardingBootstrap, OnboardingStepCompletion, ValidationIssue } from "../onboarding.types";
@@ -101,7 +103,8 @@ export class OnboardingService {
     private readonly rules: ValidationRuleEngine,
     private readonly stateMachine: OnboardingStateMachine,
     private readonly approval: ApprovalService,
-    private readonly authStateInvalidator: AuthStateInvalidator
+    private readonly authStateInvalidator: AuthStateInvalidator,
+    private readonly geoLocationWriter: GeoLocationWriter
   ) {}
 
   async bootstrap(auth: AuthenticatedPrincipal): Promise<OnboardingBootstrap> {
@@ -171,6 +174,7 @@ export class OnboardingService {
       });
     }
 
+    let locationChange: GeoLocationChange | null = null;
     const completion = await this.prisma.$transaction(async (tx) => {
       const stateResult = await this.stores.ensureState(store.id, tx);
       const transition = this.stateMachine.completeStep(stateResult.state.state, step);
@@ -184,7 +188,7 @@ export class OnboardingService {
         },
         tx
       );
-      await this.commitStep(store.id, step, dto.payload, tx);
+      locationChange = await this.commitStep(store.id, step, dto.payload, auth.userId, tx);
       const state = await this.advanceState(store.id, stateResult.state, transition, tx);
       await this.events.enqueue(
         {
@@ -197,6 +201,9 @@ export class OnboardingService {
       );
       return { draft, state };
     });
+    if (locationChange) {
+      await this.geoLocationWriter.bumpEpochs(locationChange, "merchant.onboarding.location.complete");
+    }
     void this.authStateInvalidator.invalidateUserVersions(auth.userId, [auth.authzVersion]);
 
     return {
@@ -423,8 +430,9 @@ export class OnboardingService {
     storeId: string,
     step: OnboardingStep,
     payload: JsonRecord,
+    actorUserId: string,
     tx: Prisma.TransactionClient
-  ) {
+  ): Promise<GeoLocationChange | null> {
     if (step === OnboardingStep.BUSINESS) {
       const storeName = requiredString(payload.storeName);
       await tx.store.update({
@@ -452,7 +460,7 @@ export class OnboardingService {
           phone: stringValue(payload.phone)
         }
       });
-      return;
+      return null;
     }
 
     if (step === OnboardingStep.BRANDING) {
@@ -472,7 +480,7 @@ export class OnboardingService {
           accentColor: stringValue(payload.accentColor)
         }
       });
-      return;
+      return null;
     }
 
     if (step === OnboardingStep.LEGAL) {
@@ -514,18 +522,18 @@ export class OnboardingService {
           contactEmail: stringValue(payload.contactEmail)
         }
       });
-      return;
+      return null;
     }
 
     if (step === OnboardingStep.LOCATION) {
-      await tx.store.update({
-        where: { id: storeId },
-        data: {
-          latitude: roundedCoordinate(payload.latitude, "Latitude", -90, 90),
-          longitude: roundedCoordinate(payload.longitude, "Longitude", -180, 180)
-        }
+      const result = await this.geoLocationWriter.updateStoreLocationInTransaction(tx, {
+        storeId,
+        latitude: numericCoordinate(payload.latitude, "Latitude", -90, 90),
+        longitude: numericCoordinate(payload.longitude, "Longitude", -180, 180),
+        actorUserId,
+        operation: "merchant.onboarding.location.complete"
       });
-      return;
+      return result.change;
     }
 
     if (step === OnboardingStep.PREFERENCES) {
@@ -539,7 +547,9 @@ export class OnboardingService {
           businessHours: businessHoursValue(payload.businessHours)
         }
       });
+      return null;
     }
+    return null;
   }
 
   private async advanceState(
@@ -691,14 +701,14 @@ function requiredString(value: unknown): string {
   return text;
 }
 
-function roundedCoordinate(value: unknown, label: string, min: number, max: number): number {
+function numericCoordinate(value: unknown, label: string, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new BadRequestException(`${label} must be a finite number.`);
   }
   if (value < min || value > max) {
     throw new BadRequestException(`${label} is out of range.`);
   }
-  return roundCoordinate(value);
+  return value;
 }
 
 function decimalToRoundedNumber(value: unknown): number | undefined {

@@ -52,6 +52,12 @@ export const envSchema = z
     FIREBASE_SERVICE_ACCOUNT_PATH: optionalString,
     FIREBASE_SERVICE_ACCOUNT_JSON: optionalString,
     GOOGLE_MAPS_API_KEY: optionalString,
+    SHOP_DISCOVERY_ENABLED: booleanFromStringDefault(true),
+    SHOP_DISCOVERY_RADIUS_KM: z.coerce.number().min(1).max(50).default(5),
+    GEO_CURSOR_KEY_ID: z.string().default("local-dev"),
+    GEO_CURSOR_SIGNING_KEY: z.string().min(32).optional(),
+    GEO_CURSOR_PREVIOUS_KEY_ID: optionalString,
+    GEO_CURSOR_PREVIOUS_SIGNING_KEY: z.string().min(32).optional(),
     JWT_KEY_ID: z.string().default("local-dev"),
     JWT_PRIVATE_KEY: optionalString,
     JWT_PUBLIC_KEY: optionalString,
@@ -141,6 +147,14 @@ export const envSchema = z
       });
     }
 
+    if (value.GEO_CURSOR_PREVIOUS_SIGNING_KEY && !value.GEO_CURSOR_PREVIOUS_KEY_ID) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO_CURSOR_PREVIOUS_KEY_ID is required when GEO_CURSOR_PREVIOUS_SIGNING_KEY is configured.",
+        path: ["GEO_CURSOR_PREVIOUS_KEY_ID"]
+      });
+    }
+
     const strict = value.NODE_ENV === "production" || value.AUTH_REQUIRE_STRICT_SECRETS;
     if (!strict) {
       return;
@@ -159,6 +173,7 @@ export const envSchema = z
       "PASSWORD_RESET_PEPPER",
       "DEVICE_FINGERPRINT_PEPPER",
       "CSRF_PEPPER",
+      "GEO_CURSOR_SIGNING_KEY",
       "ADMIN_APPROVAL_SESSION_SECRET",
       "ADMIN_APPROVAL_PASSWORD_HASH",
       "INTERNAL_METRICS_TOKEN",
@@ -242,6 +257,9 @@ export function validateEnv(config: Record<string, unknown>) {
     PHONEPE_ENCRYPTION_KEY:
       parsed.PHONEPE_ENCRYPTION_KEY ??
       "local-dev-phonepe-encryption-key-change-before-prod",
+    GEO_CURSOR_SIGNING_KEY:
+      parsed.GEO_CURSOR_SIGNING_KEY ??
+      "local-dev-geo-cursor-signing-key-change-before-prod",
     ADMIN_APPROVAL_SESSION_SECRET:
       parsed.ADMIN_APPROVAL_SESSION_SECRET ??
       "local-dev-admin-approval-session-secret-change-before-prod"

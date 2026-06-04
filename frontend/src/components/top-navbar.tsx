@@ -224,18 +224,21 @@ function AnimatedLocationTicker({
           }`}
           style={{ transform: `translate3d(0, -${activeIndex * lineHeight}px, 0)` }}
         >
-          {ticks.map((tick, i) => (
-            <span
-              key={`${tick.label}-${i}`}
-              className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
-                compact
-                  ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
-                  : "h-[28px] text-base font-black leading-[28px] text-slate-950 [font-weight:950]"
-              }`}
-            >
-              {tick.label.length > 10 ? tick.label.substring(0, 10) + "..." : tick.label}
-            </span>
-          ))}
+          {ticks.map((tick, i) => {
+            const maxLength = compact ? 10 : 15;
+            return (
+              <span
+                key={`${tick.label}-${i}`}
+                className={`block max-w-full truncate whitespace-nowrap tracking-tight ${
+                  compact
+                    ? "h-[16px] text-[12px] font-bold leading-[16px] text-slate-700"
+                    : "h-[28px] text-base font-black leading-[28px] text-slate-950 [font-weight:950]"
+                }`}
+              >
+                {tick.label.length > maxLength ? tick.label.substring(0, maxLength) + "..." : tick.label}
+              </span>
+            );
+          })}
           {/* Duplicate first tick for seamless loop */}
           {ticks[0] && (
             <span
@@ -245,7 +248,7 @@ function AnimatedLocationTicker({
                   : "h-[28px] text-base font-black leading-[28px] text-slate-950 [font-weight:950]"
               }`}
             >
-              {ticks[0].label.length > 10 ? ticks[0].label.substring(0, 10) + "..." : ticks[0].label}
+              {ticks[0].label.length > (compact ? 10 : 15) ? ticks[0].label.substring(0, (compact ? 10 : 15)) + "..." : ticks[0].label}
             </span>
           )}
         </div>
@@ -816,10 +819,12 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                 aria-expanded={isProfileOpen}
                 aria-haspopup="true"
               >
+                <div className="flex items-center gap-3">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black text-xs font-bold text-white shadow-inner">
                   {initials}
                 </span>
                 <ChevronDown className="text-slate-400 mr-1 hidden sm:block" size={12} strokeWidth={2.5} />
+                </div>
               </button>
             ) : (
               <div className="hidden sm:flex shrink-0 items-center gap-2.5">
@@ -922,12 +927,12 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
           {/* Drawer Body */}
           <div className="relative z-10 flex h-full w-[84vw] min-w-[300px] max-w-[360px] flex-col overflow-hidden bg-white px-5 py-4 shadow-2xl border-l border-slate-100 animate-slide-in-right">
             <div className="flex items-center justify-between border-b border-slate-100/80 pb-4">
-              <span className="flex items-center gap-3 text-lg font-black text-slate-950 [font-weight:950]">
+              <Link href="/" className="flex items-center gap-3" onClick={() => setIsMobileMenuOpen(false)}>
                 <span className="flex size-10 items-center justify-center rounded-xl bg-black text-white shadow-sm">
-                  <ShoppingBag size={16} strokeWidth={2.4} />
+                  <ShoppingBag size={20} strokeWidth={2.4} />
                 </span>
                 <span>{tBrand("name")}</span>
-              </span>
+              </Link>
               <button
                 onClick={() => {
                   setIsMobileMenuOpen(false);
@@ -1063,8 +1068,8 @@ function TopNavbarInner({ pathname }: { pathname: string }) {
                     </AuthNavigationLink>
                     <AuthNavigationLink
                       href="/auth/signup"
-                      onNavigateStart={() => setIsMobileMenuOpen(false)}
                       className="flex h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-black text-sm font-bold text-white"
+                      onNavigateStart={() => setIsMobileMenuOpen(false)}
                     >
                       <Sparkles size={16} strokeWidth={2.2} />
                       {tNav("signup")}

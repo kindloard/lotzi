@@ -2,34 +2,32 @@
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { MapPin, ShoppingBag } from "lucide-react";
-import {
-  enrichShopsWithDistance,
-  mergeShopDistances,
-  type Shop,
-} from "../shops-api";
-import { usePreciseLocation } from "../hooks/use-precise-location";
-import { useShopDistances } from "../hooks/use-shop-distances";
-import { useShops } from "../hooks/use-shops";
+import type { Shop } from "../shops-api";
+import type { LocationStatus } from "../hooks/use-precise-location";
 import { ShopCard } from "./shop-card";
 import { ShopCardSkeleton } from "./shop-card-skeleton";
 import { useTranslations } from "next-intl";
 
 interface NearbyShopsGridProps {
-  initialShops: Shop[];
+  isLoading: boolean;
+  locationStatus: LocationStatus;
+  requestLocation: (options?: { ignoreCache?: boolean }) => void;
   selectedCategory: string;
+  shops: Shop[];
 }
 
 export const NearbyShopsGrid = memo(function NearbyShopsGrid({
-  initialShops,
+  isLoading,
+  locationStatus,
+  requestLocation,
   selectedCategory,
+  shops,
 }: NearbyShopsGridProps) {
   const t = useTranslations("marketplace.nearbyShops");
-  const shopsQuery = useShops(initialShops);
   const [favorites, setFavorites] = useState<string[]>([]);
-  const { coordinates, requestLocation, status: locationStatus } = usePreciseLocation();
-  const distancesQuery = useShopDistances(coordinates);
-  const shops = shopsQuery.data ?? initialShops;
   const locationNeedsAction =
+    locationStatus === "idle" ||
+    locationStatus === "loading" ||
     locationStatus === "denied" ||
     locationStatus === "error" ||
     locationStatus === "unsupported";
@@ -42,37 +40,31 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
           ? t("subtitleUnavailable")
           : t("subtitleLoaded");
   const locationNoticeTitle =
-    locationStatus === "denied"
+    locationStatus === "loading"
+      ? t("locationLoadingTitle")
+      : locationStatus === "idle" || locationStatus === "denied"
       ? t("locationDeniedTitle")
       : locationStatus === "unsupported"
         ? t("locationUnsupportedTitle")
         : t("locationErrorTitle");
   const locationNoticeDescription =
-    locationStatus === "denied"
-      ? t("locationDeniedDescription")
+    locationStatus === "loading"
+      ? t("locationLoadingDescription")
+      : locationStatus === "denied"
+      ? t("locationBlockedDescription")
+      : locationStatus === "idle"
+      ? t("locationPromptDescription")
       : locationStatus === "unsupported"
         ? t("locationUnsupportedDescription")
         : t("locationErrorDescription");
 
   const visibleShops = useMemo(() => {
-    const enriched = mergeShopDistances(
-      enrichShopsWithDistance(shops, coordinates),
-      distancesQuery.data,
-    );
-    const filtered =
+    return (
       selectedCategory === "all"
-        ? enriched
-        : enriched.filter((shop) => shop.type === selectedCategory);
-
-    if (!coordinates) {
-      return filtered;
-    }
-
-    return [...filtered].sort(
-      (left, right) =>
-        (left.distanceMeters ?? Infinity) - (right.distanceMeters ?? Infinity),
+        ? shops
+        : shops.filter((shop) => shop.type === selectedCategory)
     );
-  }, [coordinates, distancesQuery.data, selectedCategory, shops]);
+  }, [selectedCategory, shops]);
 
   const toggleFavorite = useCallback((shopId: string) => {
     setFavorites((current) =>
@@ -82,7 +74,9 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
     );
   }, []);
 
-  const isInitialLoading = shopsQuery.isLoading && shops.length === 0;
+  const isInitialLoading =
+    locationStatus === "loading" ||
+    (isLoading && visibleShops.length === 0);
   const shopsGridClassName =
     visibleShops.length === 1 && !isInitialLoading
       ? "grid w-full max-w-[440px] gap-4"
@@ -126,10 +120,15 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
           {locationStatus !== "unsupported" ? (
             <button
               type="button"
+              disabled={locationStatus === "loading"}
               onClick={() => requestLocation({ ignoreCache: true })}
               className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-black px-5 text-xs font-bold uppercase text-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 sm:h-10"
             >
-              {t("enableLocation")}
+              {locationStatus === "loading"
+                ? t("locationLoadingAction")
+                : locationStatus === "denied"
+                  ? t("locationRetryAction")
+                  : t("enableLocation")}
             </button>
           ) : null}
         </div>
@@ -138,7 +137,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       {!locationNeedsAction ? (
         <div className={shopsGridClassName}>
           {isInitialLoading ? (
-            Array.from({ length: 6 }).map((_, index) => (
+            Array.from({ length: 3 }).map((_, index) => (
               <ShopCardSkeleton key={index} />
             ))
           ) : visibleShops.length === 0 ? (

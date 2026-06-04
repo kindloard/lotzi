@@ -6,6 +6,8 @@ import type { Coordinates } from "../shops-api";
 const GEO_CACHE_KEY = "ns:shops:geo:v2";
 const GEO_CACHE_TTL_MS = 5 * 60 * 1000;
 const HIGH_ACCURACY_TIMEOUT_MS = 10_000;
+const MIN_LOCATION_REQUEST_FEEDBACK_MS = 450;
+const GEOLOCATION_PERMISSION_DENIED_CODE = 1;
 
 interface CachedCoordinates extends Coordinates {
   capturedAt: number;
@@ -22,7 +24,7 @@ export function usePreciseLocation() {
   const [status, setStatus] = useState<LocationStatus>("idle");
   const requestIdRef = useRef(0);
 
-  const requestLocation = useCallback((options: RequestLocationOptions = {}) => {
+  const requestLocation = useCallback(async (options: RequestLocationOptions = {}) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus("unsupported");
       return;
@@ -35,43 +37,140 @@ export function usePreciseLocation() {
     if (cached) {
       setCoordinates(cached);
       setStatus("resolved");
-    } else {
-      setStatus("loading");
+      return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (requestIdRef.current !== requestId) {
-          return;
-        }
-
-        const next = coordinatesFromPosition(position);
-        setCoordinates((current) => bestCoordinates(current, next));
-        writeCoordinatesCache(next);
-        setStatus("resolved");
-      },
-      (error) => {
-        if (requestIdRef.current !== requestId) {
-          return;
-        }
-        setStatus(error.code === error.PERMISSION_DENIED ? "denied" : "error");
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 30_000,
-        timeout: HIGH_ACCURACY_TIMEOUT_MS
+    setStatus("loading");
+    const requestStartedAt = Date.now();
+    try {
+      const position = await getCurrentPosition();
+      if (requestIdRef.current !== requestId) {
+        return;
       }
-    );
+
+      const next = coordinatesFromPosition(position);
+      setCoordinates((current) => bestCoordinates(current, next));
+      writeCoordinatesCache(next);
+      setStatus("resolved");
+    } catch (error) {
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+      await waitForMinimumFeedback(requestStartedAt);
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+      setStatus(isPermissionDenied(error) ? "denied" : "error");
+    }
   }, []);
 
   useEffect(() => {
-    requestLocation();
+    const cached = readCoordinatesCache();
+    if (cached) {
+      setCoordinates(cached);
+      setStatus("resolved");
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setStatus("unsupported");
+      return;
+    }
+
+    let cancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    const applyPermissionState = (permissionState: PermissionState | null) => {
+      if (cancelled || !permissionState) {
+        return;
+      }
+      if (permissionState === "denied") {
+        setCoordinates(null);
+        setStatus("denied");
+      } else if (permissionState === "granted") {
+        void requestLocation();
+      } else if (permissionState === "prompt") {
+        setStatus((current) =>
+          current === "denied" || current === "error" ? "idle" : current
+        );
+      }
+    };
+
+    const refreshPermissionState = async () => {
+      applyPermissionState(await readGeolocationPermission());
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshPermissionState();
+      }
+    };
+
+    queryGeolocationPermission().then((permission) => {
+      if (cancelled || !permission) {
+        return;
+      }
+      permissionStatus = permission;
+      permissionStatus.onchange = () => applyPermissionState(permissionStatus?.state ?? null);
+      applyPermissionState(permissionStatus.state);
+    });
+
+    window.addEventListener("focus", refreshPermissionState);
+    window.addEventListener("pageshow", refreshPermissionState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      cancelled = true;
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
+      window.removeEventListener("focus", refreshPermissionState);
+      window.removeEventListener("pageshow", refreshPermissionState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       requestIdRef.current += 1;
     };
   }, [requestLocation]);
 
   return { coordinates, requestLocation, status };
+}
+
+function waitForMinimumFeedback(startedAt: number): Promise<void> {
+  const remaining = MIN_LOCATION_REQUEST_FEEDBACK_MS - (Date.now() - startedAt);
+  return remaining > 0
+    ? new Promise((resolve) => window.setTimeout(resolve, remaining))
+    : Promise.resolve();
+}
+
+function getCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      maximumAge: 30_000,
+      timeout: HIGH_ACCURACY_TIMEOUT_MS
+    });
+  });
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === GEOLOCATION_PERMISSION_DENIED_CODE;
+}
+
+async function readGeolocationPermission(): Promise<PermissionState | null> {
+  return (await queryGeolocationPermission())?.state ?? null;
+}
+
+async function queryGeolocationPermission(): Promise<PermissionStatus | null> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+      return null;
+    }
+    return await navigator.permissions.query({ name: "geolocation" as PermissionName });
+  } catch {
+    return null;
+  }
 }
 
 function coordinatesFromPosition(position: GeolocationPosition): Coordinates {

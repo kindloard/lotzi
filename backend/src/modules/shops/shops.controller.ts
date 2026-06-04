@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Get, Headers, HttpException, HttpStatu
 import type { Request, Response } from "express";
 import { ObservabilityService } from "../observability/observability.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service";
+import { GeoDiscoveryService } from "../geo-discovery/geo-discovery.service";
 import { ShopsService, type CachedResult, type ShopProductSort, type ShopProductsQuery } from "./shops.service";
 
 const DETAIL_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=30";
@@ -19,6 +20,7 @@ export class ShopsController {
 
   constructor(
     private readonly shops: ShopsService,
+    private readonly geoDiscovery: GeoDiscoveryService,
     private readonly rateLimit: RateLimitService,
     private readonly observability: ObservabilityService
   ) {}
@@ -72,6 +74,33 @@ export class ShopsController {
     response.setHeader("Cache-Control", "private, max-age=60");
     response.setHeader("Server-Timing", `shop-distances;dur=${durationMs(startedAt).toFixed(1)}`);
     return distances;
+  }
+
+  @Get("nearby")
+  async nearby(
+    @Query("latitude") latitude: string | undefined,
+    @Query("longitude") longitude: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @Query("cursor") cursor: string | undefined,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const startedAt = process.hrtime.bigint();
+    const result = await this.geoDiscovery.nearby({
+      latitude,
+      longitude,
+      limit,
+      cursor,
+      ip: clientIp(request),
+      deviceId: request.header("x-device-id") ?? request.header("x-request-id") ?? null
+    });
+
+    response.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=15");
+    response.setHeader(
+      "Server-Timing",
+      `shops-nearby;dur=${durationMs(startedAt).toFixed(1)};desc="${result.cacheHit ? "cache" : "db"}"`
+    );
+    return result.data;
   }
 
   @Get(":publicId/:publicSlug/products")

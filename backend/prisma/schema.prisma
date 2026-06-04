@@ -837,6 +837,7 @@ model Store {
   pincode             String?
   latitude            Decimal?               @db.Decimal(10, 7)
   longitude           Decimal?               @db.Decimal(10, 7)
+  location            Unsupported("geography(Point,4326)")?
   status              StoreStatus            @default(PENDING)
   isDeliveryAvailable Boolean                @default(false) @map("is_delivery_available")
   openingTime         String?                @map("opening_time")

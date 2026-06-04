@@ -77,6 +77,7 @@ async function bootstrap() {
       "cache-control",
       "pragma",
       "x-store-id",
+      "x-device-id",
       "x-device-timezone",
       "x-device-screen",
       "x-device-language"

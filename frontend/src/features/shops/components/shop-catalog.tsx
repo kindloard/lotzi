@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { memo, type MouseEvent, useCallback, useMemo, useState } from "react";
+import { memo, type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Heart, Minus, Plus } from "lucide-react";
+import { useLocationTicker } from "@/lib/use-location-ticker";
 import { useFormatter, useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCart } from "@/lib/cart-context";
@@ -17,6 +18,7 @@ import { shopProductDetailQueryKey } from "../hooks/use-shop-product-detail";
 import { canonicalProductPath, productRefFromParts } from "../lib/product-route";
 import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
 import { useCatalogRealtimeSubscription } from "../realtime/catalog-realtime";
+import { OfferBadge } from "./offer-badge";
 import { Link, useRouter } from "@/i18n/navigation";
 
 const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -49,6 +51,14 @@ export function ShopCatalog({
     title: string;
   } | null>(null);
   const { addToCart, cartItems, clearCart, updateQty } = useCart();
+  const { gpsStatus } = useLocationTicker();
+
+  useEffect(() => {
+    if (gpsStatus === "denied" || gpsStatus === "error") {
+      router.replace("/");
+    }
+  }, [gpsStatus, router]);
+
   const isLocalCatalogMode = initialProducts.pagination.total <= initialProducts.pagination.limit;
   const shouldFetchFacets = !filters.category;
   const catalogFetchOptions = isLocalCatalogMode
@@ -451,6 +461,7 @@ const ProductCard = memo(function ProductCard({
   onQtyChange: (delta: number) => void;
 }) {
   const router = useRouter();
+  const [isFavorite, setIsFavorite] = useState(false);
   const catalogImage = getPreferredCatalogImage(product);
   const imageUrl = optimizedCloudinaryUrl(catalogImage?.url ?? product.imageUrl, { width: 360 });
   const hasViewerImage = Boolean(catalogImage?.url || product.imageUrl);
@@ -459,8 +470,10 @@ const ProductCard = memo(function ProductCard({
   const displayInStock = Boolean(purchasableVariant);
   const availableStock = purchasableVariant?.stock ?? 0;
   const quantityAtLimit = displayInStock && qty >= availableStock;
-  const price = formatPrice(displayVariant?.price ?? product.price);
-  const compareAt = displayVariant?.compareAtPrice ? formatPrice(displayVariant.compareAtPrice) : null;
+  const displayPrice = displayVariant?.price ?? product.price;
+  const displayCompareAtPrice = displayVariant?.compareAtPrice ?? product.compareAtPrice;
+  const price = formatPrice(displayPrice);
+  const compareAt = displayCompareAtPrice && displayCompareAtPrice > displayPrice ? formatPrice(displayCompareAtPrice) : null;
   const unitDisplay = displayVariant?.unitDisplay ?? product.unitDisplay;
 
   function handleCardClick(event: MouseEvent<HTMLElement>) {
@@ -473,25 +486,28 @@ const ProductCard = memo(function ProductCard({
 
   return (
     <article
-      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] transition ${
-        displayInStock ? "border-slate-100" : "border-slate-200 bg-slate-50/80"
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] transition cursor-pointer ${
+        displayInStock ? "border-slate-100 hover:border-slate-300" : "border-slate-200 bg-slate-50/80"
       }`}
       onClick={handleCardClick}
       onFocus={onPrefetch}
       onPointerEnter={onPrefetch}
       onTouchStart={onPrefetch}
     >
-      <button
-        type="button"
-        className="relative h-[130px] w-full overflow-hidden bg-slate-50/50 p-2 text-left sm:h-[150px] sm:p-3 disabled:cursor-default"
-        disabled={!hasViewerImage}
-        onClick={() => onPreviewImage(0)}
-        aria-label={labels.viewImage(product.name)}
+      <div
+        className="relative h-[130px] w-full overflow-hidden bg-slate-50/50 p-2 text-left sm:h-[150px] sm:p-3"
       >
         {!displayInStock ? (
           <span className="absolute left-3 top-3 z-10 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-rose-600 shadow-sm ring-1 ring-rose-100">
             {labels.outOfStock}
           </span>
+        ) : null}
+        {displayInStock ? (
+          <OfferBadge
+            className="absolute right-3 top-3 z-10"
+            compareAtPrice={displayCompareAtPrice}
+            price={displayPrice}
+          />
         ) : null}
         {imageUrl ? (
           <Image
@@ -500,14 +516,14 @@ const ProductCard = memo(function ProductCard({
             fill
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-            className={`object-contain p-4 mix-blend-multiply transition ${displayInStock ? "" : "grayscale opacity-60"}`}
+            className={`object-contain p-4 mix-blend-multiply transition group-hover:scale-105 duration-300 ${displayInStock ? "" : "grayscale opacity-60"}`}
           />
         ) : (
           <span className={`flex h-full items-center justify-center text-lg font-black ${displayInStock ? "text-slate-300" : "text-slate-400"}`}>
             {product.imageInitials}
           </span>
         )}
-      </button>
+      </div>
 
       <div className="flex flex-1 flex-col p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
@@ -523,8 +539,18 @@ const ProductCard = memo(function ProductCard({
               {product.name}
             </h3>
           </Link>
-          <button type="button" aria-label={labels.favorite} className="text-slate-900 shrink-0 mt-0.5">
-            <Heart size={16} strokeWidth={3} />
+          <button
+            type="button"
+            aria-label={labels.favorite}
+            aria-pressed={isFavorite}
+            onClick={() => setIsFavorite((current) => !current)}
+            className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 ${
+              isFavorite
+                ? "bg-brand text-black"
+                : "bg-slate-100 text-slate-900"
+            }`}
+          >
+            <Heart size={16} strokeWidth={3} fill={isFavorite ? "currentColor" : "none"} />
           </button>
         </div>
         

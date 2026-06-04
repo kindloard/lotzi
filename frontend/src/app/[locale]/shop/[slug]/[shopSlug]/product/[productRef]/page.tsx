@@ -5,6 +5,7 @@ import { ShopHeaderMobile } from "@/components/shop-header-mobile";
 import { getShopDetailForPage, getShopProductDetailForPage, ShopPageFetchError } from "@/features/shops/api/server-shops";
 import { parseProductRefSegment, productRefFromParts } from "@/features/shops/lib/product-route";
 import { ShopProductDetailView } from "@/features/shops/components/shop-product-detail-view";
+import { StorefrontFooter } from "@/features/shops/components/storefront-footer";
 import { ShopsQueryProvider } from "@/features/shops/providers/shops-query-provider";
 
 type ProductPageProps = {
@@ -98,32 +99,35 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   const storePath = `/shop/${detail.store.publicId}/${detail.store.publicSlug}`;
 
   return (
-    <main className="min-h-screen bg-white pb-32 text-slate-950 md:pb-12">
-      <ShopHeaderMobile
-        shopName={detail.store.name}
-        address={headerAddress}
-        typeName={detail.store.typeName}
-        backHref={storePath}
-      />
-      <div className="mx-auto hidden max-w-7xl px-4 py-6 sm:px-6 lg:block lg:px-8">
-        <nav aria-label="Breadcrumb" className="text-sm font-semibold text-slate-400">
-          <ol className="flex items-center gap-2 min-w-0">
-            <li className="shrink-0">
-              <Link href={storePath} className="hover:text-slate-900 transition-colors">
-                {detail.store.name}
-              </Link>
-            </li>
-            <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
-            <li className="truncate text-slate-900 min-w-0">{detail.product.name}</li>
-          </ol>
-        </nav>
-      </div>
-      <ShopsQueryProvider>
-        <ShopProductDetailView
-          initialImageIndex={initialImageIndex}
-          productDetail={detail}
+    <main className="flex min-h-screen flex-col bg-white text-slate-950">
+      <div className="flex-1 pb-32 md:pb-12">
+        <ShopHeaderMobile
+          shopName={detail.store.name}
+          address={headerAddress}
+          typeName={detail.store.typeName}
+          backHref={storePath}
         />
-      </ShopsQueryProvider>
+        <div className="mx-auto hidden max-w-7xl px-4 py-6 sm:px-6 lg:block lg:px-8">
+          <nav aria-label="Breadcrumb" className="text-sm font-semibold text-slate-400">
+            <ol className="flex items-center gap-2 min-w-0">
+              <li className="shrink-0">
+                <Link href={storePath} className="hover:text-slate-900 transition-colors">
+                  {detail.store.name}
+                </Link>
+              </li>
+              <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
+              <li className="truncate text-slate-900 min-w-0">{detail.product.name}</li>
+            </ol>
+          </nav>
+        </div>
+        <ShopsQueryProvider>
+          <ShopProductDetailView
+            initialImageIndex={initialImageIndex}
+            productDetail={detail}
+          />
+        </ShopsQueryProvider>
+      </div>
+      <StorefrontFooter compact />
       <ProductJsonLd locale={locale} detail={detail} />
     </main>
   );

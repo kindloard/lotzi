@@ -164,6 +164,62 @@ export class ObservabilityService implements OnModuleInit {
     help: "Public shop page rate limited requests by endpoint",
     labelNames: ["endpoint"]
   });
+  readonly geoSearchLatency = new client.Histogram({
+    name: "lotzi_geo_search_latency_seconds",
+    help: "Nearby shop discovery request latency in seconds by cache outcome",
+    labelNames: ["cache"],
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.35, 0.5, 1, 2]
+  });
+  readonly geoQueryLatency = new client.Histogram({
+    name: "lotzi_geo_query_latency_seconds",
+    help: "PostGIS nearby shop query latency in seconds",
+    buckets: [0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.5, 1]
+  });
+  readonly geoCacheL1Hits = new client.Counter({
+    name: "lotzi_geo_cache_l1_hits_total",
+    help: "Nearby shop discovery L1 cache hits"
+  });
+  readonly geoCacheL2Hits = new client.Counter({
+    name: "lotzi_geo_cache_l2_hits_total",
+    help: "Nearby shop discovery Redis cache hits"
+  });
+  readonly geoCacheMisses = new client.Counter({
+    name: "lotzi_geo_cache_misses_total",
+    help: "Nearby shop discovery cache misses"
+  });
+  readonly geoStampedeLockWait = new client.Histogram({
+    name: "lotzi_geo_stampede_lock_wait_seconds",
+    help: "Time spent waiting for an in-flight nearby discovery cache fill",
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.5]
+  });
+  readonly geoStaleServes = new client.Counter({
+    name: "lotzi_geo_stale_serves_total",
+    help: "Nearby discovery responses served without cache write because freshness could not be proven",
+    labelNames: ["reason"]
+  });
+  readonly geoEpochConflicts = new client.Counter({
+    name: "lotzi_geo_epoch_conflicts_total",
+    help: "Nearby discovery cache writes skipped because the geo epoch changed during the request"
+  });
+  readonly geoInvalidCoordinates = new client.Counter({
+    name: "lotzi_geo_invalid_coordinates_total",
+    help: "Invalid nearby discovery coordinate requests by field",
+    labelNames: ["field"]
+  });
+  readonly geoRateLimited = new client.Counter({
+    name: "lotzi_geo_rate_limited_total",
+    help: "Nearby discovery rate-limited requests by bucket",
+    labelNames: ["bucket"]
+  });
+  readonly geoRedisDegraded = new client.Counter({
+    name: "lotzi_geo_redis_degraded_total",
+    help: "Nearby discovery operations that degraded because Redis was unavailable",
+    labelNames: ["operation"]
+  });
+  readonly geoFraudCircuitState = new client.Gauge({
+    name: "lotzi_geo_fraud_circuit_state",
+    help: "Geo fraud circuit state: 0 closed, 1 half-open, 2 open"
+  });
   readonly checkoutTraceQueryCapReached = new client.Counter({
     name: "lotzi_checkout_trace_query_cap_reached_total",
     help: "Checkout trace requests that reached the per-request query trace cap"
@@ -203,6 +259,18 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.shopPageCacheEvents);
     this.registry.registerMetric(this.shopPageProductsReturned);
     this.registry.registerMetric(this.shopPageRateLimited);
+    this.registry.registerMetric(this.geoSearchLatency);
+    this.registry.registerMetric(this.geoQueryLatency);
+    this.registry.registerMetric(this.geoCacheL1Hits);
+    this.registry.registerMetric(this.geoCacheL2Hits);
+    this.registry.registerMetric(this.geoCacheMisses);
+    this.registry.registerMetric(this.geoStampedeLockWait);
+    this.registry.registerMetric(this.geoStaleServes);
+    this.registry.registerMetric(this.geoEpochConflicts);
+    this.registry.registerMetric(this.geoInvalidCoordinates);
+    this.registry.registerMetric(this.geoRateLimited);
+    this.registry.registerMetric(this.geoRedisDegraded);
+    this.registry.registerMetric(this.geoFraudCircuitState);
     this.registry.registerMetric(this.checkoutTraceQueryCapReached);
   }
 
@@ -331,6 +399,54 @@ export class ObservabilityService implements OnModuleInit {
 
   recordShopPageRateLimited(endpoint: string): void {
     this.shopPageRateLimited.inc({ endpoint });
+  }
+
+  observeGeoSearch(cache: string, durationMs: number): void {
+    this.geoSearchLatency.observe({ cache }, durationMs / 1000);
+  }
+
+  observeGeoQuery(durationMs: number): void {
+    this.geoQueryLatency.observe(durationMs / 1000);
+  }
+
+  recordGeoCacheHit(layer: "l1" | "l2"): void {
+    if (layer === "l1") {
+      this.geoCacheL1Hits.inc();
+      return;
+    }
+    this.geoCacheL2Hits.inc();
+  }
+
+  recordGeoCacheMiss(): void {
+    this.geoCacheMisses.inc();
+  }
+
+  observeGeoStampedeLockWait(durationMs: number): void {
+    this.geoStampedeLockWait.observe(durationMs / 1000);
+  }
+
+  recordGeoStaleServe(reason: string): void {
+    this.geoStaleServes.inc({ reason });
+  }
+
+  recordGeoEpochConflict(): void {
+    this.geoEpochConflicts.inc();
+  }
+
+  recordGeoInvalidCoordinate(field: string): void {
+    this.geoInvalidCoordinates.inc({ field });
+  }
+
+  recordGeoRateLimited(bucket: string): void {
+    this.geoRateLimited.inc({ bucket });
+  }
+
+  recordGeoRedisDegraded(operation: string): void {
+    this.geoRedisDegraded.inc({ operation });
+  }
+
+  setGeoFraudCircuitState(state: "closed" | "half_open" | "open"): void {
+    this.geoFraudCircuitState.set(state === "open" ? 2 : state === "half_open" ? 1 : 0);
   }
 
   recordCheckoutTraceQueryCapReached(): void {

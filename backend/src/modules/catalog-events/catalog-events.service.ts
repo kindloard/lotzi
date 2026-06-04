@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from "@nestjs/common";
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { DomainEventStatus, Prisma, type DomainEvent } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogCacheService } from "../catalog-cache/catalog-cache.service";
+import { GeoDiscoveryCacheService } from "../geo-discovery/geo-discovery-cache.service";
+import type { GeoCoordinates } from "../geo-discovery/geo-utils";
 import { RealtimeCatalogGateway, type CatalogRealtimeEvent } from "../realtime/realtime-catalog.gateway";
 import { RedisService } from "../redis/redis.service";
 
@@ -45,7 +47,8 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly cache: CatalogCacheService,
-    private readonly realtime: RealtimeCatalogGateway
+    private readonly realtime: RealtimeCatalogGateway,
+    @Optional() private readonly geoCache?: GeoDiscoveryCacheService
   ) {}
 
   async onApplicationBootstrap() {
@@ -120,7 +123,8 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
           nextRunAt: { lte: new Date() },
           OR: [
             { eventType: { startsWith: "catalog." } },
-            { eventType: { startsWith: "inventory." } }
+            { eventType: { startsWith: "inventory." } },
+            { eventType: { startsWith: "shop.location." } }
           ]
         },
         orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
@@ -209,7 +213,25 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
       await this.applyInventoryEvent(values.eventId, eventType, values.schemaVersion, values.occurredAt, payload);
       return;
     }
+    if (eventType.startsWith("shop.location.")) {
+      await this.applyShopLocationEvent(payload);
+      return;
+    }
     await this.applyCatalogEvent(values.eventId, eventType, values.schemaVersion, values.occurredAt, payload);
+  }
+
+  private async applyShopLocationEvent(payload: Record<string, unknown>) {
+    if (!this.geoCache) {
+      return;
+    }
+    const next = coordinatesValue(payload.next);
+    if (!next) {
+      return;
+    }
+    await this.geoCache.bumpLocationEpochs({
+      previous: coordinatesValue(payload.previous),
+      next
+    });
   }
 
   private async applyCatalogEvent(
@@ -355,6 +377,18 @@ function stringValue(value: unknown, nestedKey?: string): string | null {
     return stringValue(value[nestedKey]);
   }
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function coordinatesValue(value: unknown): GeoCoordinates | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const latitude = Number(value.latitude);
+  const longitude = Number(value.longitude);
+  return Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+    ? { latitude, longitude }
+    : null;
 }
 
 function retryAt(attempts: number) {

@@ -33,7 +33,7 @@ export class ShopPageFetchError extends Error {
 }
 
 export async function getShopsForLanding(): Promise<Shop[]> {
-  return serverFetchJson<Shop[]>("/v1/shops", []);
+  return [];
 }
 
 export async function getDealProductsForLanding(): Promise<DealProduct[]> {

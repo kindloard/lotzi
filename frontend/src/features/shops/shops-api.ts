@@ -226,8 +226,37 @@ export interface ShopDistance {
   durationText: string | null;
 }
 
+export interface NearbyShopsResponse {
+  apiVersion: "v1";
+  radiusKm: number;
+  items: Shop[];
+  pageInfo: {
+    limit: number;
+    hasNextPage: boolean;
+    nextCursor: string | null;
+  };
+}
+
 export function fetchShops(_params?: { latitude?: number; longitude?: number }, init?: RequestInit) {
   return apiFetch<Shop[]>("/v1/shops", init);
+}
+
+export function fetchNearbyShops(
+  coordinates: Coordinates,
+  options: { cursor?: string | null; limit?: number } = {},
+  init?: RequestInit
+) {
+  const params = new URLSearchParams({
+    latitude: String(coordinates.latitude),
+    longitude: String(coordinates.longitude)
+  });
+  if (options.limit) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
+  }
+  return apiFetch<NearbyShopsResponse>(`/v1/shops/nearby?${params.toString()}`, init);
 }
 
 export function fetchShopProducts(init?: RequestInit) {
@@ -361,99 +390,4 @@ export function fetchShopDistances(coordinates: Coordinates, init?: RequestInit)
   }
 
   return apiFetch<ShopDistance[]>(`/v1/shops/distances?${params.toString()}`, init);
-}
-
-export function enrichShopsWithDistance(shops: Shop[], coordinates: Coordinates | null): Shop[] {
-  if (!coordinates) {
-    return shops;
-  }
-
-  return shops.map((shop) => {
-    if (shop.latitude == null || shop.longitude == null) {
-      return shop;
-    }
-
-    const distanceMeters = distanceInMeters(
-      coordinates.latitude,
-      coordinates.longitude,
-      shop.latitude,
-      shop.longitude
-    );
-
-    return {
-      ...shop,
-      distance: formatApproximateDistance(distanceMeters, coordinates.accuracyMeters ?? null),
-      distanceMeters,
-      distanceAccuracyMeters: coordinates.accuracyMeters ?? null,
-      distanceSource: "straight_line"
-    };
-  });
-}
-
-export function mergeShopDistances(shops: Shop[], distances: ShopDistance[] | undefined): Shop[] {
-  if (!distances?.length) {
-    return shops;
-  }
-
-  const byShopId = new Map(distances.map((distance) => [distance.shopId, distance]));
-  return shops.map((shop) => {
-    const distance = byShopId.get(shop.id);
-    return distance
-      ? {
-          ...shop,
-          distance: distance.distance,
-          distanceMeters: distance.distanceMeters,
-          distanceAccuracyMeters: distance.distanceAccuracyMeters,
-          distanceSource: distance.distanceSource,
-          durationSeconds: distance.durationSeconds,
-          durationText: distance.durationText
-        }
-      : shop;
-  });
-}
-
-function distanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const radiusMeters = 6_371_000;
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return radiusMeters * c;
-}
-
-function formatApproximateDistance(distanceMeters: number, accuracyMeters: number | null) {
-  const safeDistance = Number.isFinite(distanceMeters) ? Math.max(0, distanceMeters) : 0;
-  const accuracy = accuracyMeters && Number.isFinite(accuracyMeters) && accuracyMeters > 0
-    ? Math.max(accuracyMeters, 25)
-    : 100;
-
-  if (safeDistance <= Math.max(accuracy, 50)) {
-    return "Nearby";
-  }
-
-  if (safeDistance < 100) {
-    return "Within 100 m";
-  }
-
-  if (safeDistance < 1_000) {
-    const bucket = accuracy > 100 ? 100 : 50;
-    const roundedMeters = Math.max(100, Math.round(safeDistance / bucket) * bucket);
-    return `About ${roundedMeters} m away`;
-  }
-
-  const bucket = safeDistance < 10_000 ? 100 : 1_000;
-  const roundedMeters = Math.round(safeDistance / bucket) * bucket;
-  const value = roundedMeters < 10_000
-    ? (roundedMeters / 1_000).toFixed(1)
-    : Math.round(roundedMeters / 1_000).toString();
-  return `About ${value} km away`;
-}
-
-function toRadians(value: number) {
-  return value * (Math.PI / 180);
 }

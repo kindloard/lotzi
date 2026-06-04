@@ -12,6 +12,7 @@ import {
   ShopPageFetchError
 } from "@/features/shops/api/server-shops";
 import { ShopCatalog } from "@/features/shops/components/shop-catalog";
+import { StorefrontFooter } from "@/features/shops/components/storefront-footer";
 import { ShopsQueryProvider } from "@/features/shops/providers/shops-query-provider";
 import type { ShopDetail, ShopProductsFilters, ShopProductsResponse } from "@/features/shops/shops-api";
 
@@ -127,6 +128,7 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
           <ServerShopCatalog locale={locale} shop={shop} filters={filters} />
         </Suspense>
       </ShopsQueryProvider>
+      <StorefrontFooter compact />
     </main>
   );
 }
@@ -203,8 +205,13 @@ function CatalogFallback() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="h-12 rounded-lg bg-slate-100" />
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {Array.from({ length: 10 }).map((_, index) => (
+      <div className="mt-6 grid grid-cols-2 gap-3 md:hidden">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <div key={index} className="h-72 rounded-lg bg-slate-100" />
+        ))}
+      </div>
+      <div className="mt-6 hidden gap-3 md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="h-72 rounded-lg bg-slate-100" />
         ))}
       </div>

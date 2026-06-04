@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { OrderStatus, PaymentStatus, Prisma, StoreStatus } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
+import { GeoLocationWriter } from "../geo-discovery/geo-location-writer.service";
 import { PaymentTransitionService } from "../payments/payment-transition.service";
 import { ShopsService } from "../shops/shops.service";
 import { MerchantOrderStatusUpdateDto } from "./dto/merchant-orders.dto";
@@ -36,7 +37,8 @@ export class MerchantDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly transitions: PaymentTransitionService,
-    private readonly shops: ShopsService
+    private readonly shops: ShopsService,
+    private readonly geoLocationWriter: GeoLocationWriter
   ) {}
 
   async bootstrap(auth: AuthenticatedPrincipal): Promise<MerchantDashboardBootstrap> {
@@ -73,29 +75,16 @@ export class MerchantDashboardService {
     dto: UpdateStoreLocationDto
   ): Promise<MerchantStoreLocation> {
     const membership = await this.activeMembership(auth);
-    const updated = await this.prisma.store.update({
-      where: { id: membership.store_id },
-      data: {
-        latitude: roundCoordinate(dto.latitude),
-        longitude: roundCoordinate(dto.longitude),
-        ...(dto.addressLine === undefined ? {} : { addressLine: nullableText(dto.addressLine) }),
-        ...(dto.city === undefined ? {} : { city: nullableText(dto.city) }),
-        ...(dto.state === undefined ? {} : { state: nullableText(dto.state) }),
-        ...(dto.pincode === undefined ? {} : { pincode: nullableText(dto.pincode) })
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        addressLine: true,
-        city: true,
-        state: true,
-        pincode: true,
-        latitude: true,
-        longitude: true,
-        updatedAt: true
-      }
+    const updated = await this.geoLocationWriter.updateStoreLocation({
+      storeId: membership.store_id,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      addressLine: dto.addressLine,
+      city: dto.city,
+      state: dto.state,
+      pincode: dto.pincode,
+      actorUserId: auth.userId,
+      operation: "merchant.location.update"
     });
 
     await this.shops.invalidateShopCaches({
@@ -579,15 +568,6 @@ function locationFromStore(store: {
     googleMapsUrl: googleMapsUrl(store.latitude, store.longitude),
     updatedAt: store.updatedAt.toISOString()
   };
-}
-
-function nullableText(value: string) {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function roundCoordinate(value: number) {
-  return Math.round(value * 10_000_000) / 10_000_000;
 }
 
 function decimalToNumber(value: Prisma.Decimal | number | string | null | undefined) {

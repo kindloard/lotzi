@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { DealProduct, Shop } from "../shops-api";
-import { useShops } from "../hooks/use-shops";
+import { useNearbyShops } from "../hooks/use-nearby-shops";
+import { usePreciseLocation } from "../hooks/use-precise-location";
 import { CategoryFilter } from "./category-filter";
 import { NearbyShopsGrid } from "./nearby-shops-grid";
 
@@ -16,8 +17,9 @@ export function LandingShopBrowser({
   initialShops
 }: LandingShopBrowserProps) {
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const shopsQuery = useShops(initialShops);
-  const shops = shopsQuery.data ?? initialShops;
+  const { coordinates, requestLocation, status: locationStatus } = usePreciseLocation();
+  const nearbyQuery = useNearbyShops(coordinates);
+  const shops = coordinates ? nearbyQuery.data?.items ?? [] : [];
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -42,7 +44,13 @@ export function LandingShopBrowser({
         selectedCategory={selectedCategory}
         onSelectCategory={handleSelectCategory}
       />
-      <NearbyShopsGrid initialShops={initialShops} selectedCategory={selectedCategory} />
+      <NearbyShopsGrid
+        isLoading={nearbyQuery.isLoading}
+        locationStatus={locationStatus}
+        requestLocation={requestLocation}
+        selectedCategory={selectedCategory}
+        shops={shops}
+      />
     </>
   );
 }

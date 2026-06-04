@@ -12,6 +12,7 @@ import { productRefFromParts } from "../lib/product-route";
 import { useShopProductDetail } from "../hooks/use-shop-product-detail";
 import { buildSubCategoryLabels, localizeCategoryLabel, localizeSubCategoryLabel } from "../lib/category-labels";
 import { useCatalogRealtimeSubscription } from "../realtime/catalog-realtime";
+import { OfferBadge } from "./offer-badge";
 
 export function ShopProductDetailView({
   initialImageIndex,
@@ -66,6 +67,7 @@ export function ShopProductDetailView({
   const { addToCart, cartItems, updateQty } = useCart();
   const [activeImageIndex, setActiveImageIndex] = useState(initialImageIndex);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
   const defaultVariantId =
     detail.product.variants.find((variant) => variant.isDefault && variant.inStock && variant.stock > 0)?.id ??
     detail.product.variants.find((variant) => variant.inStock && variant.stock > 0)?.id ??
@@ -121,10 +123,6 @@ export function ShopProductDetailView({
     .reduce((sum, item) => sum + item.qty, 0);
   const quantityAtLimit = displayInStock && cartQty >= displayStock;
 
-  const discountPercent = displayCompareAtPrice && displayCompareAtPrice > displayPrice
-    ? Math.round(((displayCompareAtPrice - displayPrice) / displayCompareAtPrice) * 100)
-    : 0;
-
   const visibleProductImages = useMemo(() => {
     const productLevelImages = detail.product.images.filter((image) => (image.variantIds ?? []).length === 0);
     if (!selectedVariant?.id) {
@@ -171,6 +169,11 @@ export function ShopProductDetailView({
   useEffect(() => {
     setActiveImageIndex(0);
   }, [galleryImageKey, selectedVariant?.id]);
+
+  // Force scroll to top on load for premium FAANG-level navigation experience
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [productDetail.product.publicId]);
 
   const activeImage = galleryImages[activeImageIndex] ?? galleryImages[0];
 
@@ -251,11 +254,7 @@ export function ShopProductDetailView({
                 <span className="inline-flex max-w-full items-center truncate rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-black">
                   {displayCategoryPill}
                 </span>
-                {discountPercent > 0 && (
-                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 shrink-0">
-                    {tDetail("savePercent", { percent: discountPercent })}
-                  </span>
-                )}
+                <OfferBadge compareAtPrice={displayCompareAtPrice} price={displayPrice} size="md" />
               </div>
               <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-black sm:text-3xl lg:text-4xl">
                 {detail.product.name}
@@ -334,8 +333,18 @@ export function ShopProductDetailView({
                     {tDetail("addToCart")}
                   </button>
                 )}
-                <button type="button" aria-label={tDetail("favorite")} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-600 transition-colors">
-                  <Heart size={22} />
+                <button
+                  type="button"
+                  aria-label={tDetail("favorite")}
+                  aria-pressed={isFavorite}
+                  onClick={() => setIsFavorite((current) => !current)}
+                  className={`flex h-14 w-14 items-center justify-center rounded-2xl transition-all active:scale-95 ${
+                    isFavorite
+                      ? "bg-brand text-black shadow-[0_8px_20px_rgb(158,240,26,0.22)]"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  <Heart size={22} fill={isFavorite ? "currentColor" : "none"} />
                 </button>
               </div>
             </div>
@@ -390,6 +399,11 @@ export function ShopProductDetailView({
                   className="block"
                 >
                   <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-slate-50">
+                    <OfferBadge
+                      className="absolute right-2 top-2 z-10"
+                      compareAtPrice={item.compareAtPrice}
+                      price={item.price}
+                    />
                     {item.imageUrl ? (
                       <Image
                         src={item.imageUrl}
@@ -404,9 +418,16 @@ export function ShopProductDetailView({
                     <h3 className="line-clamp-2 text-sm font-bold text-black break-words">
                       {item.name}
                     </h3>
-                    <p className="text-sm font-black text-black">
-                      {formatPrice(item.price)}
-                    </p>
+                    <div className="flex flex-wrap items-baseline gap-1.5">
+                      <p className="text-sm font-black text-black">
+                        {formatPrice(item.price)}
+                      </p>
+                      {item.compareAtPrice && item.compareAtPrice > item.price ? (
+                        <p className="text-[11px] font-semibold text-slate-400 line-through">
+                          {formatPrice(item.compareAtPrice)}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 </Link>
               </article>
