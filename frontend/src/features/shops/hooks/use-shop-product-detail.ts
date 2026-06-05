@@ -16,11 +16,17 @@ export function useShopProductDetail(
 ) {
   return useQuery({
     queryKey: shopProductDetailQueryKey(publicId, publicSlug, productRef),
-    queryFn: ({ signal }) => fetchShopProductDetail(publicId, publicSlug, productRef, { signal }),
+    queryFn: ({ signal }) => fetchShopProductDetail(
+      publicId,
+      publicSlug,
+      productRef,
+      { includeRecommendations: false },
+      { signal }
+    ),
     initialData,
     refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
-    staleTime: 0
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    staleTime: 2 * 60 * 1000
   });
 }

@@ -1,7 +1,6 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { recordCheckoutQueryTrace, shouldEnableCheckoutQueryEvents } from "../modules/checkout/checkout-tracing";
-import { verifyProductCatalogSchema } from "../scripts/product-catalog-schema";
 
 export interface RlsContext {
   userId: string;
@@ -14,6 +13,8 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly logger = new Logger(PrismaService.name);
+
   constructor() {
     super({
       log: shouldEnableCheckoutQueryEvents()
@@ -27,11 +28,52 @@ export class PrismaService
   }
 
   async onModuleInit() {
+    await this.connectWithRetry();
     this.attachCheckoutQueryTracing();
   }
 
   async onModuleDestroy() {
     await this.$disconnect();
+  }
+
+  /**
+   * Verifies database connectivity via a lightweight query.
+   * Used by health/readiness probes.
+   */
+  async isHealthy(): Promise<boolean> {
+    try {
+      await this.$queryRaw`SELECT 1`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async connectWithRetry() {
+    const maxRetries = positiveIntFromEnv("PRISMA_CONNECT_RETRIES", 5);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const start = Date.now();
+        await this.$connect();
+        this.logger.log(
+          `Database connected in ${Date.now() - start}ms (attempt ${attempt}/${maxRetries})`
+        );
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt === maxRetries) {
+          this.logger.error(
+            `Database connection failed after ${maxRetries} attempts: ${message}`
+          );
+          throw error;
+        }
+        const delayMs = Math.min(1000 * 2 ** (attempt - 1), 16_000);
+        this.logger.warn(
+          `Database connect attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms — ${message}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   withRlsContext<T>(

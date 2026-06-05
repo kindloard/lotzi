@@ -34,15 +34,21 @@ describe("ProductsService product save hot path", () => {
     });
 
     expect(response.product.images).toHaveLength(2);
-    expect(response.product.variants).toHaveLength(1);
+    expect(response.product.variants).toHaveLength(2);
     expect(response.product.variants[0]).toMatchObject({
+      isDefault: true,
+      name: "100g",
+      price: 40,
+      stock: 10
+    });
+    expect(response.product.variants[1]).toMatchObject({
       isDefault: false,
       name: "50g",
       price: 20,
       stock: 10
     });
-    expect(response.product.images[0].variantIds).toEqual([response.product.variants[0].id]);
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(response.product.images[0].variantIds).toEqual([response.product.variants[1].id]);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(inventory.initializeCatalogInventory).toHaveBeenCalledWith(tx, expect.objectContaining({
       storeId,
@@ -68,6 +74,36 @@ describe("ProductsService product save hot path", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("normalizes product-scoped images by dropping stale variant assignments", async () => {
+    const { tx, service } = createHarness();
+
+    const response = await service.create(auth(), draft({
+      images: [
+        {
+          uploadAssetId: assetA,
+          sortOrder: 0,
+          isPrimary: true,
+          imageScope: "PRODUCT",
+          variantClientIds: ["small"],
+          variantSkuIds: ["GW-50"]
+        }
+      ],
+      variants: [
+        {
+          clientId: "small",
+          name: "50g",
+          price: 20,
+          stock: 10,
+          sku: "GW-50",
+          measurement: { unitGroup: "WEIGHT", quantityValue: 50, quantityUnit: "G", packType: "PACK" }
+        }
+      ]
+    }));
+
+    expect(response.product.images[0].variantIds).toEqual([]);
+    expect(tx.productImageVariant.createMany).not.toHaveBeenCalled();
+  });
+
   it("creates a draft without images and skips image writes", async () => {
     const { prisma, tx, inventory, service } = createHarness({ assetCount: 0, assets: [] });
 
@@ -87,7 +123,7 @@ describe("ProductsService product save hot path", () => {
     expect(response.product.images).toEqual([]);
     expect(response.product.variants).toHaveLength(1);
     expect(prisma.uploadAsset.findMany).not.toHaveBeenCalled();
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(inventory.initializeCatalogInventory).toHaveBeenCalledWith(tx, expect.objectContaining({
       storeId,
@@ -120,7 +156,7 @@ describe("ProductsService product save hot path", () => {
     }))).rejects.toMatchObject({
       response: expect.objectContaining({ code: "UPLOAD_ASSET_NOT_ATTACHABLE" })
     });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it("rejects forbidden store access before category and asset work", async () => {
@@ -160,7 +196,7 @@ describe("ProductsService product save hot path", () => {
     }));
     expect(tx.productVariant.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: { name: "Chilli Powder" },
-      where: { productId: "product-1", isDefault: true }
+      where: { productId: "product-1", isDefault: true, status: "ACTIVE" }
     }));
     expect(tx.productImage.deleteMany).not.toHaveBeenCalled();
     expect(tx.productImage.createMany).not.toHaveBeenCalled();
@@ -226,6 +262,8 @@ function createHarness(options: {
       create: jest.fn(),
       createMany: jest.fn(async () => ({ count: 1 })),
       deleteMany: jest.fn(),
+      findMany: jest.fn(async () => []),
+      update: jest.fn(),
       updateMany: jest.fn(async () => ({ count: 1 }))
     },
     productImage: {
@@ -240,6 +278,32 @@ function createHarness(options: {
     },
     uploadAsset: {
       updateMany: jest.fn(async () => ({ count: 1 }))
+    },
+    auditLog: {
+      create: jest.fn(),
+      createMany: jest.fn()
+    },
+    $queryRaw: jest.fn(async () => [{
+      assetCount: options.attachable === false ? 0 : options.assetCount ?? 1,
+      product: options.attachable === false ? null : productRow({}),
+      assets: options.attachable === false ? [] : options.assets ?? [uploadAsset(assetA), uploadAsset(assetB)]
+    }]),
+    $executeRaw: jest.fn(async () => 0),
+    inventoryItem: {
+      update: jest.fn()
+    },
+    inventoryReservation: {
+      findMany: jest.fn(async () => []),
+      updateMany: jest.fn()
+    },
+    inventoryLedger: {
+      create: jest.fn()
+    },
+    cartItem: {
+      updateMany: jest.fn()
+    },
+    stockReservation: {
+      updateMany: jest.fn()
     }
   };
     const prisma = {

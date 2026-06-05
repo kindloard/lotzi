@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { Geist_Mono, Noto_Sans_Tamil, Plus_Jakarta_Sans } from "next/font/google";
+import { Geist_Mono, Noto_Sans_Tamil, Inter } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { IntlClientBridge } from "@/components/i18n/intl-client-bridge";
 import { directionForLocale } from "@/i18n/locale-meta";
@@ -10,11 +10,11 @@ import { getLocaleFallbackKeys, loadMessages } from "@/i18n/messages";
 import { routing, type AppLocale } from "@/i18n/routing";
 import "../globals.css";
 
-const appSans = Plus_Jakarta_Sans({
+const appSans = Inter({
   adjustFontFallback: true,
   display: "swap",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700", "800", "900"],
   variable: "--font-app-sans"
 });
 
@@ -81,7 +81,7 @@ export default async function RootLayout({ children, params }: LocaleLayoutProps
       lang={appLocale}
       className={`${appSans.variable} ${appMono.variable} ${tamilFont.variable}`}
     >
-      <body className="antialiased">
+      <body className="antialiased font-sans">
         <IntlClientBridge fallbackKeys={fallbackKeys} locale={appLocale} messages={messages}>
           <AppShell>{children}</AppShell>
         </IntlClientBridge>

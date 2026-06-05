@@ -21,11 +21,13 @@ export const shopQueryKeys = {
   ] as const,
   deals: () => [...shopQueryKeys.all, "deal-products"] as const,
   list: () => [...shopQueryKeys.all, "list"] as const,
-  nearby: (latitude: number | null, longitude: number | null, cursor: string | null = null) => [
+  nearby: (latGrid: string | null, lngGrid: string | null, radiusKm: number, limit: number, cursor: string | null = null) => [
     ...shopQueryKeys.all,
     "nearby",
-    latitude,
-    longitude,
+    latGrid,
+    lngGrid,
+    radiusKm,
+    limit,
     cursor ?? ""
   ] as const,
   pdpRoot: () => [...shopQueryKeys.all, "pdp"] as const,

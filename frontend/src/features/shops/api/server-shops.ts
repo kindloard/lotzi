@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { createHash } from "node:crypto";
 import type {
   DealProduct,
   Shop,
@@ -12,10 +13,13 @@ import type {
 const REQUIRED_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_FETCH_TIMEOUT_MS", 10_000);
 const OPTIONAL_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_OPTIONAL_FETCH_TIMEOUT_MS", 4_000);
 const DEFAULT_CATALOG_LIMIT = 24;
+const SHOP_DETAIL_REVALIDATE_SECONDS = positiveIntegerFromEnv("SHOP_DETAIL_REVALIDATE_SECONDS", 60 * 60);
+const SHOP_CATALOG_REVALIDATE_SECONDS = positiveIntegerFromEnv("SHOP_CATALOG_REVALIDATE_SECONDS", 60);
 
 type NextServerFetchInit = RequestInit & {
   next?: {
     revalidate?: number;
+    tags?: string[];
   };
 };
 
@@ -45,13 +49,18 @@ export const getShopDetailForPage = cache(async function getShopDetailForPage(
   publicSlug: string
 ): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}`, {
-    cache: "no-store"
+    next: {
+      revalidate: SHOP_DETAIL_REVALIDATE_SECONDS,
+      tags: [shopDetailTag(publicId)]
+    }
   });
 });
 
 export const getLegacyShopDetailForRedirect = cache(async function getLegacyShopDetailForRedirect(slug: string): Promise<ShopDetail> {
   return serverFetchRequired<ShopDetail>(`/v1/shops/${encodeURIComponent(slug)}`, {
-    cache: "no-store"
+    next: {
+      revalidate: SHOP_DETAIL_REVALIDATE_SECONDS
+    }
   });
 });
 
@@ -65,7 +74,12 @@ export async function getShopProductsForPage(
     return {
       data: await serverFetchRequired<ShopProductsResponse>(
         `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products${filtersToSearch(normalized)}`,
-        { cache: "no-store" }
+        {
+          next: {
+            revalidate: SHOP_CATALOG_REVALIDATE_SECONDS,
+            tags: shopCatalogTags(publicId, normalized)
+          }
+        }
       ),
       failed: false
     };
@@ -83,8 +97,13 @@ export const getShopProductDetailForPage = cache(async function getShopProductDe
   productRef: string
 ): Promise<ShopProductDetailResponse> {
   return serverFetchRequired<ShopProductDetailResponse>(
-    `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}`,
-    { cache: "no-store" }
+    `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}?includeRecommendations=1`,
+    {
+      next: {
+        revalidate: SHOP_CATALOG_REVALIDATE_SECONDS,
+        tags: shopPdpTags(productRef)
+      }
+    }
   );
 });
 
@@ -244,6 +263,41 @@ function filtersToSearch(filters: ShopProductsFilters) {
     params.set("limit", String(filters.limit));
   }
   return params.toString() ? `?${params.toString()}` : "";
+}
+
+function shopDetailTag(publicId: string) {
+  return `shop-detail:${publicId}`;
+}
+
+function shopCatalogTags(publicId: string, filters: ShopProductsFilters) {
+  return [
+    `shop-catalog:${publicId}`,
+    `shop-catalog:${publicId}:${hashCatalogFilters(filters)}`
+  ];
+}
+
+function shopPdpTags(productRef: string) {
+  const productPublicId = productPublicIdFromRef(productRef);
+  return productPublicId ? [`shop-pdp:${productPublicId}`] : [];
+}
+
+function productPublicIdFromRef(productRef: string) {
+  const normalized = productRef.trim().toLowerCase();
+  const match = normalized.match(/^([0-9a-f]{32})(?:-|$)/);
+  return match?.[1] ?? null;
+}
+
+function hashCatalogFilters(filters: ShopProductsFilters) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      category: filters.category,
+      limit: filters.limit,
+      page: filters.page,
+      q: filters.q,
+      sort: filters.sort
+    }))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 function emptyProductsResponse(publicId: string, publicSlug: string, filters: ShopProductsFilters): ShopProductsResponse {

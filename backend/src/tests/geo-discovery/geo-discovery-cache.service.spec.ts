@@ -44,7 +44,7 @@ describe("GeoDiscoveryCacheService", () => {
     const observability = observabilityMock();
     const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
     const context = await cache.getEpochContext({ latGrid: "12.912", lngGrid: "80.123" }, 5);
-    const key = cache.cacheKey(context, "first");
+    const key = cache.cacheKey(context, { cursorHash: "first", limit: 24, responseVersion: 1 });
 
     redis.values.set("geo:epoch:v1:global", "2");
 
@@ -60,12 +60,28 @@ describe("GeoDiscoveryCacheService", () => {
     const observability = observabilityMock();
     const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
     const context = await cache.getEpochContext({ latGrid: "12.912", lngGrid: "80.123" }, 5);
-    const key = cache.cacheKey(context, "first");
+    const key = cache.cacheKey(context, { cursorHash: "first", limit: 24, responseVersion: 1 });
 
     await expect(cache.setIfEpochUnchanged(key, context, "{}")).resolves.toBe(true);
     await expect(cache.get(key)).resolves.toBe("{}");
     expect(observability.recordGeoRedisDegraded).toHaveBeenCalledWith("cache_set");
     expect(observability.recordGeoCacheHit).toHaveBeenCalledWith("l1");
     expect(observability.recordGeoStaleServe).not.toHaveBeenCalled();
+  });
+
+  it("scopes nearby response cache keys by limit and response version", async () => {
+    const redis = new RedisMock();
+    const observability = observabilityMock();
+    const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
+    const context = await cache.getEpochContext({ latGrid: "12.912", lngGrid: "80.123" }, 5);
+
+    const firstPage24 = cache.cacheKey(context, { cursorHash: "first", limit: 24, responseVersion: 1 });
+    const firstPage48 = cache.cacheKey(context, { cursorHash: "first", limit: 48, responseVersion: 1 });
+    const nextVersion = cache.cacheKey(context, { cursorHash: "first", limit: 24, responseVersion: 2 });
+
+    expect(firstPage24).toContain("limit:24");
+    expect(firstPage48).toContain("limit:48");
+    expect(firstPage24).not.toEqual(firstPage48);
+    expect(firstPage24).not.toEqual(nextVersion);
   });
 });

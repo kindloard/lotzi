@@ -1,14 +1,28 @@
 import { Controller, Get, Header, Req, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
+import { PrismaService } from "../../database/prisma.service";
 import { ObservabilityService } from "./observability.service";
 
 @Controller("internal")
 export class ObservabilityController {
   constructor(
     private readonly observability: ObservabilityService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService
   ) {}
+
+  @Get("health/db")
+  async healthDb() {
+    const start = Date.now();
+    const healthy = await this.prisma.isHealthy();
+    const latencyMs = Date.now() - start;
+    return {
+      status: healthy ? "ok" : "degraded",
+      latencyMs,
+      timestamp: new Date().toISOString()
+    };
+  }
 
   @Get("metrics")
   @Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

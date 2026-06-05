@@ -130,7 +130,7 @@ function sendApiRequest(path: string, init: RequestInit | undefined, headers: He
   return fetch(`${resolveApiBaseUrl()}${path}`, {
     ...init,
     cache: init?.cache ?? "no-store",
-    credentials: "include",
+    credentials: init?.credentials ?? "include",
     headers
   });
 }

@@ -5,10 +5,12 @@ import { RateLimitService } from "../rate-limit/rate-limit.service";
 import { GeoDiscoveryService } from "../geo-discovery/geo-discovery.service";
 import { ShopsService, type CachedResult, type ShopProductSort, type ShopProductsQuery } from "./shops.service";
 
-const DETAIL_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=30";
+const DETAIL_CACHE_CONTROL = "public, max-age=300, s-maxage=3600, stale-while-revalidate=3600";
 const STOCK_SENSITIVE_CACHE_CONTROL = "no-store, max-age=0, must-revalidate";
-const PRODUCTS_CACHE_CONTROL = STOCK_SENSITIVE_CACHE_CONTROL;
-const PDP_CACHE_CONTROL = STOCK_SENSITIVE_CACHE_CONTROL;
+const PRODUCTS_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
+const PDP_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
+const NEARBY_PRIVATE_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=15";
+const NEARBY_CELL_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
 const PUBLIC_ID_PATTERN = /^\d{6}$/;
 const SHOP_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRODUCT_REF_PATTERN = /^([0-9a-f]{32})(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$/i;
@@ -92,14 +94,39 @@ export class ShopsController {
       limit,
       cursor,
       ip: clientIp(request),
-      deviceId: request.header("x-device-id") ?? request.header("x-request-id") ?? null
+      deviceId: request.header("x-device-id") ?? null
     });
 
-    response.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=15");
-    response.setHeader(
-      "Server-Timing",
-      `shops-nearby;dur=${durationMs(startedAt).toFixed(1)};desc="${result.cacheHit ? "cache" : "db"}"`
-    );
+    response.setHeader("Cache-Control", NEARBY_PRIVATE_CACHE_CONTROL);
+    response.setHeader("Server-Timing", nearbyServerTiming(result.timings, durationMs(startedAt), result.cacheSource));
+    return result.data;
+  }
+
+  @Get("nearby/cell")
+  async nearbyCell(
+    @Query("latGrid") latGrid: string | undefined,
+    @Query("lngGrid") lngGrid: string | undefined,
+    @Query("radiusKm") radiusKm: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @Query("cursor") cursor: string | undefined,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const startedAt = process.hrtime.bigint();
+    const result = await this.geoDiscovery.nearby({
+      latGrid,
+      lngGrid,
+      radiusKm,
+      limit,
+      cursor,
+      ip: clientIp(request),
+      publicCell: true
+    });
+
+    response.removeHeader("Set-Cookie");
+    response.setHeader("Cache-Control", NEARBY_CELL_CACHE_CONTROL);
+    response.vary("Accept-Encoding");
+    response.setHeader("Server-Timing", nearbyServerTiming(result.timings, durationMs(startedAt), result.cacheSource));
     return result.data;
   }
 
@@ -148,6 +175,7 @@ export class ShopsController {
     @Param("publicId") rawPublicId: string,
     @Param("publicSlug") rawPublicSlug: string,
     @Param("productRef") rawProductRef: string,
+    @Query("includeRecommendations") includeRecommendations: string | undefined,
     @Headers("if-none-match") ifNoneMatch: string | undefined,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response
@@ -159,7 +187,9 @@ export class ShopsController {
     await this.enforcePublicRateLimit("products", request, response, `shop-pdp:${clientIp(request)}:${publicId}`, 90, 60);
 
     try {
-      const result = await this.shops.getProductDetailForShopByPublicRoute(publicId, publicSlug, productRef.productPublicId);
+      const result = await this.shops.getProductDetailForShopByPublicRoute(publicId, publicSlug, productRef.productPublicId, {
+        includeRecommendations: parseOptionalBoolean(includeRecommendations, true)
+      });
       const duration = durationMs(startedAt);
       setPublicCacheHeaders(response, result, duration, "shop-pdp-page", PDP_CACHE_CONTROL);
 
@@ -496,6 +526,18 @@ function stripControlCharacters(value: string) {
 function clientIp(request: Request) {
   const forwarded = request.header("x-forwarded-for")?.split(",")[0]?.trim();
   return forwarded || request.ip || request.socket.remoteAddress || "unknown";
+}
+
+function nearbyServerTiming(
+  timings: Array<{ name: string; durationMs: number }>,
+  controllerDurationMs: number,
+  cacheSource: "l1" | "l2" | "miss"
+) {
+  const parts = timings.map((timing) =>
+    `${timing.name};dur=${timing.durationMs.toFixed(1)}`
+  );
+  parts.push(`shops-nearby;dur=${controllerDurationMs.toFixed(1)};desc="${cacheSource}"`);
+  return parts.join(", ");
 }
 
 function statusForError(error: unknown) {

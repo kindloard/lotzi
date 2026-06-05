@@ -46,4 +46,24 @@ describe("GeoCursorService", () => {
       radiusKm: 5
     })).toThrow(BadRequestException);
   });
+
+  it("allows public cell cursors when no per-request session hash is embedded", () => {
+    const service = new GeoCursorService(config as never);
+    const cursor = service.sign({
+      grid: { latGrid: "12.912", lngGrid: "80.123" },
+      radiusKm: 5,
+      distanceMeters: 100,
+      id: "11111111-1111-4111-8111-111111111111",
+      sessionHash: null
+    });
+
+    expect(service.verify(cursor, {
+      grid: { latGrid: "12.912", lngGrid: "80.123" },
+      radiusKm: 5,
+      sessionHash: "different-request"
+    })).toEqual({
+      distanceMeters: 100,
+      id: "11111111-1111-4111-8111-111111111111"
+    });
+  });
 });

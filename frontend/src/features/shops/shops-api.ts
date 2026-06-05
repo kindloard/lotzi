@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { DEFAULT_NEARBY_RADIUS_KM, gridForCoordinates } from "./lib/geo-grid";
 
 export interface Shop {
   id: string;
@@ -27,6 +28,8 @@ export interface Shop {
   distanceSource: "pending" | "straight_line" | "google_road";
   durationSeconds: number | null;
   durationText: string | null;
+  businessHours?: unknown;
+  timezone?: string | null;
   branding?: {
     tagline: string | null;
     description: string | null;
@@ -84,6 +87,20 @@ export interface ShopDetail {
   };
 }
 
+export type MediaSourceType = "PRODUCT" | "VARIANT";
+
+export interface ShopProductImage {
+  id: string;
+  url: string;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+  isPrimary: boolean;
+  mediaSource?: MediaSourceType;
+  variantIds: string[];
+  variantSkuIds: string[];
+}
+
 export interface ShopProductVariant {
   id: string;
   name: string;
@@ -94,6 +111,7 @@ export interface ShopProductVariant {
   unitDisplay: string;
   pricePerBaseUnitDisplay: string;
   isDefault: boolean;
+  images: ShopProductImage[];
 }
 
 export interface ShopProduct {
@@ -114,16 +132,7 @@ export interface ShopProduct {
   pricePerBaseUnitDisplay: string;
   imageUrl: string | null;
   imageInitials: string;
-  images: Array<{
-    id: string;
-    url: string;
-    altText: string | null;
-    width: number | null;
-    height: number | null;
-    isPrimary: boolean;
-    variantIds: string[];
-    variantSkuIds: string[];
-  }>;
+  images: ShopProductImage[];
   variants: ShopProductVariant[];
 }
 
@@ -178,6 +187,10 @@ export interface ShopProductDetailResponse {
     name: string;
     type: string;
     typeName: string;
+    address?: {
+      city: string | null;
+      state: string | null;
+    };
   };
   product: ShopProduct & {
     canonicalPath: string;
@@ -202,6 +215,7 @@ export interface ShopProductDetailResponse {
     publicId: string;
     slug: string;
     name: string;
+    description: string | null;
     imageUrl: string | null;
     price: number;
     compareAtPrice: number | null;
@@ -235,6 +249,14 @@ export interface NearbyShopsResponse {
     hasNextPage: boolean;
     nextCursor: string | null;
   };
+  cache?: {
+    ageMs: number;
+    grid: {
+      latGrid: string;
+      lngGrid: string;
+    };
+    source: "l1" | "l2" | "miss";
+  };
 }
 
 export function fetchShops(_params?: { latitude?: number; longitude?: number }, init?: RequestInit) {
@@ -243,12 +265,14 @@ export function fetchShops(_params?: { latitude?: number; longitude?: number }, 
 
 export function fetchNearbyShops(
   coordinates: Coordinates,
-  options: { cursor?: string | null; limit?: number } = {},
+  options: { cursor?: string | null; limit?: number; radiusKm?: number } = {},
   init?: RequestInit
 ) {
+  const grid = gridForCoordinates(coordinates);
   const params = new URLSearchParams({
-    latitude: String(coordinates.latitude),
-    longitude: String(coordinates.longitude)
+    latGrid: grid.latGrid,
+    lngGrid: grid.lngGrid,
+    radiusKm: String(options.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM)
   });
   if (options.limit) {
     params.set("limit", String(options.limit));
@@ -256,7 +280,11 @@ export function fetchNearbyShops(
   if (options.cursor) {
     params.set("cursor", options.cursor);
   }
-  return apiFetch<NearbyShopsResponse>(`/v1/shops/nearby?${params.toString()}`, init);
+  return apiFetch<NearbyShopsResponse>(`/v1/shops/nearby/cell?${params.toString()}`, {
+    ...init,
+    cache: init?.cache ?? "default",
+    credentials: init?.credentials ?? "omit"
+  });
 }
 
 export function fetchShopProducts(init?: RequestInit) {
@@ -307,11 +335,21 @@ export function fetchShopProductDetail(
   publicId: string,
   publicSlug: string,
   productRef: string,
+  options: { includeRecommendations?: boolean } = {},
   init?: RequestInit
 ) {
+  const params = new URLSearchParams();
+  if (options.includeRecommendations === false) {
+    params.set("includeRecommendations", "0");
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
   return apiFetch<ShopProductDetailResponse>(
-    `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}`,
-    init
+    `/v1/shops/${encodeURIComponent(publicId)}/${encodeURIComponent(publicSlug)}/products/${encodeURIComponent(productRef)}${suffix}`,
+    {
+      ...init,
+      cache: init?.cache ?? "default",
+      credentials: init?.credentials ?? "omit"
+    }
   );
 }
 
@@ -330,7 +368,11 @@ export function fetchProductRecommendations(
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return apiFetch<{ items: ShopProductDetailResponse["recommendations"] }>(
     `/v1/products/${encodeURIComponent(productPublicId)}/recommendations${suffix}`,
-    init
+    {
+      ...init,
+      cache: init?.cache ?? "default",
+      credentials: init?.credentials ?? "omit"
+    }
   );
 }
 

@@ -1,6 +1,13 @@
 import { GoneException, Injectable, Logger, NotFoundException, OnApplicationBootstrap } from "@nestjs/common";
-import { Prisma, ProductStatus, StoreStatus, UploadRenditionKind } from "@prisma/client";
+import { ConfigService } from "@nestjs/config";
+import { Prisma, ProductStatus, ProductVariantStatus, StoreStatus, UploadRenditionKind } from "@prisma/client";
 import { createHash } from "node:crypto";
+import {
+  publicProductCode,
+  publicProductSlug,
+  publicStoreCode,
+  publicStoreSlug
+} from "../../common/public-catalog-route";
 import { PrismaService } from "../../database/prisma.service";
 import { GoogleMapsService, type LatLng } from "../../integrations/google-maps/google-maps.service";
 import { CatalogCacheService } from "../catalog-cache/catalog-cache.service";
@@ -17,7 +24,10 @@ const DEAL_PRODUCTS_CACHE_KEY = "shops:products:v1";
 const SHOP_DETAIL_CACHE_PREFIX = "shops:detail:v1:";
 const SHOP_PRODUCTS_CACHE_PREFIX = "shops:products:v2:";
 const SHOP_PDP_CACHE_PREFIX = "shops:pdp:v1:";
+const SHOP_PDP_RECOMMENDATIONS_CACHE_PREFIX = "shops:pdp-recommendations:v1:";
 const SHOP_CACHE_TTL_SECONDS = 5 * 60;
+const SHOP_FACET_CACHE_TTL_SECONDS = 5 * 60;
+const FRONTEND_REVALIDATE_TIMEOUT_MS = 1_500;
 const MAX_LANDING_SHOPS = 48;
 const MAX_DEAL_PRODUCTS = 8;
 const PRODUCT_SORTS = ["relevance", "newest", "price-asc", "price-desc"] as const;
@@ -63,6 +73,8 @@ export interface ShopDto {
   distanceAccuracyMeters: number | null;
   durationSeconds: number | null;
   durationText: string | null;
+  businessHours?: Prisma.JsonValue | null;
+  timezone?: string | null;
   branding: {
     tagline: string | null;
     description: string | null;
@@ -146,16 +158,7 @@ export interface ShopProductDto {
   pricePerBaseUnitDisplay: string;
   imageUrl: string | null;
   imageInitials: string;
-  images: Array<{
-    id: string;
-    url: string;
-    altText: string | null;
-    width: number | null;
-    height: number | null;
-    isPrimary: boolean;
-    variantIds: string[];
-    variantSkuIds: string[];
-  }>;
+  images: ShopProductMediaDto[];
   variants: Array<{
     id: string;
     name: string;
@@ -166,7 +169,22 @@ export interface ShopProductDto {
     unitDisplay: string;
     pricePerBaseUnitDisplay: string;
     isDefault: boolean;
+    images: ShopProductMediaDto[];
   }>;
+}
+
+export type MediaSourceType = "PRODUCT" | "VARIANT";
+
+export interface ShopProductMediaDto {
+  id: string;
+  url: string;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+  isPrimary: boolean;
+  mediaSource: MediaSourceType;
+  variantIds: string[];
+  variantSkuIds: string[];
 }
 
 export interface ShopProductsResponseDto {
@@ -208,6 +226,10 @@ export interface ShopProductDetailResponseDto {
     name: string;
     type: string;
     typeName: string;
+    address?: {
+      city: string | null;
+      state: string | null;
+    };
   };
   product: ShopProductDto & {
     publicId: string;
@@ -234,12 +256,17 @@ export interface ShopProductDetailResponseDto {
     publicId: string;
     slug: string;
     name: string;
+    description: string | null;
     imageUrl: string | null;
     price: number;
     compareAtPrice: number | null;
     unitDisplay: string;
     inStock: boolean;
   }>;
+}
+
+interface ProductDetailOptions {
+  includeRecommendations?: boolean;
 }
 
 export interface CachedResult<T> {
@@ -265,6 +292,7 @@ export class ShopsService implements OnApplicationBootstrap {
     private readonly googleMaps: GoogleMapsService,
     private readonly observability: ObservabilityService,
     private readonly redis: RedisService,
+    private readonly config?: ConfigService,
     private readonly catalogCache: CatalogCacheService = new CatalogCacheService(redis)
   ) {}
 
@@ -351,21 +379,33 @@ export class ShopsService implements OnApplicationBootstrap {
   async getProductDetailForShopByPublicRoute(
     publicId: string,
     publicSlug: string,
-    productPublicId: string
+    productPublicId: string,
+    options: ProductDetailOptions = {}
   ): Promise<CachedResult<ShopProductDetailResponseDto>> {
     const normalizedPublicId = normalizePublicStoreCode(publicId);
     const normalizedPublicSlug = normalizeSlugForLookup(publicSlug);
     const normalizedProductPublicId = normalizePublicProductCode(productPublicId);
+    const includeRecommendations = options.includeRecommendations !== false;
     const productScope = this.catalogCache.productPublicScope(normalizedProductPublicId);
-    const productVersion = await this.catalogCache.version(productScope);
     const storeScope = this.catalogCache.storePublicScope(normalizedPublicId);
-    const storeVersion = await this.catalogCache.version(storeScope);
-    const cacheKey = `catalog:v2:${productScope}:pdp:${productVersion}:${storeVersion}`;
+    const [productVersion, storeVersion, recommendationVersion] = await Promise.all([
+      this.catalogCache.version(productScope),
+      this.catalogCache.version(storeScope),
+      includeRecommendations
+        ? this.catalogCache.version(this.catalogCache.searchScope(storeScope))
+        : Promise.resolve("0")
+    ]);
+    const cacheKey = `catalog:v2:${productScope}:pdp:${includeRecommendations ? "full" : "core"}:${productVersion}:${storeVersion}:${recommendationVersion}`;
     return this.cached(
       cacheKey,
       "shop_pdp",
       SHOP_CACHE_TTL_SECONDS,
-      () => this.loadProductDetailForShopByPublicRoute(normalizedPublicId, normalizedPublicSlug, normalizedProductPublicId)
+      () => this.loadProductDetailForShopByPublicRoute(
+        normalizedPublicId,
+        normalizedPublicSlug,
+        normalizedProductPublicId,
+        { includeRecommendations }
+      )
     );
   }
 
@@ -398,22 +438,71 @@ export class ShopsService implements OnApplicationBootstrap {
       return [];
     }
 
+    const route = context === "global" ? null : await this.routeForStore(product.storeId);
+    return this.loadRecommendationsForProductContext({
+      categorySlug: product.category?.slug ?? null,
+      excludeProductId: product.id,
+      limit: Math.min(Math.max(limit, 1), 24),
+      productPublicId,
+      storeId: context === "global" ? null : product.storeId,
+      storePublicId: route?.publicId ?? null
+    });
+  }
+
+  private async loadRecommendationsForProductContext(input: {
+    categorySlug: string | null;
+    excludeProductId: string;
+    limit: number;
+    productPublicId: string;
+    storeId: string | null;
+    storePublicId: string | null;
+  }): Promise<ShopProductDetailResponseDto["recommendations"]> {
+    const contextScope = input.storePublicId
+      ? this.catalogCache.storePublicScope(input.storePublicId)
+      : this.catalogCache.dealsScope("global");
+    const [productVersion, recommendationVersion] = await Promise.all([
+      this.catalogCache.version(this.catalogCache.productPublicScope(input.productPublicId)),
+      this.catalogCache.version(this.catalogCache.searchScope(contextScope))
+    ]);
+    const cacheKey = [
+      SHOP_PDP_RECOMMENDATIONS_CACHE_PREFIX,
+      input.productPublicId,
+      input.storePublicId ?? "global",
+      input.categorySlug ?? "all",
+      input.limit,
+      productVersion,
+      recommendationVersion
+    ].join(":");
+    const result = await this.cached(
+      cacheKey,
+      "shop_pdp_recommendations",
+      SHOP_CACHE_TTL_SECONDS,
+      () => this.loadRecommendationsFromDb(input)
+    );
+    return result.data;
+  }
+
+  private async loadRecommendationsFromDb(input: {
+    categorySlug: string | null;
+    excludeProductId: string;
+    limit: number;
+    storeId: string | null;
+  }): Promise<ShopProductDetailResponseDto["recommendations"]> {
     const records = await this.prisma.product.findMany({
       where: {
-        id: { not: product.id },
-        storeId: context === "global" ? undefined : product.storeId,
+        id: { not: input.excludeProductId },
+        storeId: input.storeId ?? undefined,
         isActive: true,
         status: ProductStatus.PUBLISHED,
-        ...(product.category?.slug ? { category: { slug: product.category.slug } } : {})
+        ...(input.categorySlug ? { category: { slug: input.categorySlug } } : {})
       },
       orderBy: [
         { updatedAt: "desc" },
         { id: "asc" }
       ],
-      take: Math.min(Math.max(limit, 1), 24),
+      take: input.limit,
       select: publicProductSelect
     });
-
     return records.map((item) => {
       const dto = mapShopProductToDto(item);
       return {
@@ -421,6 +510,7 @@ export class ShopsService implements OnApplicationBootstrap {
         publicId: dto.publicId,
         slug: dto.slug,
         name: dto.name,
+        description: dto.description,
         imageUrl: dto.imageUrl,
         price: dto.price,
         compareAtPrice: dto.compareAtPrice,
@@ -651,6 +741,13 @@ export class ShopsService implements OnApplicationBootstrap {
         this.redis.del(SHOP_LIST_CACHE_KEY),
         this.redis.del(DEAL_PRODUCTS_CACHE_KEY)
       ]);
+      await this.notifyFrontendCatalogRevalidation({
+        invalidateCatalog: families !== "detail",
+        invalidateDetail: families !== "products",
+        invalidatePdp: Boolean(input.productIds?.length),
+        productPublicIds: (input.productIds ?? []).map((productId) => publicProductCode(productId)),
+        storePublicId: route?.publicId ?? (input.storeId ? publicStoreCode(input.storeId) : undefined)
+      });
       this.observability.recordShopPageCacheEvent("invalidate", families);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -694,6 +791,13 @@ export class ShopsService implements OnApplicationBootstrap {
         ...Array.from(productIds).map((productId) => this.catalogCache.productPublicScope(publicProductCode(productId)))
       ]);
       await this.redis.del(DEAL_PRODUCTS_CACHE_KEY);
+      await this.notifyFrontendCatalogRevalidation({
+        invalidateCatalog: true,
+        invalidateDetail: false,
+        invalidatePdp: productIds.size > 0,
+        productPublicIds: Array.from(productIds).map((productId) => publicProductCode(productId)),
+        storePublicId: publicId
+      });
       this.observability.recordShopPageCacheEvent("invalidate", "products");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -706,6 +810,59 @@ export class ShopsService implements OnApplicationBootstrap {
         message
       }));
     }
+  }
+
+  private async notifyFrontendCatalogRevalidation(payload: {
+    invalidateCatalog: boolean;
+    invalidateDetail: boolean;
+    invalidatePdp: boolean;
+    productPublicIds: string[];
+    storePublicId?: string;
+  }) {
+    const secret = this.config?.get<string>("CATALOG_REVALIDATE_SECRET")?.trim();
+    const endpoint = this.catalogRevalidateUrl();
+    if (!secret || !endpoint) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FRONTEND_REVALIDATE_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        body: JSON.stringify(payload),
+        headers: {
+          "Content-Type": "application/json",
+          "x-revalidate-secret": secret
+        },
+        method: "POST",
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        this.logger.warn(JSON.stringify({
+          event: "frontend_catalog_revalidation_failed",
+          status: response.status,
+          storePublicId: payload.storePublicId
+        }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(JSON.stringify({
+        event: "frontend_catalog_revalidation_error",
+        message,
+        storePublicId: payload.storePublicId
+      }));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private catalogRevalidateUrl() {
+    const configured = this.config?.get<string>("CATALOG_REVALIDATE_URL")?.trim();
+    if (configured) {
+      return configured;
+    }
+    const frontendUrl = this.config?.get<string>("FRONTEND_URL")?.trim();
+    return frontendUrl ? `${frontendUrl.replace(/\/$/, "")}/api/revalidate/catalog` : null;
   }
 
   private async prewarmLandingCaches() {
@@ -740,6 +897,7 @@ export class ShopsService implements OnApplicationBootstrap {
       select: {
         id: true,
         name: true,
+        publicCode: true,
         slug: true,
         addressLine: true,
         latitude: true,
@@ -820,7 +978,7 @@ export class ShopsService implements OnApplicationBootstrap {
           }
         },
         variants: {
-          where: { isDefault: true },
+          where: { isDefault: true, status: ProductVariantStatus.ACTIVE },
           take: 1,
           select: {
             id: true,
@@ -850,26 +1008,20 @@ export class ShopsService implements OnApplicationBootstrap {
 
   private async resolveStoreByPublicRoute(publicId: string, publicSlug: string): Promise<StoreDetailRow | null> {
     const stores = await this.prisma.store.findMany({
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        deletedAt: true
-      }
+      where: {
+        publicCode: publicId,
+        status: StoreStatus.APPROVED,
+        deletedAt: null
+      },
+      select: storeDetailSelect
     });
-    const publicMatches = stores.filter((store) => publicStoreCode(store.id) === publicId);
-    const exactSlugMatch = publicMatches.find((store) => publicStoreSlug(store.name) === publicSlug);
-    const candidate = exactSlugMatch ?? publicMatches[0];
+    const exactSlugMatch = stores.find((store) => publicStoreSlug(store.name) === publicSlug);
+    const candidate = exactSlugMatch ?? stores[0];
 
     if (!candidate) {
       throw new NotFoundException("Shop was not found.");
     }
-
-    return this.prisma.store.findUnique({
-      where: { id: candidate.id },
-      select: storeDetailSelect
-    });
+    return candidate;
   }
 
   private toPublicShopDetail(store: StoreDetailRow | null): ShopDetailDto {
@@ -903,10 +1055,9 @@ export class ShopsService implements OnApplicationBootstrap {
   private async loadProductDetailForShopByPublicRoute(
     publicId: string,
     publicSlug: string,
-    productPublicId: string
+    productPublicId: string,
+    options: Required<ProductDetailOptions>
   ): Promise<ShopProductDetailResponseDto> {
-    const detailResult = await this.getShopDetailByPublicRoute(publicId, publicSlug);
-    const detail = detailResult.data;
     const productId = productIdFromPublicCode(productPublicId);
     if (!productId) {
       throw new NotFoundException("Product was not found.");
@@ -915,53 +1066,46 @@ export class ShopsService implements OnApplicationBootstrap {
     const product = await this.prisma.product.findFirst({
       where: {
         id: productId,
-        storeId: detail.id,
         isActive: true,
-        status: ProductStatus.PUBLISHED
+        status: ProductStatus.PUBLISHED,
+        store: {
+          deletedAt: null,
+          publicCode: publicId,
+          slug: publicSlug,
+          status: StoreStatus.APPROVED
+        }
       },
-      select: publicProductDetailSelect
+      select: publicProductDetailWithStoreSelect
     });
 
     if (!product) {
       throw new NotFoundException("Product was not found.");
     }
 
+    const storeSummary = mapPdpStoreSummary(product.store);
     const productDto = mapShopProductToDto(product);
     const canonicalSlug = publicProductSlug(product.name);
-    const canonicalPath = `/shop/${detail.publicId}/${detail.publicSlug}/product/${publicProductCode(product.id)}-${canonicalSlug}`;
-    const recommendations = await this.prisma.product.findMany({
-      where: {
-        id: { not: product.id },
-        storeId: detail.id,
-        isActive: true,
-        status: ProductStatus.PUBLISHED,
-        ...(product.category?.slug ? { category: { slug: product.category.slug } } : {})
-      },
-      orderBy: [
-        { updatedAt: "desc" },
-        { id: "asc" }
-      ],
-      take: 8,
-      select: publicProductSelect
-    });
+    const canonicalPath = `/shop/${storeSummary.publicId}/${storeSummary.publicSlug}/product/${publicProductCode(product.id)}-${canonicalSlug}`;
+    const recommendations = options.includeRecommendations
+      ? await this.loadRecommendationsForProductContext({
+          categorySlug: product.category?.slug ?? null,
+          excludeProductId: product.id,
+          limit: 8,
+          productPublicId: publicProductCode(product.id),
+          storeId: product.store.id,
+          storePublicId: storeSummary.publicId
+        })
+      : [];
 
     return {
-      store: {
-        id: detail.id,
-        slug: detail.slug,
-        publicId: detail.publicId,
-        publicSlug: detail.publicSlug,
-        name: detail.name,
-        type: detail.type,
-        typeName: detail.typeName
-      },
+      store: storeSummary,
       product: {
         ...productDto,
         publicId: publicProductCode(product.id),
         slug: canonicalSlug,
         canonicalPath,
         seoTitle: product.seoTitle?.trim() || product.name,
-        seoDescription: product.seoDescription?.trim() || product.description || `Shop ${product.name} from ${detail.name}.`,
+        seoDescription: product.seoDescription?.trim() || product.description || `Shop ${product.name} from ${storeSummary.name}.`,
         specifications: buildProductSpecifications(product),
         faq: []
       },
@@ -969,20 +1113,7 @@ export class ShopsService implements OnApplicationBootstrap {
         averageRating: 0,
         totalReviews: 0
       },
-      recommendations: recommendations.map((item) => {
-        const dto = mapShopProductToDto(item);
-        return {
-          id: dto.id,
-          publicId: publicProductCode(dto.id),
-          slug: publicProductSlug(dto.name),
-          name: dto.name,
-          imageUrl: dto.imageUrl,
-          price: dto.price,
-          compareAtPrice: dto.compareAtPrice,
-          unitDisplay: dto.unitDisplay,
-          inStock: dto.inStock
-        };
-      })
+      recommendations
     };
   }
 
@@ -991,63 +1122,21 @@ export class ShopsService implements OnApplicationBootstrap {
     const facetWhere = publicProductWhere(detail.id, { ...query, category: null });
     const orderBy = productOrderBy(query.sort);
     const skip = (query.page - 1) * query.limit;
-    const [products, total, facetPayload] = await Promise.all([
-      this.prisma.product.findMany({
-        where,
-        orderBy,
-        skip,
-        take: query.limit,
-        select: publicProductSelect
-      }),
-      this.prisma.product.count({ where }),
-      query.includeFacets
-        ? Promise.all([
-            this.prisma.product.groupBy({
-              by: ["categoryId"],
-              where: facetWhere,
-              _count: { _all: true }
-            }),
-            this.prisma.product.groupBy({
-              by: ["subCategory"],
-              where: facetWhere,
-              _count: { _all: true }
-            })
-          ])
-        : Promise.resolve(null)
-    ]);
-
-    let facets: ShopProductsResponseDto["facets"] = {
-      categories: [],
-      subCategories: []
-    };
-
-    if (facetPayload) {
-      const [categoryGroups, subCategoryGroups] = facetPayload;
-      const categoryIds = categoryGroups
-        .map((group) => group.categoryId)
-        .filter((categoryId): categoryId is string => Boolean(categoryId));
-      const categories = categoryIds.length
-        ? await this.prisma.category.findMany({
-            where: { id: { in: categoryIds } },
-            select: { id: true, name: true, slug: true }
-          })
-        : [];
-      const categoryById = new Map(categories.map((category) => [category.id, category]));
-
-      facets = {
-        categories: categoryGroups
-          .map((group) => {
-            const category = group.categoryId ? categoryById.get(group.categoryId) : null;
-            return {
-              slug: category?.slug ?? "uncategorized",
-              name: category?.name ?? "Other",
-              count: group._count._all
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        subCategories: canonicalizeSubCategoryFacets(subCategoryGroups)
-      };
-    }
+    const products = await this.prisma.product.findMany({
+      where,
+      orderBy,
+      skip,
+      take: query.limit,
+      select: publicProductSelect
+    });
+    const canDeriveTotalFromFirstPage = query.page === 1 && products.length < query.limit;
+    const totalPromise = canDeriveTotalFromFirstPage
+      ? Promise.resolve(products.length)
+      : this.prisma.product.count({ where });
+    const facetsPromise = query.includeFacets
+      ? this.loadFacetsForShopDetail(detail, query, facetWhere)
+      : Promise.resolve(emptyShopProductFacets());
+    const [total, facets] = await Promise.all([totalPromise, facetsPromise]);
 
     const totalPages = Math.max(1, Math.ceil(total / query.limit));
 
@@ -1069,6 +1158,63 @@ export class ShopsService implements OnApplicationBootstrap {
         hasNextPage: query.page < totalPages
       },
       filters: query
+    };
+  }
+
+  private async loadFacetsForShopDetail(
+    detail: ShopDetailDto,
+    query: ShopProductsQuery,
+    facetWhere: Prisma.ProductWhereInput
+  ): Promise<ShopProductsResponseDto["facets"]> {
+    const storeScope = this.catalogCache.storePublicScope(detail.publicId);
+    const version = await this.catalogCache.version(storeScope);
+    const searchVersion = await this.catalogCache.version(this.catalogCache.searchScope(storeScope));
+    const cacheKey = `catalog:v2:${storeScope}:facets:${version}:${searchVersion}:${hashFacetQuery(query)}`;
+    const result = await this.cached(
+      cacheKey,
+      "shop_facets",
+      SHOP_FACET_CACHE_TTL_SECONDS,
+      () => this.loadFacetGroups(facetWhere)
+    );
+    return result.data;
+  }
+
+  private async loadFacetGroups(facetWhere: Prisma.ProductWhereInput): Promise<ShopProductsResponseDto["facets"]> {
+    const [categoryGroups, subCategoryGroups] = await Promise.all([
+      this.prisma.product.groupBy({
+        by: ["categoryId"],
+        where: facetWhere,
+        _count: { _all: true }
+      }),
+      this.prisma.product.groupBy({
+        by: ["subCategory"],
+        where: facetWhere,
+        _count: { _all: true }
+      })
+    ]);
+    const categoryIds = categoryGroups
+      .map((group) => group.categoryId)
+      .filter((categoryId): categoryId is string => Boolean(categoryId));
+    const categories = categoryIds.length
+      ? await this.prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true, slug: true }
+        })
+      : [];
+    const categoryById = new Map(categories.map((category) => [category.id, category]));
+
+    return {
+      categories: categoryGroups
+        .map((group) => {
+          const category = group.categoryId ? categoryById.get(group.categoryId) : null;
+          return {
+            slug: category?.slug ?? "uncategorized",
+            name: category?.name ?? "Other",
+            count: group._count._all
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      subCategories: canonicalizeSubCategoryFacets(subCategoryGroups)
     };
   }
 
@@ -1127,12 +1273,12 @@ export class ShopsService implements OnApplicationBootstrap {
     }
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
-      select: { id: true, slug: true }
+      select: { id: true, publicCode: true, slug: true }
     });
     return store
       ? {
           slug: store.slug,
-          publicId: publicStoreCode(store.id)
+          publicId: store.publicCode ?? publicStoreCode(store.id)
         }
       : null;
   }
@@ -1159,6 +1305,7 @@ type StoreLandingRow = Prisma.StoreGetPayload<{
   select: {
     id: true;
     name: true;
+    publicCode: true;
     slug: true;
     addressLine: true;
     latitude: true;
@@ -1257,6 +1404,7 @@ const publicProductSelect = {
       isPrimary: true,
       sortOrder: true,
       variants: {
+        where: { productVariant: { status: ProductVariantStatus.ACTIVE } },
         select: {
           productVariant: {
             select: {
@@ -1284,6 +1432,7 @@ const publicProductSelect = {
     }
   },
   variants: {
+    where: { status: ProductVariantStatus.ACTIVE },
     orderBy: [
       { isDefault: "desc" as const },
       { position: "asc" as const },
@@ -1303,7 +1452,15 @@ const publicProductSelect = {
       packType: true,
       pricePerBaseUnit: true,
       isDefault: true,
-      position: true
+      position: true,
+      inventorySummary: {
+        select: {
+          availableStock: true,
+          reservedStock: true,
+          stockVersion: true,
+          variantStatus: true
+        }
+      }
     }
   }
 } satisfies Prisma.ProductSelect;
@@ -1314,9 +1471,31 @@ const publicProductDetailSelect = {
   seoDescription: true
 } satisfies Prisma.ProductSelect;
 
+const pdpStoreSummarySelect = {
+  id: true,
+  slug: true,
+  publicCode: true,
+  name: true,
+  city: true,
+  state: true,
+  businessProfile: {
+    select: {
+      category: true
+    }
+  }
+} satisfies Prisma.StoreSelect;
+
+const publicProductDetailWithStoreSelect = {
+  ...publicProductDetailSelect,
+  store: {
+    select: pdpStoreSummarySelect
+  }
+} satisfies Prisma.ProductSelect;
+
 const storeDetailSelect = {
   id: true,
   slug: true,
+  publicCode: true,
   name: true,
   description: true,
   phone: true,
@@ -1359,6 +1538,8 @@ const storeDetailSelect = {
 
 type PublicProductRow = Prisma.ProductGetPayload<{ select: typeof publicProductSelect }>;
 type PublicProductDetailRow = Prisma.ProductGetPayload<{ select: typeof publicProductDetailSelect }>;
+type PublicProductDetailWithStoreRow = Prisma.ProductGetPayload<{ select: typeof publicProductDetailWithStoreSelect }>;
+type PdpStoreSummaryRow = PublicProductDetailWithStoreRow["store"];
 
 type StoreDetailRow = Prisma.StoreGetPayload<{ select: typeof storeDetailSelect }>;
 type PublicStoreRoute = {
@@ -1372,7 +1553,7 @@ function mapStoreDetailToDto(store: StoreDetailRow): ShopDetailDto {
   return {
     id: store.id,
     slug: store.slug,
-    publicId: publicStoreCode(store.id),
+    publicId: store.publicCode ?? publicStoreCode(store.id),
     publicSlug: publicStoreSlug(store.name),
     name: store.name,
     type,
@@ -1402,9 +1583,63 @@ function mapStoreDetailToDto(store: StoreDetailRow): ShopDetailDto {
   };
 }
 
+function mapPdpStoreSummary(store: PdpStoreSummaryRow): ShopProductDetailResponseDto["store"] {
+  const type = normalizeCategory(store.businessProfile?.category);
+  return {
+    id: store.id,
+    slug: store.slug,
+    publicId: store.publicCode ?? publicStoreCode(store.id),
+    publicSlug: publicStoreSlug(store.name),
+    name: store.name,
+    type,
+    typeName: formatCategoryName(type),
+    address: {
+      city: store.city,
+      state: store.state
+    }
+  };
+}
+
 function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
+  const allImages = product.images
+    .flatMap<ShopProductMediaDto>((image) => {
+      const rendition = image.uploadAsset.renditions[0];
+      if (!rendition?.secureUrl) {
+        return [];
+      }
+      const variantIds = image.variants.map((variant) => variant.productVariant.id);
+      const variantSkuIds = image.variants
+        .map((variant) => variant.productVariant.sku)
+        .filter((sku): sku is string => Boolean(sku));
+      return [{
+        id: image.id,
+        url: rendition.secureUrl,
+        altText: image.altText,
+        width: rendition.width,
+        height: rendition.height,
+        isPrimary: image.isPrimary,
+        mediaSource: variantIds.length > 0 ? "VARIANT" : "PRODUCT",
+        variantIds,
+        variantSkuIds
+      }];
+    });
+  const productImages = allImages.filter((image) => image.mediaSource === "PRODUCT");
+  const variantImagesById = new Map<string, ShopProductMediaDto[]>();
+  for (const image of allImages) {
+    if (image.mediaSource !== "VARIANT") {
+      continue;
+    }
+    for (const variantId of image.variantIds) {
+      const images = variantImagesById.get(variantId) ?? [];
+      images.push(image);
+      variantImagesById.set(variantId, images);
+    }
+  }
+
   const variants = product.variants.map((variant) => {
-    const stock = availableStock(variant.stockOnHand, variant.stockReserved);
+    const stock = variant.inventorySummary
+      ? Math.max(variant.inventorySummary.availableStock, 0)
+      : availableStock(variant.stockOnHand, variant.stockReserved);
     const unitDisplay = formatUnitDisplay({
       packType: variant.packType,
       quantityUnit: variant.quantityUnit,
@@ -1419,7 +1654,8 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
       inStock: stock > 0,
       unitDisplay,
       pricePerBaseUnitDisplay: formatPricePerBaseUnitDisplay(Number(variant.pricePerBaseUnit), variant.unitGroup),
-      isDefault: variant.isDefault
+      isDefault: variant.isDefault,
+      images: variantImagesById.get(variant.id) ?? []
     };
   });
   const defaultVariant = variants[0];
@@ -1429,27 +1665,7 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
     quantityUnit: product.quantityUnit,
     quantityValue: Number(product.quantityValue)
   });
-  const images = product.images
-    .map((image) => {
-      const rendition = image.uploadAsset.renditions[0];
-      if (!rendition?.secureUrl) {
-        return null;
-      }
-      return {
-        id: image.id,
-        url: rendition.secureUrl,
-        altText: image.altText,
-        width: rendition.width,
-        height: rendition.height,
-        isPrimary: image.isPrimary,
-        variantIds: image.variants.map((variant) => variant.productVariant.id),
-        variantSkuIds: image.variants
-          .map((variant) => variant.productVariant.sku)
-          .filter((sku): sku is string => Boolean(sku))
-      };
-    })
-    .filter((image): image is NonNullable<typeof image> => Boolean(image));
-  const primaryImage = preferredPublicProductImage(images, defaultVariant?.id);
+  const primaryImage = preferredPublicProductImage(productImages);
 
   return {
     id: product.id,
@@ -1471,18 +1687,13 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
       formatPricePerBaseUnitDisplay(Number(product.pricePerBaseUnit), product.unitGroup),
     imageUrl: primaryImage?.url ?? product.imageUrl,
     imageInitials: initialsFromName(product.name),
-    images,
+    images: productImages,
     variants
   };
 }
 
-function preferredPublicProductImage(
-  images: ShopProductDto["images"],
-  defaultVariantId: string | undefined
-) {
-  return images.find((image) => image.variantIds.length === 0) ??
-    images.find((image) => defaultVariantId && image.variantIds.includes(defaultVariantId)) ??
-    images[0];
+function preferredPublicProductImage(images: ShopProductMediaDto[]) {
+  return images.find((image) => image.isPrimary) ?? images[0];
 }
 
 function buildProductSpecifications(product: PublicProductDetailRow) {
@@ -1571,7 +1782,7 @@ function mapStoreToDto(store: StoreLandingRow): ShopDto {
     id: store.id,
     name: store.name,
     slug: store.slug,
-    publicId: publicStoreCode(store.id),
+    publicId: store.publicCode ?? publicStoreCode(store.id),
     publicSlug: publicStoreSlug(store.name),
     distance: "Set location",
     rating: (4.5 + (fingerprint % 5) * 0.1).toFixed(1),
@@ -1683,26 +1894,6 @@ function stableNumber(value: string) {
   return value.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
 }
 
-function publicStoreCode(storeId: string) {
-  const hash = createHash("sha256").update(storeId).digest("hex");
-  const numeric = BigInt(`0x${hash.slice(0, 12)}`) % 1_000_000n;
-  return numeric.toString().padStart(6, "0");
-}
-
-function publicStoreSlug(storeName: string) {
-  const normalized = storeName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 96);
-  return normalized || "store";
-}
-
-function publicProductCode(productId: string) {
-  return productId.replace(/-/g, "").toLowerCase();
-}
-
 function productIdFromPublicCode(publicProductId: string) {
   const normalized = normalizePublicProductCode(publicProductId);
   if (!PRODUCT_PUBLIC_ID_PATTERN.test(normalized)) {
@@ -1715,16 +1906,6 @@ function productIdFromPublicCode(publicProductId: string) {
     normalized.slice(16, 20),
     normalized.slice(20)
   ].join("-");
-}
-
-function publicProductSlug(productName: string) {
-  const normalized = productName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 96);
-  return normalized || "product";
 }
 
 function initialsFromName(value: string) {
@@ -1836,6 +2017,23 @@ function hashCanonicalQuery(query: ShopProductsQuery) {
     sort: query.sort
   });
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+}
+
+function hashFacetQuery(query: ShopProductsQuery) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      category: null,
+      q: query.q.trim()
+    }))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function emptyShopProductFacets(): ShopProductsResponseDto["facets"] {
+  return {
+    categories: [],
+    subCategories: []
+  };
 }
 
 function distanceInMeters(origin: LatLng, destination: LatLng) {

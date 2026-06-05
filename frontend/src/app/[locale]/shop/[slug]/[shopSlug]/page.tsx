@@ -21,9 +21,6 @@ type ShopPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 export async function generateMetadata({ params, searchParams }: ShopPageProps): Promise<Metadata> {
   const [{ locale, slug: shopCode, shopSlug }, rawSearchParams] = await Promise.all([params, searchParams]);
   const hasCatalogQuery = hasIndexChangingQuery(rawSearchParams);
@@ -83,6 +80,9 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
   const [{ locale, slug: shopCode, shopSlug }, rawSearchParams] = await Promise.all([params, searchParams]);
   let shop: ShopDetail;
   const appLocale = locale as AppLocale;
+  const filters = filtersFromSearchParams(rawSearchParams);
+  const shopPromise = getShopDetailForPage(shopCode, shopSlug);
+  const productsPromise = getShopProductsForPage(shopCode, shopSlug, filters);
   const [tShopHeader, tCategories, tUnavailable] = await Promise.all([
     getTranslations({ locale: appLocale, namespace: "marketplace.shopHeader" }),
     getTranslations({ locale: appLocale, namespace: "marketplace.categories" }),
@@ -90,7 +90,7 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
   ]);
 
   try {
-    shop = await getShopDetailForPage(shopCode, shopSlug);
+    shop = await shopPromise;
   } catch (error) {
     if (error instanceof ShopPageFetchError) {
       if (error.status === 404) {
@@ -116,7 +116,6 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
     throw error;
   }
 
-  const filters = filtersFromSearchParams(rawSearchParams);
   const localizedTypeName = localizeShopType(shop.type, shop.typeName, tCategories);
   const addressFallback = tShopHeader("fallbackAddress");
 
@@ -125,7 +124,7 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
       <ShopHero addressFallback={addressFallback} shop={shop} typeName={localizedTypeName} />
       <ShopsQueryProvider>
         <Suspense fallback={<CatalogFallback />}>
-          <ServerShopCatalog locale={locale} shop={shop} filters={filters} />
+          <ServerShopCatalog locale={locale} shop={shop} filters={filters} productsPromise={productsPromise} />
         </Suspense>
       </ShopsQueryProvider>
       <StorefrontFooter compact />
@@ -136,13 +135,15 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
 async function ServerShopCatalog({
   locale,
   shop,
-  filters
+  filters,
+  productsPromise
 }: {
   locale: string;
   shop: ShopDetail;
   filters: ShopProductsFilters;
+  productsPromise: Promise<{ data: ShopProductsResponse; failed: boolean }>;
 }) {
-  const products = await getShopProductsForPage(shop.publicId, shop.publicSlug, filters);
+  const products = await productsPromise;
 
   return (
     <>

@@ -16,10 +16,14 @@ import { OfferBadge } from "./offer-badge";
 
 export function ShopProductDetailView({
   initialImageIndex,
-  productDetail
+  productDetail,
+  similarProducts = [],
+  recommendations = []
 }: {
   initialImageIndex: number;
   productDetail: ShopProductDetailResponse;
+  similarProducts?: ShopProductDetailResponse["recommendations"];
+  recommendations?: ShopProductDetailResponse["recommendations"];
 }) {
   const productRef = productRefFromParts(productDetail.product.publicId, productDetail.product.slug);
   const query = useShopProductDetail(
@@ -81,6 +85,7 @@ export function ShopProductDetailView({
   const displayCompareAtPrice = selectedVariant?.compareAtPrice ?? detail.product.compareAtPrice;
   const rawDisplayUnit = selectedVariant?.unitDisplay ?? detail.product.unitDisplay;
   const displayUnit = localizeUnitDisplay(rawDisplayUnit, packTypeLabels);
+  const priceDisplayUnit = extractMeasurement(rawDisplayUnit).replace(/^1\s*(?=[a-zA-Z]+$)/, '');
   const displayPricePerBaseUnit = selectedVariant?.pricePerBaseUnitDisplay ?? detail.product.pricePerBaseUnitDisplay;
   const displayStock = selectedVariant?.stock ?? detail.product.stock;
   const displayInStock = Boolean((selectedVariant?.inStock ?? detail.product.inStock) && displayStock > 0);
@@ -122,6 +127,23 @@ export function ShopProductDetailView({
     .filter((item) => item.id === detail.product.id && (item.variantId ?? null) === (selectedVariant?.id ?? null))
     .reduce((sum, item) => sum + item.qty, 0);
   const quantityAtLimit = displayInStock && cartQty >= displayStock;
+  const visibleVariantOptions = useMemo(() => {
+    if (detail.product.variants.length !== 1) {
+      return detail.product.variants;
+    }
+
+    const onlyVariant = detail.product.variants[0];
+    if (!onlyVariant) {
+      return [];
+    }
+
+    const variantName = onlyVariant.name.trim().toLowerCase();
+    if (onlyVariant.isDefault && variantName === "default") {
+      return [];
+    }
+
+    return detail.product.variants;
+  }, [detail.product.variants]);
 
   const visibleProductImages = useMemo(() => {
     const productLevelImages = detail.product.images.filter((image) => (image.variantIds ?? []).length === 0);
@@ -201,7 +223,7 @@ export function ShopProductDetailView({
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
       <div className="lg:grid lg:grid-cols-[1.2fr_1fr] lg:gap-x-12 xl:gap-x-16">
         {/* Left Column - Images */}
-        <div className="min-w-0 gap-3 sm:gap-4 lg:flex lg:flex-row lg:gap-6">
+        <div className="min-w-0 gap-3 sm:gap-4 lg:flex lg:flex-row lg:gap-6 lg:sticky lg:top-32 lg:h-max">
           {/* Main Image */}
           <button
             type="button"
@@ -226,7 +248,7 @@ export function ShopProductDetailView({
 
           {/* Thumbnails (Left on Desktop, Bottom on Mobile) */}
           {galleryImages.length > 0 ? (
-            <div className="scrollbar-hide flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-2 py-2 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0">
+            <div className="scrollbar-hide flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-2 py-2 lg:flex-col lg:overflow-visible lg:px-0 lg:py-2">
               {galleryImages.map((image, index) => (
                 <button
                   key={image.id}
@@ -245,66 +267,96 @@ export function ShopProductDetailView({
           ) : null}
         </div>
 
-        {/* Right Column - Product Details (Sticky) */}
-        <div className="mt-6 h-fit lg:sticky lg:top-8 lg:mt-0">
+        {/* Right Column - Product Details */}
+        <div className="mt-6 flex h-full flex-col lg:mt-0">
           <div className="space-y-6 sm:space-y-8">
             {/* Header section */}
             <div>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="inline-flex max-w-full items-center truncate rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-black">
-                  {displayCategoryPill}
-                </span>
-                <OfferBadge compareAtPrice={displayCompareAtPrice} price={displayPrice} size="md" />
-              </div>
+              {displayCategoryPill ? (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="hidden md:inline-flex max-w-full items-center truncate rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-black">
+                    {displayCategoryPill}
+                  </span>
+                </div>
+              ) : null}
+
+              <nav aria-label="Breadcrumb" className="hidden md:block mb-2 text-sm font-semibold text-slate-500">
+                <ol className="flex items-center gap-2 min-w-0">
+                  <li className="shrink-0">
+                    <Link href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}`} className="hover:text-slate-900 transition-colors">
+                      Home
+                    </Link>
+                  </li>
+                  <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
+                  <li className="shrink-0">
+                    <Link href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}`} className="hover:text-slate-900 transition-colors">
+                      {detail.store.name}
+                    </Link>
+                  </li>
+                  {displayCategoryPill && (
+                    <>
+                      <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
+                      <li className="shrink-0">
+                        <span className="text-slate-500">
+                          {displayCategoryPill}
+                        </span>
+                      </li>
+                    </>
+                  )}
+                  <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
+                  <li className="truncate text-slate-500 min-w-0">{detail.product.name}</li>
+                </ol>
+              </nav>
+
               <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-black sm:text-3xl lg:text-4xl">
                 {detail.product.name}
               </h1>
             </div>
 
-            {/* Price section */}
-            <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-              <span className="text-3xl font-black tracking-tight text-black sm:text-4xl">
-                {formatPrice(displayPrice)}
-              </span>
-              {displayCompareAtPrice && displayCompareAtPrice > displayPrice ? (
-                <span className="mb-1 text-base font-bold text-slate-400 line-through sm:text-lg">
-                  {formatPrice(displayCompareAtPrice)}
-                </span>
+            <div className="space-y-4 sm:space-y-5">
+              {/* Price section */}
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+                {displayCompareAtPrice && displayCompareAtPrice > displayPrice ? (
+                  <span className="mb-1 text-base font-bold text-slate-400 line-through sm:text-lg">
+                    {formatPrice(displayCompareAtPrice)}
+                  </span>
+                ) : null}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-black tracking-tight text-black sm:text-4xl">
+                      {formatPrice(displayPrice)}
+                    </span>
+                  </div>
+                  <OfferBadge compareAtPrice={displayCompareAtPrice} price={displayPrice} size="md" />
+                </div>
+              </div>
+
+              {/* Variants */}
+              {visibleVariantOptions.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-black">{tDetail("selectOption")}</h3>
+                  </div>
+                  <div className="flex flex-wrap gap-2.5 sm:gap-3">
+                    {visibleVariantOptions.map((variant) => (
+                      <VariantOptionButton
+                        key={variant.id}
+                        isActive={selectedVariantId === variant.id}
+                        onClick={() => setSelectedVariantId(variant.id)}
+                        optionLabel={getVariantPackLabel(variant.unitDisplay, variant.name, packTypeLabels)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ) : null}
-              <span className="mb-1 text-xs font-semibold text-slate-500 sm:mb-2 sm:ml-1 sm:text-sm">
-                / {displayUnit}
-              </span>
             </div>
+            
+            <div className="h-px w-full bg-slate-100 my-6" />
+          </div>
 
-            <div className="h-px bg-slate-100" />
+          {/* Actions */}
+          <div className="space-y-4">
 
-            {/* Variants */}
-            {detail.product.variants.length > 1 ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-black">{tDetail("selectOption")}</h3>
-                </div>
-                <div className="flex flex-wrap gap-2.5 sm:gap-3">
-                  {detail.product.variants.map((variant) => (
-                    <VariantOptionButton
-                      key={variant.id}
-                      isActive={selectedVariantId === variant.id}
-                      onClick={() => setSelectedVariantId(variant.id)}
-                      optionLabel={getVariantPackLabel(variant.unitDisplay, variant.name, packTypeLabels)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Actions */}
-            <div className="space-y-4 pt-2">
-              <div className="flex items-center gap-2">
-                <div className={`h-2.5 w-2.5 rounded-full ${displayInStock ? "bg-emerald-500" : "bg-rose-500"}`} />
-                <span className={`text-sm font-bold ${displayInStock ? "text-emerald-700" : "text-rose-600"}`}>
-                  {displayInStock ? tDetail("inStock") : tDetail("outOfStock")}
-                </span>
-              </div>
 
               <div className="hidden items-center gap-3 md:flex lg:gap-4">
                 {cartQty > 0 ? (
@@ -328,7 +380,7 @@ export function ShopProductDetailView({
                     type="button"
                     onClick={addCurrentVariantToCart}
                     disabled={!displayInStock}
-                    className="flex-1 h-14 rounded-2xl bg-black text-base font-black text-white shadow-[0_8px_20px_rgb(0,0,0,0.12)] transition-all active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex flex-1 items-center justify-center h-14 rounded-2xl bg-black text-base font-black text-white shadow-[0_8px_20px_rgb(0,0,0,0.1)] transition-all active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {tDetail("addToCart")}
                   </button>
@@ -340,108 +392,300 @@ export function ShopProductDetailView({
                   onClick={() => setIsFavorite((current) => !current)}
                   className={`flex h-14 w-14 items-center justify-center rounded-2xl transition-all active:scale-95 ${
                     isFavorite
-                      ? "bg-brand text-black shadow-[0_8px_20px_rgb(158,240,26,0.22)]"
+                      ? "bg-brand text-black shadow-[0_8px_20px_rgb(158,240,26,0.18)]"
                       : "bg-slate-100 text-slate-600"
                   }`}
                 >
                   <Heart size={22} fill={isFavorite ? "currentColor" : "none"} />
                 </button>
               </div>
-            </div>
+          </div>
 
+          {/* Description & Specs Section */}
+          <div className="mt-12 lg:mt-16">
+            <div className="space-y-10 sm:space-y-12">
+              {detail.product.description && (
+                <section>
+                  <h2 className="mb-4 text-xl font-black text-black sm:mb-6 sm:text-2xl">{tDetail("aboutItem")}</h2>
+                  <div className="prose prose-slate prose-p:leading-relaxed prose-p:text-slate-600 max-w-none break-words overflow-hidden">
+                    <p>{detail.product.description}</p>
+                  </div>
+                </section>
+              )}
+
+              {displaySpecifications.length > 0 && (
+                <section>
+                  <h2 className="mb-4 text-xl font-black text-black sm:mb-6 sm:text-2xl">{tDetail("specifications")}</h2>
+                  <div className="divide-y divide-slate-100 border-y border-slate-100">
+                    {displaySpecifications.map((spec) => (
+                      <div key={spec.key} className="flex py-4">
+                        <dt className="w-[42%] pr-4 text-sm font-bold text-slate-500 break-words sm:w-1/4">
+                          {spec.label}
+                        </dt>
+                        <dd className="text-sm font-semibold text-slate-900 break-words">
+                          {spec.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Description & Specs Section */}
-      <div className="mt-12 max-w-4xl lg:mt-20">
-        <div className="space-y-10 sm:space-y-12">
-          {detail.product.description && (
-            <section>
-              <h2 className="mb-4 text-xl font-black text-black sm:mb-6 sm:text-2xl">{tDetail("aboutItem")}</h2>
-              <div className="prose prose-slate prose-p:leading-relaxed prose-p:text-slate-600 max-w-none break-words overflow-hidden">
-                <p>{detail.product.description}</p>
-              </div>
-            </section>
-          )}
-
-          {displaySpecifications.length > 0 && (
-            <section>
-              <h2 className="mb-4 text-xl font-black text-black sm:mb-6 sm:text-2xl">{tDetail("specifications")}</h2>
-              <div className="divide-y divide-slate-100 border-y border-slate-100">
-                {displaySpecifications.map((spec) => (
-                  <div key={spec.key} className="flex py-4">
-                    <dt className="w-[42%] pr-4 text-sm font-bold text-slate-500 break-words sm:w-1/4">
-                      {spec.label}
-                    </dt>
-                    <dd className="text-sm font-semibold text-slate-900 break-words">
-                      {spec.value}
-                    </dd>
+      {/* Similar Products */}
+      {similarProducts && similarProducts.length > 0 ? (
+        <section className="mt-14 lg:mt-20">
+          <div className="mb-5">
+            <h2 className="text-xl font-black text-black sm:text-2xl">{tDetail("similarProducts")}</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5 xl:gap-6">
+            {similarProducts.map((item) => {
+              const qty = cartItems.find((cartItem) => cartItem.id === item.id)?.qty || 0;
+              return (
+              <article key={item.id} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)]">
+                <Link
+                  href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}/product/${productRefFromParts(item.publicId, item.slug)}`}
+                  className="block relative h-[130px] w-full overflow-hidden bg-slate-50/50 p-2 text-left sm:h-[150px] sm:p-3"
+                >
+                  <OfferBadge
+                    className="absolute right-2 top-2 z-10"
+                    compareAtPrice={item.compareAtPrice}
+                    price={item.price}
+                  />
+                  {item.imageUrl ? (
+                    <Image
+                      src={item.imageUrl}
+                      alt={item.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
+                      className="object-contain p-4 mix-blend-multiply"
+                    />
+                  ) : null}
+                </Link>
+                <div className="flex flex-1 flex-col p-3 sm:p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}/product/${productRefFromParts(item.publicId, item.slug)}`}
+                      className="min-w-0"
+                    >
+                      <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-bold leading-snug text-slate-800">
+                        {item.name}
+                      </h3>
+                    </Link>
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
-      </div>
+                  
+                  {item.description ? (
+                    <p className="mt-1 text-xs font-medium text-slate-500 line-clamp-2">
+                      {item.description}
+                    </p>
+                  ) : null}
+                  
+                  <div className="mt-auto flex items-end justify-between gap-2 pt-4">
+                    <div className="flex flex-col">
+                      <span className="text-base font-black tracking-tight text-slate-900">{formatPrice(item.price)}</span>
+                      {item.compareAtPrice && item.compareAtPrice > item.price ? (
+                        <span className="text-[11px] font-semibold text-slate-400 line-through">
+                          {formatPrice(item.compareAtPrice)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {item.inStock ? (
+                      qty > 0 ? (
+                        <div className="flex h-9 w-[76px] items-center justify-between rounded-lg bg-black text-white shadow-sm overflow-hidden transition-all">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              updateQty(item.id, -1);
+                            }}
+                            className="flex h-full w-7 items-center justify-center"
+                          >
+                            <Minus size={14} strokeWidth={2.5} />
+                          </button>
+                          <span className="flex-1 text-center text-sm font-bold leading-none">{qty}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              updateQty(item.id, 1);
+                            }}
+                            className="flex h-full w-7 items-center justify-center"
+                          >
+                            <Plus size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            addToCart({
+                              id: item.id,
+                              variantId: item.id,
+                              name: item.name,
+                              price: item.price,
+                              shop: detail.store.name,
+                              shopId: detail.store.id,
+                              imageBg: "bg-slate-100",
+                              imageInitials: item.name.substring(0, 2).toUpperCase(),
+                              imageUrl: item.imageUrl ?? undefined
+                            });
+                          }}
+                          className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-black text-sm font-black text-white shadow-sm"
+                        >
+                          Add
+                        </button>
+                      )
+                    ) : (
+                      <span className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-500">
+                        Out of Stock
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {/* Related Products */}
-      {detail.recommendations.length ? (
+      {recommendations && recommendations.length > 0 ? (
         <section className="mt-14 lg:mt-20">
           <div className="mb-5">
             <h2 className="text-xl font-black text-black sm:text-2xl">{tDetail("youMightAlsoLike")}</h2>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5 xl:gap-6">
-            {detail.recommendations.map((item) => (
-              <article key={item.id} className="overflow-hidden rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3">
+            {recommendations.map((item) => {
+              const qty = cartItems.find((cartItem) => cartItem.id === item.id)?.qty || 0;
+              return (
+              <article key={item.id} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)]">
                 <Link
                   href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}/product/${productRefFromParts(item.publicId, item.slug)}`}
-                  className="block"
+                  className="block relative h-[130px] w-full overflow-hidden bg-slate-50/50 p-2 text-left sm:h-[150px] sm:p-3"
                 >
-                  <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-slate-50">
-                    <OfferBadge
-                      className="absolute right-2 top-2 z-10"
-                      compareAtPrice={item.compareAtPrice}
-                      price={item.price}
+                  <OfferBadge
+                    className="absolute right-2 top-2 z-10"
+                    compareAtPrice={item.compareAtPrice}
+                    price={item.price}
+                  />
+                  {item.imageUrl ? (
+                    <Image
+                      src={item.imageUrl}
+                      alt={item.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
+                      className="object-contain p-4 mix-blend-multiply"
                     />
-                    {item.imageUrl ? (
-                      <Image
-                        src={item.imageUrl}
-                        alt={item.name}
-                        fill
-                        sizes="(max-width: 768px) 50vw, 20vw"
-                        className="object-contain p-3 mix-blend-multiply"
-                      />
-                    ) : null}
+                  ) : null}
+                </Link>
+                <div className="flex flex-1 flex-col p-3 sm:p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/shop/${detail.store.publicId}/${detail.store.publicSlug}/product/${productRefFromParts(item.publicId, item.slug)}`}
+                      className="min-w-0"
+                    >
+                      <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-bold leading-snug text-slate-800">
+                        {item.name}
+                      </h3>
+                    </Link>
                   </div>
-                  <div className="mt-3 space-y-1.5">
-                    <h3 className="line-clamp-2 text-sm font-bold text-black break-words">
-                      {item.name}
-                    </h3>
-                    <div className="flex flex-wrap items-baseline gap-1.5">
-                      <p className="text-sm font-black text-black">
-                        {formatPrice(item.price)}
-                      </p>
+                  
+                  {item.description ? (
+                    <p className="mt-1 text-xs font-medium text-slate-500 line-clamp-2">
+                      {item.description}
+                    </p>
+                  ) : null}
+                  
+                  <div className="mt-auto flex items-end justify-between gap-2 pt-4">
+                    <div className="flex flex-col">
+                      <span className="text-base font-black tracking-tight text-slate-900">{formatPrice(item.price)}</span>
                       {item.compareAtPrice && item.compareAtPrice > item.price ? (
-                        <p className="text-[11px] font-semibold text-slate-400 line-through">
+                        <span className="text-[11px] font-semibold text-slate-400 line-through">
                           {formatPrice(item.compareAtPrice)}
-                        </p>
+                        </span>
                       ) : null}
                     </div>
+
+                    {item.inStock ? (
+                      qty > 0 ? (
+                        <div className="flex h-9 w-[76px] items-center justify-between rounded-lg bg-black text-white shadow-sm overflow-hidden transition-all">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              updateQty(item.id, -1);
+                            }}
+                            className="flex h-full w-7 items-center justify-center"
+                          >
+                            <Minus size={14} strokeWidth={2.5} />
+                          </button>
+                          <span className="flex-1 text-center text-sm font-bold leading-none">{qty}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              updateQty(item.id, 1);
+                            }}
+                            className="flex h-full w-7 items-center justify-center"
+                          >
+                            <Plus size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            addToCart({
+                              id: item.id,
+                              variantId: item.id,
+                              name: item.name,
+                              price: item.price,
+                              shop: detail.store.name,
+                              shopId: detail.store.id,
+                              imageBg: "bg-slate-100",
+                              imageInitials: item.name.substring(0, 2).toUpperCase(),
+                              imageUrl: item.imageUrl ?? undefined
+                            });
+                          }}
+                          className="flex h-9 w-[76px] items-center justify-center rounded-lg bg-black text-sm font-black text-white shadow-sm"
+                        >
+                          Add
+                        </button>
+                      )
+                    ) : (
+                      <span className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-500">
+                        Out of Stock
+                      </span>
+                    )}
                   </div>
-                </Link>
+                </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}
 
       {/* Mobile Sticky Add to Cart */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-8px_30px_-15px_rgba(0,0,0,0.15)] md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-8px_30px_-15px_rgba(0,0,0,0.12)] md:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="flex-shrink-0 min-w-0">
-            <p className="text-xs font-bold text-slate-500 truncate">{displayUnit}</p>
-            <p className="text-lg font-black text-black truncate">{formatPrice(displayPrice)}</p>
+            {displayCompareAtPrice && displayCompareAtPrice > displayPrice ? (
+              <p className="text-xs font-semibold text-slate-400 line-through truncate">{formatPrice(displayCompareAtPrice)}</p>
+            ) : null}
+            <div className="flex items-baseline gap-1">
+              <p className="text-lg font-black text-black truncate">{formatPrice(displayPrice)}</p>
+              {priceDisplayUnit && (
+                <span className="text-xs font-bold text-slate-500 truncate">/ {priceDisplayUnit}</span>
+              )}
+            </div>
           </div>
           <div className="flex min-w-0 flex-1 justify-end">
             {cartQty > 0 ? (
@@ -465,7 +709,7 @@ export function ShopProductDetailView({
                 type="button"
                 onClick={addCurrentVariantToCart}
                 disabled={!displayInStock}
-                className="h-12 min-w-[9.5rem] rounded-xl bg-black px-4 text-sm font-black text-white transition-transform active:scale-95 disabled:opacity-50"
+                className="flex items-center justify-center h-12 min-w-[9.5rem] rounded-xl bg-black px-4 text-sm font-black text-white transition-transform active:scale-95 disabled:opacity-50"
               >
                 {tDetail("addToCart")}
               </button>
@@ -542,16 +786,20 @@ type SpecificationLabels = {
 };
 
 function getVariantPackLabel(unitDisplay: string, variantName: string, labels: PackTypeLabels) {
-  const localizedUnit = localizeUnitDisplay(unitDisplay, labels);
-  if (localizedUnit) {
-    return localizedUnit;
+  let result = "";
+  const trimmed = unitDisplay.trim();
+  const match = trimmed.match(/^(.*\S)\s+(Unit|Pack|Packet|Box|Carton|Bottle|Pouch|Jar|Can|Sachet|Strip|Bag|Tray|Bunch|Bundle|Set)$/i);
+  
+  if (match?.[1]) {
+    result = match[1];
+  } else if (trimmed) {
+    result = trimmed;
+  } else {
+    const nameMatch = extractMeasurement(variantName);
+    result = nameMatch || variantName.trim();
   }
-  const nameMatch = extractMeasurement(variantName);
-  if (nameMatch) {
-    return `${nameMatch} ${labels.pack}`;
-  }
-  const fallback = variantName.trim();
-  return fallback ? `${fallback} ${labels.pack}` : labels.pack;
+  
+  return result.replace(/(\d+(?:\.\d+)?)\s*(?:L|Ltr)\b/gi, "$1 Liter");
 }
 
 function localizeUnitDisplay(value: string, labels: PackTypeLabels) {

@@ -1,15 +1,22 @@
 import { HttpStatus, Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import {
+  AuditOutcome,
   Category as CategoryModel,
+  CartItemAvailabilityStatus,
+  InventoryLedgerType,
+  InventoryReservationStatus,
   Prisma,
   Product as ProductModel,
   ProductStatus,
+  ProductVariantStatus,
+  StockReservationStatus,
   StoreStatus,
+  UploadModerationStatus,
   UploadAssetStatus,
   UploadPurpose,
   UploadRenditionKind
 } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { RequestTimer } from "../../common/request-timing";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthenticatedPrincipal } from "../auth/auth.types";
@@ -19,6 +26,7 @@ import { PERMISSIONS } from "../rbac/permissions";
 import { RbacEngine } from "../rbac/rbac.engine";
 import { ShopsService } from "../shops/shops.service";
 import { UploadEngineService } from "../uploads/upload-engine.service";
+import { IdempotencyService } from "../uploads/idempotency.service";
 import { uploadError } from "../uploads/uploads.errors";
 import {
   CreateProductDto,
@@ -43,11 +51,15 @@ const productInclude = {
   images: {
     include: {
       uploadAsset: { include: { renditions: true } },
-      variants: { include: { productVariant: true } }
+      variants: {
+        where: { productVariant: { status: ProductVariantStatus.ACTIVE } },
+        include: { productVariant: true }
+      }
     },
     orderBy: { sortOrder: "asc" as const }
   },
   variants: {
+    where: { status: ProductVariantStatus.ACTIVE },
     orderBy: [
       { isDefault: "desc" as const },
       { position: "asc" as const },
@@ -146,6 +158,10 @@ type ProductCreateGraphRow = {
   product: ProductModel | null;
   assets: AttachableAsset[] | null;
 };
+type ProductCreateResponse = {
+  apiVersion: "v1";
+  product: ReturnType<typeof toWrittenProductResponse>;
+};
 
 @Injectable()
 export class ProductsService implements OnModuleInit {
@@ -159,6 +175,7 @@ export class ProductsService implements OnModuleInit {
     private readonly rbac: RbacEngine,
     private readonly shops: ShopsService,
     private readonly uploadEngine: UploadEngineService,
+    @Optional() private readonly idempotency?: IdempotencyService,
     @Optional() private readonly catalogEvents?: CatalogEventsService
   ) {}
 
@@ -181,8 +198,46 @@ export class ProductsService implements OnModuleInit {
     };
   }
 
-  async create(auth: AuthenticatedPrincipal, dto: CreateProductDto, timer?: RequestTimer) {
+  async create(
+    auth: AuthenticatedPrincipal,
+    dto: CreateProductDto,
+    idempotencyKeyOrTimer: string | RequestTimer = randomUUID(),
+    maybeTimer?: RequestTimer
+  ): Promise<ProductCreateResponse> {
+    const idempotencyKey = typeof idempotencyKeyOrTimer === "string" ? idempotencyKeyOrTimer : randomUUID();
+    const timer = typeof idempotencyKeyOrTimer === "string" ? maybeTimer : idempotencyKeyOrTimer;
     await timeStage(timer, "store-access", () => this.assertStoreAccess(auth, dto.storeId));
+    const idempotency = this.idempotency;
+    if (!idempotency) {
+      return this.createProduct(auth, dto, idempotencyKey, timer);
+    }
+    const requestHash = productRequestHash(dto);
+    const reservation = await timeStage(timer, "idempotency-reserve", () => idempotency.reserve({
+      key: idempotencyKey,
+      storeId: dto.storeId,
+      userId: auth.userId,
+      operation: "product.create.v1",
+      requestHash
+    }));
+    if (reservation.state === "replayed") {
+      return reservation.response as ProductCreateResponse;
+    }
+    try {
+      const response = await this.createProduct(auth, dto, idempotencyKey, timer);
+      await timeStage(timer, "idempotency-complete", () => idempotency.complete(reservation, response));
+      return response;
+    } catch (error) {
+      await idempotency.fail(reservation, productErrorResponse(error)).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async createProduct(
+    auth: AuthenticatedPrincipal,
+    dto: CreateProductDto,
+    idempotencyKey: string,
+    timer?: RequestTimer
+  ): Promise<ProductCreateResponse> {
     const status = toDbStatus(dto.status);
     this.validateProductPrice(dto);
     this.validateImageRules(status, dto.images);
@@ -200,7 +255,7 @@ export class ProductsService implements OnModuleInit {
     const imageRows = productImageCreateRows(productId, images);
     const imageVariantRows = productImageVariantCreateRows(images, imageRows, variantsBySku, variantsByClientId);
 
-    const result = await timeStage(timer, "db-write", () => this.createProductGraph({
+    const graphInput: ProductCreateGraphInput = {
       product: {
         id: productId,
         storeId: dto.storeId,
@@ -209,7 +264,7 @@ export class ProductsService implements OnModuleInit {
         sku,
         subCategory: normalizeOptionalText(dto.subCategory),
         productType: normalizeOptionalText(dto.productType),
-        description: dto.seoDescription?.trim() || null,
+        description: normalizeOptionalText(dto.description),
         seoTitle: dto.seoTitle?.trim() || null,
         seoDescription: dto.seoDescription?.trim() || null,
         price: dto.price,
@@ -229,32 +284,54 @@ export class ProductsService implements OnModuleInit {
       variantRows,
       imageRows,
       imageVariantRows
-    }));
-    await timeStage(timer, "inventory-init", () => this.prisma.$transaction((tx) =>
-      this.inventory.initializeCatalogInventory(tx, {
+    };
+    const result = await timeStage(timer, "db-write", () => this.prisma.$transaction(async (tx) => {
+      const written = await this.createProductGraph(tx, graphInput);
+      await this.inventory.initializeCatalogInventory(tx, {
         storeId: dto.storeId,
         variants: variantRows.map((variant) => ({
           productVariantId: variant.id,
           availableStock: variant.stock
         })),
         reason: "product_created",
-        idempotencyKey: `product-create:${productId}`
-      })
-    ));
-    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
-      changedFields: ["category", "details", "images", "inventory", "price", "publication"],
-      catalogVersion: result.product?.catalogVersion ?? 1,
-      nextCategoryId: category?.id ?? null,
-      operation: "product.create",
-      productId,
-      snapshot: {
-        compareAtPrice: toMrp(dto.compareAtPrice),
-        isAvailable: status === ProductStatus.PUBLISHED,
-        price: dto.price,
-        stockStatus: dto.stock > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
-      },
-      storeId: dto.storeId,
-      variantIds: variantRows.map((variant) => variant.id)
+        idempotencyKey: `product-create:${idempotencyKey}`
+      });
+      await this.refreshVariantInventorySummaries(tx, dto.storeId, variantRows.map((variant) => variant.id));
+      await tx.auditLog.create({
+        data: {
+          eventType: "product.created",
+          actor: "MERCHANT",
+          actorUserId: auth.userId,
+          storeId: dto.storeId,
+          outcome: AuditOutcome.SUCCESS,
+          metadata: {
+            productId,
+            variantIds: variantRows.map((variant) => variant.id),
+            uploadAssetIds: imageRows.map((image) => image.uploadAssetId),
+            idempotencyKey,
+            catalogVersion: written.product?.catalogVersion ?? 1
+          } as Prisma.InputJsonValue
+        }
+      });
+      if (this.catalogEvents) {
+        await this.catalogEvents.enqueueProductChanged({
+          changedFields: ["category", "details", "images", "inventory", "price", "publication"],
+          catalogVersion: written.product?.catalogVersion ?? 1,
+          eventType: "catalog.product.changed.v1",
+          idempotencyKey: `product.create:${productId}:${written.product?.catalogVersion ?? 1}`,
+          nextCategoryId: category?.id ?? null,
+          productId,
+          snapshot: {
+            compareAtPrice: toMrp(dto.compareAtPrice),
+            isAvailable: status === ProductStatus.PUBLISHED,
+            price: dto.price,
+            stockStatus: dto.stock > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
+          },
+          storeId: dto.storeId,
+          variantIds: variantRows.map((variant) => variant.id)
+        }, tx);
+      }
+      return written;
     }));
     await timeStage(timer, "public-cache-invalidate", () =>
       this.invalidatePublicShopProductCache(dto.storeId, "product.create", productId)
@@ -323,13 +400,23 @@ export class ProductsService implements OnModuleInit {
     const primary = primaryInput(images);
     const primaryAsset = primary ? assets.get(primary.uploadAssetId) : undefined;
     const primaryCard = primaryAsset?.renditions.find((rendition) => rendition.kind === UploadRenditionKind.CARD);
-    const variantRows = normalizedProductVariants.map((variant) => productVariantCreateData(productId, variant, randomUUID()));
+    const variantRows = normalizedProductVariants.map((variant) => productVariantCreateData(productId, variant, variant.id ?? randomUUID()));
     const variantsBySku = variantsBySkuMap(variantRows);
     const variantsByClientId = variantsByClientIdMap(normalizedProductVariants, variantRows);
     assertVariantImageAssignments(images, variantsBySku, variantsByClientId);
     const imageRows = productImageCreateRows(productId, images);
 
     const result = await timeStage(timer, "db-write", () => this.prisma.$transaction(async (tx) => {
+      const lockedProduct = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM products
+        WHERE id = ${productId}::uuid
+          AND store_id = ${fullDto.storeId}::uuid
+        FOR UPDATE
+      `);
+      if (!lockedProduct.length) {
+        throw uploadError(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", "Product not found.");
+      }
       const updated = await tx.product.update({
         where: { id: productId },
         data: {
@@ -338,7 +425,7 @@ export class ProductsService implements OnModuleInit {
           sku,
           subCategory: normalizeOptionalText(fullDto.subCategory),
           productType: normalizeOptionalText(fullDto.productType),
-          description: fullDto.seoDescription?.trim() || null,
+          description: normalizeOptionalText(fullDto.description),
           seoTitle: fullDto.seoTitle?.trim() || null,
           seoDescription: fullDto.seoDescription?.trim() || null,
           price: fullDto.price,
@@ -357,30 +444,27 @@ export class ProductsService implements OnModuleInit {
           catalogVersion: { increment: 1 }
         }
       });
+      const writtenVariants = await this.syncProductVariants(tx, {
+        productId,
+        storeId: fullDto.storeId,
+        variantRows,
+        actorUserId: auth.userId,
+        persistedVariantIds: normalizedProductVariants
+          .map((variant) => variant.id)
+          .filter((id): id is string => Boolean(id)),
+        idempotencyKey: `product-update:${productId}:${updated.catalogVersion}`
+      });
       await tx.productImageVariant.deleteMany({
         where: { productImage: { productId } }
       });
       await tx.productImage.deleteMany({ where: { productId } });
-      await tx.productVariant.deleteMany({ where: { productId } });
-      if (variantRows.length) {
-        await tx.productVariant.createMany({ data: variantRows });
-        await this.inventory.initializeCatalogInventory(tx, {
-          storeId: fullDto.storeId,
-          variants: variantRows.map((variant) => ({
-            productVariantId: variant.id,
-            availableStock: variant.stock
-          })),
-          reason: "product_updated",
-          idempotencyKey: `product-update:${productId}`
-        });
-      }
       const writtenImages = await this.createProductImages(tx, {
         productId,
         images,
         imageRows,
         variantsBySku,
         variantsByClientId,
-        variants: variantRows
+        variants: writtenVariants
       });
       const removed = [...currentImageAssetIds].filter((id) => !incomingAssetIds.has(id));
       if (removed.length) {
@@ -389,10 +473,25 @@ export class ProductsService implements OnModuleInit {
           data: { status: UploadAssetStatus.ORPHANED, failureReason: "product_image_removed" }
         });
       }
-      return { product: updated, variants: variantRows, ...writtenImages };
+      await tx.auditLog.create({
+        data: {
+          eventType: "product.updated",
+          actor: "MERCHANT",
+          actorUserId: auth.userId,
+          storeId: fullDto.storeId,
+          outcome: AuditOutcome.SUCCESS,
+          metadata: {
+            productId,
+            variantIds: writtenVariants.map((variant) => variant.id),
+            removedUploadAssetIds: removed,
+            catalogVersion: updated.catalogVersion
+          } as Prisma.InputJsonValue
+        }
+      });
+      return { product: updated, variants: writtenVariants, ...writtenImages };
     }));
     await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
-      changedFields: ["category", "details", "images", "price", "publication"],
+      changedFields: ["category", "details", "images", "inventory", "price", "publication"],
       catalogVersion: result.product.catalogVersion,
       nextCategoryId: category?.id ?? null,
       operation: "product.update",
@@ -437,7 +536,7 @@ export class ProductsService implements OnModuleInit {
       include: {
         category: true,
         variants: {
-          where: { isDefault: true },
+          where: { isDefault: true, status: ProductVariantStatus.ACTIVE },
           take: 1
         }
       }
@@ -560,7 +659,13 @@ export class ProductsService implements OnModuleInit {
       const seoDescription = normalizeOptionalText(dto.seoDescription);
       if (seoDescription !== existing.seoDescription) {
         productData.seoDescription = seoDescription;
-        productData.description = seoDescription;
+      }
+    }
+
+    if (dto.description !== undefined) {
+      const description = normalizeOptionalText(dto.description);
+      if (description !== existing.description) {
+        productData.description = description;
       }
     }
 
@@ -629,7 +734,7 @@ export class ProductsService implements OnModuleInit {
       }
       if (defaultVariantChanged) {
         await timeStage(timer, "default-variant-sync", () => tx.productVariant.updateMany({
-          where: { productId, isDefault: true },
+          where: { productId, isDefault: true, status: ProductVariantStatus.ACTIVE },
           data: defaultVariantData
         }));
       }
@@ -638,7 +743,7 @@ export class ProductsService implements OnModuleInit {
         include: {
           category: true,
           variants: {
-            where: { isDefault: true },
+            where: { isDefault: true, status: ProductVariantStatus.ACTIVE },
             take: 1
           }
         }
@@ -815,7 +920,6 @@ export class ProductsService implements OnModuleInit {
         storeId: input.storeId,
         variantIds: input.variantIds
       });
-      void this.catalogEvents.publishPending();
     } catch (error) {
       this.logger.warn(`Unable to enqueue catalog event for ${input.operation}:${input.productId}: ${messageOf(error)}`);
     }
@@ -862,9 +966,357 @@ export class ProductsService implements OnModuleInit {
     }
   }
 
-  private async createProductGraph(input: ProductCreateGraphInput) {
+  private async syncProductVariants(
+    tx: Prisma.TransactionClient,
+    input: {
+      productId: string;
+      storeId: string;
+      variantRows: Array<Prisma.ProductVariantCreateManyInput & ProductVariantResponseSource>;
+      actorUserId: string;
+      persistedVariantIds: string[];
+      idempotencyKey: string;
+    }
+  ): Promise<ProductVariantResponseSource[]> {
+    const existingVariants = await tx.productVariant.findMany({
+      where: { productId: input.productId },
+      orderBy: [
+        { isDefault: "desc" },
+        { position: "asc" },
+        { createdAt: "asc" }
+      ]
+    });
+    const existingById = new Map(existingVariants.map((variant) => [variant.id, variant]));
+    const activeExistingIds = new Set(
+      existingVariants
+        .filter((variant) => variant.status === ProductVariantStatus.ACTIVE)
+        .map((variant) => variant.id)
+    );
+    const persistedVariantIds = new Set(input.persistedVariantIds);
+    const incomingIds = new Set<string>();
+    const newInventoryVariants: Array<{ productVariantId: string; availableStock: number }> = [];
+
+    await tx.productVariant.updateMany({
+      where: { productId: input.productId, status: ProductVariantStatus.ACTIVE, isDefault: true },
+      data: { isDefault: false }
+    });
+
+    for (const row of input.variantRows) {
+      const existing = existingById.get(row.id);
+      incomingIds.add(row.id);
+      if (!existing && persistedVariantIds.has(row.id)) {
+        throw uploadError(
+          HttpStatus.BAD_REQUEST,
+          "PRODUCT_VARIANT_ID_INVALID",
+          "One or more variants do not belong to this product."
+        );
+      }
+      if (existing) {
+        if (existing.status !== ProductVariantStatus.ACTIVE) {
+          throw uploadError(
+            HttpStatus.CONFLICT,
+            "PRODUCT_VARIANT_ARCHIVED",
+            "Archived variants cannot be edited or reactivated from product updates."
+          );
+        }
+        await tx.productVariant.update({
+          where: { id: row.id },
+          data: {
+            name: row.name,
+            sku: row.sku,
+            price: row.price,
+            mrp: row.mrp,
+            costPrice: row.costPrice,
+            pricePerBaseUnit: row.pricePerBaseUnit,
+            unitGroup: row.unitGroup,
+            quantityValue: row.quantityValue,
+            quantityUnit: row.quantityUnit,
+            normalizedValue: row.normalizedValue,
+            normalizedUnit: row.normalizedUnit,
+            packType: row.packType,
+            isDefault: row.isDefault,
+            position: row.position
+          }
+        });
+        continue;
+      }
+
+      await tx.productVariant.create({ data: row });
+      newInventoryVariants.push({
+        productVariantId: row.id,
+        availableStock: row.stock
+      });
+    }
+
+    const archivedIds = Array.from(activeExistingIds).filter((id) => !incomingIds.has(id));
+    if (archivedIds.length) {
+      await this.archiveProductVariants(tx, {
+        productId: input.productId,
+        storeId: input.storeId,
+        variantIds: archivedIds,
+        actorUserId: input.actorUserId,
+        idempotencyKey: input.idempotencyKey
+      });
+    }
+
+    if (newInventoryVariants.length) {
+      await this.inventory.initializeCatalogInventory(tx, {
+        storeId: input.storeId,
+        variants: newInventoryVariants,
+        reason: "product_variant_created",
+        idempotencyKey: `${input.idempotencyKey}:variant-created`
+      });
+    }
+
+    await this.refreshVariantInventorySummaries(tx, input.storeId, input.variantRows.map((variant) => variant.id));
+
+    return tx.productVariant.findMany({
+      where: { productId: input.productId, status: ProductVariantStatus.ACTIVE },
+      orderBy: [
+        { isDefault: "desc" },
+        { position: "asc" },
+        { createdAt: "asc" }
+      ]
+    }) as Promise<ProductVariantResponseSource[]>;
+  }
+
+  private async archiveProductVariants(
+    tx: Prisma.TransactionClient,
+    input: {
+      productId: string;
+      storeId: string;
+      variantIds: string[];
+      actorUserId: string;
+      idempotencyKey: string;
+    }
+  ) {
+    const now = new Date();
+    await tx.productVariant.updateMany({
+      where: { id: { in: input.variantIds }, productId: input.productId },
+      data: {
+        status: ProductVariantStatus.ARCHIVED,
+        archivedAt: now,
+        isDefault: false
+      }
+    });
+    await tx.auditLog.createMany({
+      data: input.variantIds.map((variantId) => ({
+        eventType: "variant.archived",
+        actor: "MERCHANT",
+        actorUserId: input.actorUserId,
+        storeId: input.storeId,
+        outcome: AuditOutcome.SUCCESS,
+        metadata: {
+          productId: input.productId,
+          variantId,
+          reason: "variant_removed_from_update",
+          idempotencyKey: input.idempotencyKey
+        } as Prisma.InputJsonValue
+      }))
+    });
+    await tx.cartItem.updateMany({
+      where: {
+        variantId: { in: input.variantIds },
+        availabilityStatus: CartItemAvailabilityStatus.AVAILABLE
+      },
+      data: {
+        availabilityStatus: CartItemAvailabilityStatus.UNAVAILABLE_VARIANT_ARCHIVED,
+        unavailableReason: "variant_archived",
+        unavailableAt: now
+      }
+    });
+    await tx.stockReservation.updateMany({
+      where: { productVariantId: { in: input.variantIds }, status: StockReservationStatus.ACTIVE },
+      data: {
+        status: StockReservationStatus.RELEASED,
+        reason: "variant_archived",
+        releasedAt: now
+      }
+    });
+
+    const lockedItems = await tx.$queryRaw<Array<{
+      id: string;
+      storeId: string;
+      productVariantId: string;
+      locationId: string;
+      availableStock: number;
+      reservedStock: number;
+      soldStock: number;
+      lowStockThreshold: number;
+      version: number;
+    }>>(Prisma.sql`
+      SELECT
+        id,
+        store_id AS "storeId",
+        product_variant_id AS "productVariantId",
+        location_id AS "locationId",
+        available_stock AS "availableStock",
+        reserved_stock AS "reservedStock",
+        sold_stock AS "soldStock",
+        low_stock_threshold AS "lowStockThreshold",
+        version
+      FROM inventory_items
+      WHERE store_id = ${input.storeId}::uuid
+        AND product_variant_id IN (${Prisma.join(input.variantIds.map((id) => Prisma.sql`${id}::uuid`))})
+      FOR UPDATE
+    `);
+
+    for (const item of lockedItems) {
+      const activeReservations = await tx.inventoryReservation.findMany({
+        where: {
+          storeId: input.storeId,
+          productVariantId: item.productVariantId,
+          locationId: item.locationId,
+          status: InventoryReservationStatus.ACTIVE
+        },
+        select: { id: true, quantity: true }
+      });
+      const releasedQuantity = activeReservations.reduce((sum, reservation) => sum + reservation.quantity, 0);
+      if (activeReservations.length) {
+        await tx.inventoryReservation.updateMany({
+          where: { id: { in: activeReservations.map((reservation) => reservation.id) } },
+          data: {
+            status: InventoryReservationStatus.RELEASED,
+            reason: "variant_archived",
+            releasedAt: now
+          }
+        });
+      }
+
+      const afterReservedStock = Math.max(item.reservedStock - releasedQuantity, 0);
+      const after = {
+        availableStock: 0,
+        reservedStock: afterReservedStock,
+        soldStock: item.soldStock,
+        version: item.version + 1
+      };
+      await tx.inventoryItem.update({
+        where: { id: item.id },
+        data: {
+          availableStock: after.availableStock,
+          reservedStock: after.reservedStock,
+          soldStock: after.soldStock,
+          version: after.version
+        }
+      });
+      await tx.productVariant.update({
+        where: { id: item.productVariantId },
+        data: {
+          stock: 0,
+          stockOnHand: after.availableStock + after.reservedStock,
+          stockReserved: after.reservedStock,
+          stockVersion: after.version
+        }
+      });
+
+      if (releasedQuantity > 0) {
+        await tx.inventoryLedger.create({
+          data: {
+            schemaVersion: 1,
+            storeId: item.storeId,
+            productVariantId: item.productVariantId,
+            locationId: item.locationId,
+            type: InventoryLedgerType.RELEASED,
+            quantity: releasedQuantity,
+            beforeAvailableStock: item.availableStock,
+            afterAvailableStock: item.availableStock,
+            beforeReservedStock: item.reservedStock,
+            afterReservedStock,
+            beforeSoldStock: item.soldStock,
+            afterSoldStock: item.soldStock,
+            actorType: "SYSTEM",
+            reason: "variant_archived",
+            idempotencyKey: `${input.idempotencyKey}:release:${item.id}`
+          }
+        });
+      }
+
+      if (item.availableStock > 0) {
+        await tx.inventoryLedger.create({
+          data: {
+            schemaVersion: 1,
+            storeId: item.storeId,
+            productVariantId: item.productVariantId,
+            locationId: item.locationId,
+            type: InventoryLedgerType.MANUAL_ADJUSTMENT,
+            quantity: item.availableStock,
+            beforeAvailableStock: item.availableStock,
+            afterAvailableStock: 0,
+            beforeReservedStock: afterReservedStock,
+            afterReservedStock,
+            beforeSoldStock: item.soldStock,
+            afterSoldStock: item.soldStock,
+            actorType: "SYSTEM",
+            reason: "variant_archived",
+            idempotencyKey: `${input.idempotencyKey}:zero:${item.id}`
+          }
+        });
+      }
+    }
+
+    await this.refreshVariantInventorySummaries(tx, input.storeId, input.variantIds);
+  }
+
+  private async refreshVariantInventorySummaries(tx: Prisma.TransactionClient, storeId: string, variantIds: string[]) {
+    const uniqueIds = Array.from(new Set(variantIds));
+    if (!uniqueIds.length) {
+      return;
+    }
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO variant_inventory_summary (
+        store_id,
+        product_id,
+        product_variant_id,
+        available_stock,
+        reserved_stock,
+        sold_stock,
+        in_stock,
+        variant_status,
+        stock_version,
+        updated_at
+      )
+      SELECT
+        p.store_id,
+        p.id,
+        pv.id,
+        GREATEST(COALESCE(SUM(ii.available_stock), pv.stock_on_hand - pv.stock_reserved, 0), 0)::integer,
+        GREATEST(COALESCE(SUM(ii.reserved_stock), pv.stock_reserved, 0), 0)::integer,
+        GREATEST(COALESCE(SUM(ii.sold_stock), 0), 0)::integer,
+        GREATEST(COALESCE(SUM(ii.available_stock), pv.stock_on_hand - pv.stock_reserved, 0), 0) > 0
+          AND pv.status = ${ProductVariantStatus.ACTIVE}::"ProductVariantStatus",
+        pv.status,
+        GREATEST(COALESCE(MAX(ii.version), pv.stock_version, 1), 1)::integer,
+        now()
+      FROM product_variants pv
+      JOIN products p ON p.id = pv.product_id
+      LEFT JOIN inventory_items ii
+        ON ii.product_variant_id = pv.id
+       AND ii.store_id = p.store_id
+      WHERE p.store_id = ${storeId}::uuid
+        AND pv.id IN (${Prisma.join(uniqueIds.map((id) => Prisma.sql`${id}::uuid`))})
+      GROUP BY
+        p.store_id,
+        p.id,
+        pv.id,
+        pv.stock_on_hand,
+        pv.stock_reserved,
+        pv.status,
+        pv.stock_version
+      ON CONFLICT (store_id, product_variant_id) DO UPDATE
+      SET
+        product_id = EXCLUDED.product_id,
+        available_stock = EXCLUDED.available_stock,
+        reserved_stock = EXCLUDED.reserved_stock,
+        sold_stock = EXCLUDED.sold_stock,
+        in_stock = EXCLUDED.in_stock,
+        variant_status = EXCLUDED.variant_status,
+        stock_version = EXCLUDED.stock_version,
+        updated_at = now()
+    `);
+  }
+
+  private async createProductGraph(tx: Prisma.TransactionClient, input: ProductCreateGraphInput) {
     const expectedAssetCount = new Set(input.imageRows.map((image) => image.uploadAssetId)).size;
-    const rows = await this.prisma.$queryRaw<ProductCreateGraphRow[]>(Prisma.sql`
+    const rows = await tx.$queryRaw<ProductCreateGraphRow[]>(Prisma.sql`
       WITH
       variant_input AS (
         SELECT *
@@ -928,6 +1380,7 @@ export class ProductsService implements OnModuleInit {
         WHERE ua.store_id = ${input.product.storeId}::uuid
           AND ua.purpose = ${UploadPurpose.PRODUCT_IMAGE}::"UploadPurpose"
           AND ua.status = ${UploadAssetStatus.READY}::"UploadAssetStatus"
+          AND ua.moderation_status = ${UploadModerationStatus.APPROVED}::"UploadModerationStatus"
           AND (ua.expires_at IS NULL OR ua.expires_at > now())
           AND NOT EXISTS (
             SELECT 1
@@ -1263,6 +1716,7 @@ export class ProductsService implements OnModuleInit {
         storeId,
         purpose: UploadPurpose.PRODUCT_IMAGE,
         status: UploadAssetStatus.READY,
+        moderationStatus: UploadModerationStatus.APPROVED,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         productImage: null
       },
@@ -1348,11 +1802,22 @@ export class ProductsService implements OnModuleInit {
   }
 
   private normalizedVariants(dto: CreateProductDto, productMeasurement: NormalizedMeasurement) {
-    const clientVariants = (dto.variants ?? []).filter((variant) => !isLegacyBaseProductVariant(variant));
+    const clientVariants = dto.variants ?? [];
     const hasClientVariants = clientVariants.length > 0;
+    const explicitDefaultIndexes = clientVariants
+      .map((variant, index) => variant.isDefault ? index : -1)
+      .filter((index) => index >= 0);
+    if (explicitDefaultIndexes.length > 1) {
+      throw uploadError(
+        HttpStatus.BAD_REQUEST,
+        "PRODUCT_VARIANT_DEFAULT_CONFLICT",
+        "Exactly one variant can be marked as the default."
+      );
+    }
     const variants = hasClientVariants
       ? clientVariants
       : [{
+          id: undefined,
           name: "Default",
           sku: dto.sku,
           price: dto.price,
@@ -1360,14 +1825,20 @@ export class ProductsService implements OnModuleInit {
           costPrice: undefined,
           stock: dto.stock,
           clientId: undefined,
+          isDefault: true,
           measurement: dto.measurement
         }];
     const fallbackSku = hasClientVariants ? null : normalizeOptionalSku(dto.sku);
     return variants.map((variant, index) => {
       this.validateVariantPrice(variant);
       const measurement = this.normalizeMeasurement(variant.measurement ?? dto.measurement, dto, variant.price);
-      const isDefault = !hasClientVariants;
+      const isDefault = hasClientVariants
+        ? explicitDefaultIndexes.length === 1
+          ? explicitDefaultIndexes[0] === index
+          : index === 0
+        : true;
       return {
+        id: variant.id,
         clientId: variant.clientId?.trim() || null,
         name: variant.name.trim() || "Default",
         sku: normalizeOptionalSku(variant.sku) ?? fallbackSku,
@@ -1471,6 +1942,7 @@ function catalogChangedFieldsFromSparseDto(dto: UpdateProductDto) {
     dto.sku !== undefined ||
     dto.subCategory !== undefined ||
     dto.productType !== undefined ||
+    dto.description !== undefined ||
     dto.seoTitle !== undefined ||
     dto.seoDescription !== undefined ||
     dto.measurement !== undefined ||
@@ -1483,6 +1955,36 @@ function catalogChangedFieldsFromSparseDto(dto: UpdateProductDto) {
 
 function messageOf(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function productRequestHash(dto: CreateProductDto) {
+  return createHash("sha256").update(canonicalJson(dto)).digest("hex");
+}
+
+function productErrorResponse(error: unknown) {
+  if (error && typeof error === "object" && "response" in error) {
+    return (error as { response?: unknown }).response;
+  }
+  return {
+    apiVersion: "v1",
+    code: "PRODUCT_CREATE_FAILED",
+    message: messageOf(error),
+    retryable: false
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(",")}}`;
 }
 
 function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
@@ -1499,10 +2001,6 @@ function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undef
 
 function setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number) {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
-function isLegacyBaseProductVariant(variant: ProductVariantInputDto) {
-  return variant.clientId?.trim() === "base-product";
 }
 
 function normalizeOptionalSku(value: string | undefined | null) {
@@ -1600,7 +2098,7 @@ function productVariantCreateData(
     isDefault?: boolean;
     position?: number;
   },
-  id = randomUUID()
+  id: string = randomUUID()
 ): Prisma.ProductVariantCreateManyInput & ProductVariantResponseSource {
   return {
     id,
@@ -1622,7 +2120,8 @@ function productVariantCreateData(
     normalizedUnit: variant.measurement.normalizedUnit,
     packType: variant.measurement.packType,
     isDefault: variant.isDefault ?? false,
-    position: variant.position ?? 0
+    position: variant.position ?? 0,
+    status: ProductVariantStatus.ACTIVE
   };
 }
 
@@ -1662,13 +2161,20 @@ function productImageVariantCreateRows(
 
 function normalizeImages(images: ProductImageInputDto[]) {
   return images
-    .map((image, index) => ({
-      ...image,
-      imageScope: image.imageScope ?? "PRODUCT",
-      sortOrder: image.sortOrder ?? index,
-      variantClientIds: image.variantClientIds?.map((id) => id.trim()).filter(Boolean),
-      variantSkuIds: image.variantSkuIds?.map((sku) => sku.toUpperCase())
-    }))
+    .map((image, index) => {
+      const imageScope = image.imageScope ?? "PRODUCT";
+      return {
+        ...image,
+        imageScope,
+        sortOrder: image.sortOrder ?? index,
+        variantClientIds: imageScope === "VARIANT"
+          ? image.variantClientIds?.map((id) => id.trim()).filter(Boolean)
+          : [],
+        variantSkuIds: imageScope === "VARIANT"
+          ? image.variantSkuIds?.map((sku) => sku.trim().toUpperCase()).filter(Boolean)
+          : []
+      };
+    })
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
@@ -1722,6 +2228,7 @@ function sparsePatchAlreadyApplied(
     (dto.stock === undefined || product.stock === dto.stock) &&
     (dto.reorderPoint === undefined || product.reorderPoint === dto.reorderPoint) &&
     (dto.status === undefined || product.status === toDbStatus(dto.status)) &&
+    (dto.description === undefined || product.description === normalizeOptionalText(dto.description)) &&
     (dto.seoTitle === undefined || product.seoTitle === normalizeOptionalText(dto.seoTitle)) &&
     (dto.seoDescription === undefined || product.seoDescription === normalizeOptionalText(dto.seoDescription)) &&
     (dto.measurement === undefined || sameMeasurementInput(product, dto.measurement))
@@ -1758,6 +2265,7 @@ function sparseProductResponse(
     pricePerBaseUnit: Number(product.pricePerBaseUnit),
     pricePerBaseUnitDisplay: formatPricePerBaseUnitDisplay(Number(product.pricePerBaseUnit), product.unitGroup),
     status: toUiStatus(product.status),
+    description: product.description ?? "",
     seoTitle: product.seoTitle ?? "",
     seoDescription: product.seoDescription ?? "",
     catalogVersion: product.catalogVersion,
@@ -1878,6 +2386,7 @@ function toProductResponseFromParts(input: {
       defaultVariant?.pricePerBaseUnitDisplay ??
       formatPricePerBaseUnitDisplay(Number(input.product.pricePerBaseUnit), input.product.unitGroup),
     status: toUiStatus(input.product.status),
+    description: input.product.description ?? "",
     seoTitle: input.product.seoTitle ?? "",
     seoDescription: input.product.seoDescription ?? "",
     sales: 0,

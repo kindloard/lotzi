@@ -77,6 +77,8 @@ export const envSchema = z
     ADMIN_APPROVAL_SESSION_SECRET: z.string().min(32).optional(),
     ADMIN_APPROVAL_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
     INTERNAL_METRICS_TOKEN: optionalString,
+    CATALOG_REVALIDATE_SECRET: optionalString,
+    CATALOG_REVALIDATE_URL: optionalString.pipe(z.url().optional()),
     CLOUDINARY_CLOUD_NAME: optionalString,
     CLOUDINARY_API_KEY: optionalString,
     CLOUDINARY_API_SECRET: optionalString,
@@ -177,6 +179,7 @@ export const envSchema = z
       "ADMIN_APPROVAL_SESSION_SECRET",
       "ADMIN_APPROVAL_PASSWORD_HASH",
       "INTERNAL_METRICS_TOKEN",
+      "CATALOG_REVALIDATE_SECRET",
       "CASHFREE_APP_ID",
       "CASHFREE_SECRET_KEY",
       "PHONEPE_ENCRYPTION_KEY"

@@ -4,6 +4,7 @@ import { RateLimitService } from "../rate-limit/rate-limit.service";
 import { ShopsService } from "./shops.service";
 
 const PRODUCT_PUBLIC_ID_PATTERN = /^[0-9a-f]{32}$/i;
+const PUBLIC_RECOMMENDATIONS_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=300";
 
 @Controller("v1/products")
 export class PublicProductsController {
@@ -58,6 +59,7 @@ export class PublicProductsController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response
   ) {
+    const startedAt = process.hrtime.bigint();
     const productPublicId = parseProductPublicId(rawProductPublicId);
     await this.enforcePublicRateLimit(request, response, `product-reco:${clientIp(request)}:${productPublicId}`, 120, 60);
 
@@ -65,6 +67,9 @@ export class PublicProductsController {
     const parsedLimit = Number(limit);
     const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(Math.trunc(parsedLimit), 1), 24) : 8;
     const items = await this.shops.listRecommendationsForProduct(productPublicId, normalizedContext, safeLimit);
+    response.setHeader("Cache-Control", PUBLIC_RECOMMENDATIONS_CACHE_CONTROL);
+    response.setHeader("Server-Timing", `product-recommendations;dur=${durationMs(startedAt).toFixed(1)}`);
+    response.vary("Accept-Encoding");
     return {
       apiVersion: "v1",
       productPublicId,
@@ -177,4 +182,8 @@ function clientIp(request: Request) {
     request.socket.remoteAddress ||
     "unknown"
   );
+}
+
+function durationMs(startedAt: bigint) {
+  return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
 }

@@ -27,12 +27,12 @@ export function useShopProducts(
 ) {
   return useQuery({
     queryKey: shopProductsQueryKey(publicId, publicSlug, filters, options),
-    queryFn: ({ signal }) => fetchShopCatalog(publicId, publicSlug, filters, options, { signal }),
+    queryFn: ({ signal }) => fetchShopCatalog(publicId, publicSlug, filters, options, { credentials: "omit", signal }),
     initialData,
     placeholderData: keepPreviousData,
     refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
-    staleTime: 0
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    staleTime: 60 * 1000
   });
 }

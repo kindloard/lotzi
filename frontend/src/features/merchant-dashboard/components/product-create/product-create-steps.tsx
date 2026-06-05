@@ -158,7 +158,7 @@ export function DetailsStep({
   const activeMeasurementGroup = measurementPreset.allowedUnitGroups.includes(draft.measurement.unitGroup)
     ? draft.measurement.unitGroup
     : measurementPreset.defaultMeasurement.unitGroup;
-  const description = draft.seoDescription.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH);
+  const description = draft.description.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH);
   const measurementCategoryOptions: SearchableSelectOption[] = measurementPreset.allowedUnitGroups.map((group) => {
     const unitSummary = unitSummaryForGroup(group, measurementPreset.allowedQuantityUnits, t);
     const categoryLabel = t(`productCreate.measurementCategories.${group}` as never);
@@ -358,7 +358,7 @@ export function DetailsStep({
           maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH}
           onChange={(event) => setDraft((current) => ({
             ...current,
-            seoDescription: event.target.value.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH)
+            description: event.target.value.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH)
           }))}
           placeholder={t("productCreate.placeholders.description")}
           value={description}
@@ -386,7 +386,7 @@ export function PricingStep({
   const t = useTranslations("dashboard");
   const productSku = draft.sku.trim().toUpperCase();
   const preset = getMeasurementPreset(draft);
-  const priceError = draft.price <= 0 ? t("productCreate.validation.priceRequired") : undefined;
+  const priceError = draft.price < 0 ? t("productCreate.validation.priceRequired") : undefined;
   const compareAtPriceError =
     draft.compareAtPrice > 0 && draft.price > 0 && draft.compareAtPrice <= draft.price
       ? t("productCreate.validation.compareAtPriceAbovePrice")
@@ -529,7 +529,7 @@ export function PricingStep({
           onChange={updateProductPrice}
         />
         <NumberField
-          error={draft.measurement.quantityValue <= 0 ? t("productCreate.validation.quantityInvalid") : undefined}
+          error={draft.measurement.quantityValue < 0 ? t("productCreate.validation.quantityInvalid") : undefined}
           label={t("productCreate.fields.packSize")}
           value={draft.measurement.quantityValue}
           onChange={updateProductPackSize}
@@ -610,7 +610,7 @@ export function PricingStep({
                 </div>
               )}
               <InlineNumber
-                error={variant.price <= 0 ? t("productCreate.validation.variantPriceRequired") : undefined}
+                error={variant.price < 0 ? t("productCreate.validation.variantPriceRequired") : undefined}
                 label={t("productCreate.fields.price")}
                 value={variant.price}
                 onChange={(value) => {
@@ -618,7 +618,7 @@ export function PricingStep({
                 }}
               />
               <InlineNumber
-                error={variant.measurement.quantityValue <= 0 ? t("productCreate.validation.quantityInvalid") : undefined}
+                error={variant.measurement.quantityValue < 0 ? t("productCreate.validation.quantityInvalid") : undefined}
                 label={t("productCreate.fields.packSize")}
                 value={variant.measurement.quantityValue}
                 onChange={(value) => {
@@ -727,6 +727,8 @@ function newVariantDraft(current: ProductDraft, fallbackName: string) {
   const normalized = normalizeMeasurement(measurement, 0);
   return {
     id: uid(),
+    persistedId: null,
+    _persisted: false,
     name: variantNameFromProductName(current.name, fallbackName),
     sku: current.sku.trim().toUpperCase(),
     price: 0,
@@ -894,7 +896,7 @@ export function InventoryStep({
 
 export function PreviewStep({ draft }: { draft: ProductDraft }) {
   const t = useTranslations("dashboard");
-  const description = draft.seoDescription.trim();
+  const description = draft.description.trim();
   const measurement = normalizeMeasurement(draft.measurement, draft.price);
   return (
     <div className="space-y-6">

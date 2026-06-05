@@ -4,6 +4,8 @@ import { ensureSession } from "@/lib/auth-refresh";
 import type { Product, ProductDraft, ProductImage, ProductStatus, VariantDraft } from "@/features/merchant-dashboard/types/dashboard";
 import { isVisibleStockVariant, PRODUCT_DESCRIPTION_MAX_LENGTH } from "@/features/merchant-dashboard/lib/dashboard-utils";
 
+const BASE_PRODUCT_VARIANT_CLIENT_ID = "base-product";
+
 export interface UploadRendition {
   kind: string;
   secureUrl: string;
@@ -76,6 +78,7 @@ export type ProductPatchPayload = {
   reorderPoint?: number;
   measurement?: ReturnType<typeof toMeasurementPayload>;
   status?: ProductStatus;
+  description?: string;
   seoTitle?: string;
   seoDescription?: string;
 };
@@ -231,7 +234,10 @@ export function fetchMerchantProducts(storeId: string, options: { signal?: Abort
 export function createMerchantProduct(draft: ProductDraft, storeId: string, publish: boolean) {
   return apiFetch<{ apiVersion: "v1"; product: Product }>("/v1/merchant/products", {
     method: "POST",
-    headers: { "x-store-id": storeId },
+    headers: {
+      "x-store-id": storeId,
+      "Idempotency-Key": draft.createIdempotencyKey || createProductCreateIdempotencyKey()
+    },
     body: JSON.stringify(toProductPayload(draft, storeId, publish ? "Published" : "Draft"))
   });
 }
@@ -272,6 +278,7 @@ export function buildProductPatch(original: Product, draft: ProductDraft, storeI
   if (original.status !== draft.status) {
     patch.status = draft.status;
   }
+  addTextPatch(patch, "description", original.description ?? "", draft.description);
   addTextPatch(patch, "seoTitle", original.seoTitle ?? "", draft.seoTitle);
   addTextPatch(patch, "seoDescription", original.seoDescription ?? "", draft.seoDescription.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH));
   return patch;
@@ -280,8 +287,11 @@ export function buildProductPatch(original: Product, draft: ProductDraft, storeI
 function toProductPayload(draft: ProductDraft, storeId: string, status: ProductStatus) {
   const uploadedImages = draft.images.filter((image) => image.uploadAssetId);
   const visibleVariants = draft.variants.filter((variant, index) => isVisibleStockVariant(variant, draft, index));
-  const payloadVariants = visibleVariants.map((variant) => toVariantPayload(variant, draft));
-  const stock = draft.stock + payloadVariants.reduce((total, variant) => total + variant.stock, 0);
+  const payloadVariants = [
+    toBaseVariantPayload(draft),
+    ...visibleVariants.map((variant) => toVariantPayload(variant, draft))
+  ];
+  const stock = payloadVariants.reduce((total, variant) => total + variant.stock, 0);
   const useProductImagesForEveryVariant = draft.sameImageAsProduct;
   return {
     storeId,
@@ -296,6 +306,7 @@ function toProductPayload(draft: ProductDraft, storeId: string, status: ProductS
     reorderPoint: draft.reorderPoint,
     measurement: toMeasurementPayload(draft.measurement),
     status,
+    description: draft.description.trim() || undefined,
     seoTitle: draft.seoTitle,
     seoDescription: draft.seoDescription.slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH),
     images: uploadedImages.map((image, index) => {
@@ -326,6 +337,7 @@ function toVariantPayload(variant: VariantDraft, draft: ProductDraft) {
   const variantSku = variant.sku.trim().toUpperCase();
   const productSku = draft.sku.trim().toUpperCase();
   return {
+    id: variant._persisted ? variant.persistedId ?? variant.id : undefined,
     clientId: variant.id,
     name: variant.name || draft.name || "Default",
     sku: variantSku && variantSku !== productSku ? variantSku : undefined,
@@ -334,7 +346,27 @@ function toVariantPayload(variant: VariantDraft, draft: ProductDraft) {
     costPrice: variant.costPrice || undefined,
     stock: variant.stock,
     stockVersion: variant.stockVersion,
+    isDefault: false,
     measurement: toMeasurementPayload(variant.measurement)
+  };
+}
+
+function toBaseVariantPayload(draft: ProductDraft) {
+  const persistedBaseId = draft.baseVariant?._persisted
+    ? draft.baseVariant.persistedId ?? draft.baseVariant.id
+    : undefined;
+  return {
+    id: persistedBaseId,
+    clientId: BASE_PRODUCT_VARIANT_CLIENT_ID,
+    name: draft.name || "Default",
+    sku: draft.sku.trim() || undefined,
+    price: draft.price,
+    mrp: draft.compareAtPrice || undefined,
+    costPrice: draft.costPrice || undefined,
+    stock: draft.stock,
+    stockVersion: draft.baseVariant?.stockVersion,
+    isDefault: true,
+    measurement: toMeasurementPayload(draft.measurement)
   };
 }
 
@@ -554,6 +586,13 @@ function logUploadTiming(serverTiming: string | null) {
         .map((entry) => ({ name: entry.name, durationMs: Math.round(entry.duration) }))
     : [];
   console.debug("upload.timing", { serverTiming, measures });
+}
+
+function createProductCreateIdempotencyKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `product-create:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
 }
 
 export function productImageFromAsset(

@@ -77,6 +77,9 @@ export class IdempotencyService {
   ) {}
 
   async reserve(input: ReserveInput): Promise<IdempotencyReservation> {
+    if (input.operation !== "upload.image.v1") {
+      return this.reserveInDatabase(input);
+    }
     const redisReservation = await this.reserveInRedis(input);
     if (redisReservation) {
       return redisReservation;

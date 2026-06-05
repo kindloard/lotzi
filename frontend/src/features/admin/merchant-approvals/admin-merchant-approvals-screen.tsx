@@ -231,19 +231,19 @@ export function AdminMerchantApprovalsScreen() {
 
   return (
     <main className="min-h-[100dvh] bg-slate-50 text-slate-950">
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-brand-strong/20 bg-brand">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-3">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-white">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-black text-brand">
                   <ShieldCheck size={20} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-teal-700">
+                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-black/60">
                     Lotzi admin
                   </p>
-                  <h1 className="truncate text-2xl font-black tracking-tight text-slate-950">
+                  <h1 className="truncate text-2xl font-black tracking-tight text-black">
                     Merchant approvals
                   </h1>
                 </div>

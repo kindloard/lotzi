@@ -91,6 +91,8 @@ export interface ProductImage {
 
 export interface VariantDraft {
   id: string;
+  persistedId?: string | null;
+  _persisted?: boolean;
   name: string;
   sku: string;
   price: number;
@@ -131,6 +133,7 @@ export interface Product {
   pricePerBaseUnit?: number;
   pricePerBaseUnitDisplay?: string;
   status: ProductStatus;
+  description?: string | null;
   seoTitle?: string;
   seoDescription?: string;
   sales: number;
@@ -190,6 +193,7 @@ export interface MerchantChrome {
 export type MerchantChromeStatus = "idle" | "loading" | "ready" | "error";
 
 export interface ProductDraft {
+  createIdempotencyKey?: string;
   name: string;
   sku: string;
   category: string;
@@ -202,6 +206,7 @@ export interface ProductDraft {
   reorderPoint: number;
   measurement: ProductMeasurement;
   status: ProductStatus;
+  description: string;
   seoTitle: string;
   seoDescription: string;
   weight: string;

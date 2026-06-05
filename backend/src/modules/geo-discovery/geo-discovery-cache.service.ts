@@ -8,9 +8,11 @@ const L1_MAX_KEYS = 5_000;
 const L1_MIN_TTL_MS = 5_000;
 const L1_MAX_TTL_MS = 15_000;
 const L1_REDIS_UNCONFIGURED_TTL_MS = 5_000;
+const EPOCH_L1_TTL_MS = 3_000;
 const L2_MIN_TTL_SECONDS = 30;
 const L2_MAX_TTL_SECONDS = 90;
 const LOCK_TTL_SECONDS = 3;
+const STORE_CARD_TTL_SECONDS = 5 * 60;
 
 interface L1Entry {
   value: string;
@@ -24,10 +26,18 @@ export interface GeoEpochContext {
   radiusKm: number;
 }
 
+export type GeoCacheSource = "l1" | "l2";
+
+export interface GeoCacheLookup {
+  source: GeoCacheSource;
+  value: string;
+}
+
 @Injectable()
 export class GeoDiscoveryCacheService {
   private readonly logger = new Logger(GeoDiscoveryCacheService.name);
   private readonly l1 = new Map<string, L1Entry>();
+  private readonly epochL1 = new Map<string, GeoEpochContext & { expiresAt: number }>();
 
   constructor(
     private readonly redis: RedisService,
@@ -35,26 +45,45 @@ export class GeoDiscoveryCacheService {
   ) {}
 
   async getEpochContext(grid: GeoGrid, radiusKm: number): Promise<GeoEpochContext> {
+    const key = epochCacheKey(grid, radiusKm);
+    const local = this.epochL1.get(key);
+    if (local && local.expiresAt > Date.now()) {
+      return {
+        globalEpoch: local.globalEpoch,
+        cellEpoch: local.cellEpoch,
+        grid: local.grid,
+        radiusKm: local.radiusKm
+      };
+    }
+
     const [globalEpoch, cellEpoch] = await Promise.all([
       this.redis.getStrict(globalEpochKey()),
       this.redis.getStrict(cellEpochKey(grid, radiusKm))
     ]);
-    return {
+    const context = {
       globalEpoch: globalEpoch && /^\d+$/.test(globalEpoch) ? globalEpoch : "1",
       cellEpoch: cellEpoch && /^\d+$/.test(cellEpoch) ? cellEpoch : "1",
       grid,
       radiusKm
     };
+    this.epochL1.set(key, { ...context, expiresAt: Date.now() + EPOCH_L1_TTL_MS });
+    return context;
   }
 
-  cacheKey(context: GeoEpochContext, cursorHash: string): string {
+  cacheKey(
+    context: GeoEpochContext,
+    parts: { cursorHash: string; limit: number; responseVersion: number }
+  ): string {
     return [
       "geo",
+      "cell",
+      `r${parts.responseVersion}`,
       context.grid.latGrid,
       context.grid.lngGrid,
       context.radiusKm,
+      `limit:${parts.limit}`,
       `v${context.globalEpoch}.${context.cellEpoch}`,
-      cursorHash
+      `cursor:${parts.cursorHash}`
     ].join(":");
   }
 
@@ -65,17 +94,22 @@ export class GeoDiscoveryCacheService {
   }
 
   async get(key: string): Promise<string | null> {
+    const lookup = await this.getWithSource(key);
+    return lookup?.value ?? null;
+  }
+
+  async getWithSource(key: string): Promise<GeoCacheLookup | null> {
     const local = this.getL1(key);
     if (local !== null) {
       this.observability.recordGeoCacheHit("l1");
-      return local;
+      return { source: "l1", value: local };
     }
 
     const distributed = await this.redis.getStrict(key);
     if (distributed !== null) {
       this.setL1(key, distributed, jitterMs(L1_MIN_TTL_MS, L1_MAX_TTL_MS));
       this.observability.recordGeoCacheHit("l2");
-      return distributed;
+      return { source: "l2", value: distributed };
     }
 
     this.observability.recordGeoCacheMiss();
@@ -83,6 +117,7 @@ export class GeoDiscoveryCacheService {
   }
 
   async setIfEpochUnchanged(key: string, context: GeoEpochContext, value: string): Promise<boolean> {
+    this.epochL1.delete(epochCacheKey(context.grid, context.radiusKm));
     const latest = await this.getEpochContext(context.grid, context.radiusKm);
     if (latest.globalEpoch !== context.globalEpoch || latest.cellEpoch !== context.cellEpoch) {
       this.observability.recordGeoEpochConflict();
@@ -118,6 +153,7 @@ export class GeoDiscoveryCacheService {
 
   async bumpLocationEpochs(change: { previous: GeoCoordinates | null; next: GeoCoordinates }): Promise<void> {
     this.l1.clear();
+    this.epochL1.clear();
     const grids = new Map<string, GeoGrid>();
     grids.set(gridKey(gridForCoordinates(change.next)), gridForCoordinates(change.next));
     if (change.previous) {
@@ -141,6 +177,48 @@ export class GeoDiscoveryCacheService {
 
   clearL1(): void {
     this.l1.clear();
+    this.epochL1.clear();
+  }
+
+  async getStoreCards(storeIds: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    const missing: string[] = [];
+    for (const storeId of storeIds) {
+      const key = storeCardKey(storeId);
+      const local = this.getL1(key);
+      if (local !== null) {
+        result.set(storeId, local);
+      } else {
+        missing.push(storeId);
+      }
+    }
+
+    await Promise.all(missing.map(async (storeId) => {
+      const key = storeCardKey(storeId);
+      const value = await this.redis.getStrict(key);
+      if (value !== null) {
+        this.setL1(key, value, jitterMs(L1_MIN_TTL_MS, L1_MAX_TTL_MS));
+        result.set(storeId, value);
+      }
+    }));
+    return result;
+  }
+
+  async setStoreCard(storeId: string, value: string): Promise<void> {
+    const key = storeCardKey(storeId);
+    this.setL1(key, value, jitterMs(L1_MIN_TTL_MS, L1_MAX_TTL_MS));
+    const ok = await this.redis.setExStrict(key, STORE_CARD_TTL_SECONDS, value);
+    if (!ok && this.canUseLocalOnlyL1()) {
+      this.setL1(key, value, L1_REDIS_UNCONFIGURED_TTL_MS);
+    }
+  }
+
+  async invalidateStoreCards(storeIds: string[]): Promise<void> {
+    await Promise.all(Array.from(new Set(storeIds)).map(async (storeId) => {
+      const key = storeCardKey(storeId);
+      this.l1.delete(key);
+      await this.redis.del(key);
+    }));
   }
 
   private getL1(key: string): string | null {
@@ -186,8 +264,16 @@ function globalEpochKey(): string {
   return "geo:epoch:v1:global";
 }
 
+function epochCacheKey(grid: GeoGrid, radiusKm: number): string {
+  return `${radiusKm}:${grid.latGrid}:${grid.lngGrid}`;
+}
+
 function cellEpochKey(grid: GeoGrid, radiusKm: number): string {
   return `geo:epoch:v1:${radiusKm}:${grid.latGrid}:${grid.lngGrid}`;
+}
+
+function storeCardKey(storeId: string): string {
+  return `geo:store-card:v1:${storeId}`;
 }
 
 function gridKey(grid: GeoGrid): string {

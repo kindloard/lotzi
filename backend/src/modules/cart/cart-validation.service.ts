@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { ProductStatus, StoreStatus } from "@prisma/client";
+import { ProductStatus, ProductVariantStatus, StoreStatus } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { CartValidationDto } from "./dto/cart-validation.dto";
@@ -28,7 +28,7 @@ export class CartValidationService {
   private async loadValidation(items: NormalizedLine[], lastSeenCatalogVersion: string | null): Promise<CartValidationResponse> {
     const variantIds = items.map((item) => item.variantId);
     const variants = await this.prisma.productVariant.findMany({
-      where: { id: { in: variantIds } },
+      where: { id: { in: variantIds }, status: ProductVariantStatus.ACTIVE },
       select: {
         id: true,
         name: true,

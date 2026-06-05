@@ -120,10 +120,10 @@ export function KpiCard({
   const isNegative = resolvedTone === "negative";
 
   return (
-    <article className="group relative min-w-0 rounded-xl border border-zinc-200/70 bg-white p-3.5 shadow-sm transition-all duration-300 hover:border-zinc-300 hover:shadow-md sm:rounded-2xl sm:p-5">
+    <article className="min-w-0 rounded-xl border border-zinc-200/70 bg-white p-3.5 shadow-sm sm:rounded-2xl sm:p-5">
       <div className="flex min-w-0 items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-400 sm:text-[10px] sm:tracking-wider">{label}</span>
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-900 transition-all duration-300 group-hover:bg-zinc-950 group-hover:text-white sm:size-9">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-900 sm:size-9">
           <Icon size={15} />
         </span>
       </div>

@@ -252,8 +252,14 @@ export function ShopCatalog({
     router.prefetch(href);
     void queryClient.prefetchQuery({
       queryKey: shopProductDetailQueryKey(shop.publicId, shop.publicSlug, productRef),
-      queryFn: ({ signal }) => fetchShopProductDetail(shop.publicId, shop.publicSlug, productRef, { signal }),
-      staleTime: 0
+      queryFn: ({ signal }) => fetchShopProductDetail(
+        shop.publicId,
+        shop.publicSlug,
+        productRef,
+        { includeRecommendations: false },
+        { signal }
+      ),
+      staleTime: 2 * 60 * 1000
     });
   }, [queryClient, router, shop.publicId, shop.publicSlug]);
 
@@ -486,8 +492,8 @@ const ProductCard = memo(function ProductCard({
 
   return (
     <article
-      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] transition cursor-pointer ${
-        displayInStock ? "border-slate-100 hover:border-slate-300" : "border-slate-200 bg-slate-50/80"
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] cursor-pointer ${
+        displayInStock ? "border-slate-100" : "border-slate-200 bg-slate-50/80"
       }`}
       onClick={handleCardClick}
       onFocus={onPrefetch}
@@ -516,7 +522,7 @@ const ProductCard = memo(function ProductCard({
             fill
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-            className={`object-contain p-4 mix-blend-multiply transition group-hover:scale-105 duration-300 ${displayInStock ? "" : "grayscale opacity-60"}`}
+            className={`object-contain p-4 mix-blend-multiply ${displayInStock ? "" : "grayscale opacity-60"}`}
           />
         ) : (
           <span className={`flex h-full items-center justify-center text-lg font-black ${displayInStock ? "text-slate-300" : "text-slate-400"}`}>
@@ -543,10 +549,14 @@ const ProductCard = memo(function ProductCard({
             type="button"
             aria-label={labels.favorite}
             aria-pressed={isFavorite}
-            onClick={() => setIsFavorite((current) => !current)}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setIsFavorite((current) => !current);
+            }}
             className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 ${
               isFavorite
-                ? "bg-brand text-black"
+                ? "bg-brand text-rose-600"
                 : "bg-slate-100 text-slate-900"
             }`}
           >
@@ -554,9 +564,11 @@ const ProductCard = memo(function ProductCard({
           </button>
         </div>
         
-        <p className="mt-1 text-xs font-medium text-slate-500">
-          {unitDisplay}
-        </p>
+        {product.description ? (
+          <p className="mt-1 text-xs font-medium text-slate-500 line-clamp-2">
+            {product.description}
+          </p>
+        ) : null}
         
         <div className="mt-auto flex items-end justify-between gap-2 pt-4">
           <div className="flex flex-col">
@@ -673,16 +685,10 @@ function getCatalogDisplayVariant(product: ShopProduct): ShopProductVariant | nu
 }
 
 function getCatalogVisibleImages(product: ShopProduct) {
-  const productLevelImages = product.images.filter((image) => (image.variantIds ?? []).length === 0);
-  const defaultVariant = product.variants.find((variant) => variant.isDefault) ?? product.variants[0];
-  const defaultVariantImages = defaultVariant
-    ? product.images.filter((image) => (image.variantIds ?? []).includes(defaultVariant.id))
-    : [];
-  return uniqueImagesById(
-    productLevelImages.length || defaultVariantImages.length
-      ? [...productLevelImages, ...defaultVariantImages]
-      : product.images
-  );
+  return uniqueImagesById(product.images.filter((image) =>
+    image.mediaSource === "PRODUCT" ||
+    (image.mediaSource === undefined && (image.variantIds ?? []).length === 0)
+  ));
 }
 
 function uniqueImagesById(images: ShopProduct["images"]) {

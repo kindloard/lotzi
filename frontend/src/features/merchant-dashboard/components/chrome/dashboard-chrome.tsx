@@ -44,12 +44,12 @@ export function DashboardHeader({
   const activeLabel = t(navLabelKeyById[activeNav] as never);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-zinc-900 bg-zinc-950 text-white backdrop-blur-md md:border-zinc-200/80 md:bg-white/95 md:text-zinc-900">
+    <header className="sticky top-0 z-30 border-b border-zinc-900 bg-zinc-950 text-white md:border-zinc-200 md:bg-white md:text-zinc-900">
       <div className="mx-auto flex h-[72px] max-w-[1520px] items-center gap-3 px-5 sm:px-8 lg:h-[80px] lg:px-10">
         {onBack ? (
           <button
             aria-label={t("orders.backToOrders")}
-            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:focus:ring-zinc-950/5 lg:hidden"
+            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition focus:outline-none md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:text-zinc-950 lg:hidden"
             onClick={onBack}
             type="button"
           >
@@ -58,7 +58,7 @@ export function DashboardHeader({
         ) : (
           <button
             aria-label={t("shell.openNavigation")}
-            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:focus:ring-zinc-950/5 lg:hidden"
+            className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition focus:outline-none md:border-zinc-200 md:bg-white md:text-zinc-900 md:shadow-sm md:hover:text-zinc-950 lg:hidden"
             onClick={onMobileMenu}
             type="button"
           >
@@ -85,7 +85,7 @@ export function DashboardHeader({
             </label>
             <button
               aria-label={t("shell.openCommandMenu")}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-[11px] font-semibold text-zinc-600 shadow-sm transition hover:border-zinc-300 hover:text-zinc-950 focus:outline-none focus:ring-4 focus:ring-zinc-950/5"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-[11px] font-semibold text-zinc-600 shadow-sm transition hover:text-zinc-950 focus:outline-none"
               onClick={onCommand}
               type="button"
             >
@@ -100,11 +100,11 @@ export function DashboardHeader({
             <>
               <LanguageSwitcher
                 compact
-                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:hover:text-zinc-950 md:focus:ring-zinc-950/5 cursor-pointer"
+                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition focus:outline-none md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:text-zinc-950 cursor-pointer"
               />
               <button
                 aria-label={t("shell.notifications")}
-                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/10 md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:border-zinc-300 md:hover:bg-white md:hover:text-zinc-950 md:focus:ring-zinc-950/5"
+                className="flex size-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-none transition focus:outline-none md:border-zinc-200 md:bg-white md:text-zinc-600 md:shadow-sm md:hover:text-zinc-950"
                 title={t("shell.notifications")}
                 type="button"
               >
@@ -219,8 +219,8 @@ function MerchantProfileControl({
       aria-busy={loading}
       aria-label={retryable ? t("shell.retryProfileLoad") : t("shell.merchantProfile")}
       className={cx(
-        "flex h-14 w-full items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3 text-left shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus:outline-none focus:ring-4 focus:ring-zinc-950/5 disabled:cursor-wait disabled:hover:border-zinc-200 disabled:hover:bg-white",
-        collapsed && "justify-center px-0",
+        "flex h-14 w-full items-center rounded-xl border border-zinc-200 bg-white text-left shadow-sm transition-all duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-50 focus:outline-none focus:ring-4 focus:ring-zinc-950/5 disabled:cursor-wait disabled:hover:border-zinc-200 disabled:hover:bg-white",
+        collapsed ? "justify-center px-0 gap-0" : "px-3 gap-3",
         error && "border-amber-200 bg-amber-50/60 hover:border-amber-300 hover:bg-amber-50"
       )}
       disabled={loading}
@@ -228,25 +228,31 @@ function MerchantProfileControl({
       title={title}
       type="button"
     >
-      {loading ? (
-        <span className="flex size-8 shrink-0 animate-pulse rounded-xl bg-zinc-200" />
-      ) : (
-        <StoreIdentityMark
-          logoUrl={ready ? merchant.storeLogoUrl : null}
-          name={ready ? merchant.storeName : t("shell.storeFallbackName")}
-          size="sm"
-        />
-      )}
-      {!collapsed && (
-        <span aria-live="polite" className="min-w-0 flex-1">
-          <span className={cx("block truncate text-[13px] font-bold", error ? "text-amber-950" : "text-zinc-950")}>
-            {primary}
-          </span>
-          <span className={cx("block truncate text-[11px] font-normal", error ? "text-amber-700" : "text-zinc-500")}>
-            {secondary}
-          </span>
+      <div className="shrink-0 flex items-center justify-center">
+        {loading ? (
+          <span className="flex size-8 animate-pulse rounded-xl bg-zinc-200" />
+        ) : (
+          <StoreIdentityMark
+            logoUrl={ready ? merchant.storeLogoUrl : null}
+            name={ready ? merchant.storeName : t("shell.storeFallbackName")}
+            size="sm"
+          />
+        )}
+      </div>
+      <span
+        aria-live="polite"
+        className={cx(
+          "flex flex-col justify-center min-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 ease-out",
+          collapsed ? "w-0 opacity-0" : "flex-1 opacity-100"
+        )}
+      >
+        <span className={cx("block truncate text-[13px] font-bold", error ? "text-amber-950" : "text-zinc-950")}>
+          {primary}
         </span>
-      )}
+        <span className={cx("block truncate text-[11px] font-normal", error ? "text-amber-700" : "text-zinc-500")}>
+          {secondary}
+        </span>
+      </span>
     </button>
   );
 }
@@ -279,20 +285,29 @@ export function Sidebar({
   return (
     <aside
       className={cx(
-        "fixed inset-y-0 left-0 z-40 hidden h-[100dvh] border-r border-zinc-200/80 bg-white transition-[width] duration-200 ease-out lg:flex lg:flex-col",
+        "fixed inset-y-0 left-0 z-40 hidden h-[100dvh] border-r border-zinc-200/80 bg-white transition-all duration-200 ease-out lg:flex lg:flex-col",
         collapsed ? "w-20" : "w-[272px]"
       )}
     >
-      <div className={cx("flex h-[80px] items-center border-b border-zinc-100", collapsed ? "justify-center px-2" : "gap-3 px-5")}>
-        {!collapsed && <AppBrandMark size="lg" />}
-        {!collapsed && (
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-bold tracking-tight text-zinc-950">{t("shell.brand")}</p>
-          </div>
-        )}
+      <div className={cx(
+        "flex h-[80px] items-center border-b border-zinc-100 bg-white transition-all duration-200 ease-out",
+        collapsed ? "justify-center px-2 gap-0" : "gap-3 px-5"
+      )}>
+        <div className={cx(
+          "shrink-0 transition-all duration-200 ease-out overflow-hidden",
+          collapsed ? "w-0 opacity-0" : "w-10 opacity-100"
+        )}>
+          <AppBrandMark size="lg" />
+        </div>
+        <div className={cx(
+          "min-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 ease-out",
+          collapsed ? "w-0 opacity-0" : "flex-1 opacity-100"
+        )}>
+          <p className="truncate text-base font-bold tracking-tight text-zinc-950">{t("shell.brand")}</p>
+        </div>
         <button
           aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-          className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 shadow-sm transition hover:border-zinc-300 hover:text-zinc-950 focus:outline-none focus:ring-4 focus:ring-zinc-950/5"
+          className="flex size-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition hover:text-zinc-950 focus:outline-none"
           onClick={() => setCollapsed(!collapsed)}
           type="button"
         >
@@ -307,28 +322,38 @@ export function Sidebar({
         <button
           aria-label={t("shell.help")}
           className={cx(
-            "group relative flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] font-bold text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950 focus:outline-none focus:ring-4 focus:ring-zinc-950/5",
-            collapsed && "justify-center px-0"
+            "group relative flex h-11 w-full items-center rounded-xl transition-all duration-200 ease-out hover:bg-zinc-50 focus:outline-none",
+            collapsed ? "justify-center px-0 gap-0" : "px-3 gap-3"
           )}
           title={collapsed ? t("shell.help") : undefined}
           type="button"
         >
-          <CircleHelp size={16} />
-          {!collapsed && <span className="min-w-0 flex-1 text-left">{t("shell.help")}</span>}
+          <CircleHelp size={16} className="shrink-0 text-zinc-600 group-hover:text-zinc-950 transition-colors" />
+          <span className={cx(
+            "overflow-hidden whitespace-nowrap text-left text-[13px] font-bold text-zinc-600 group-hover:text-zinc-950 transition-all duration-200 ease-out",
+            collapsed ? "w-0 opacity-0" : "flex-1 opacity-100"
+          )}>
+            {t("shell.help")}
+          </span>
         </button>
         <button
           aria-label={t("shell.logout")}
           className={cx(
-            "group relative flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] font-bold text-red-600 transition hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-4 focus:ring-red-500/10 disabled:cursor-not-allowed disabled:opacity-60",
-            collapsed && "justify-center px-0"
+            "group relative flex h-11 w-full items-center rounded-xl transition-all duration-200 ease-out hover:bg-red-50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+            collapsed ? "justify-center px-0 gap-0" : "px-3 gap-3"
           )}
           disabled={loggingOut}
           onClick={onLogout}
           title={collapsed ? t("shell.logout") : undefined}
           type="button"
         >
-          <LogOut size={16} />
-          {!collapsed && <span className="min-w-0 flex-1 text-left">{loggingOut ? t("shell.loggingOut") : t("shell.logout")}</span>}
+          <LogOut size={16} className="shrink-0 text-red-600 group-hover:text-red-700 transition-colors" />
+          <span className={cx(
+            "overflow-hidden whitespace-nowrap text-left text-[13px] font-bold text-red-600 group-hover:text-red-700 transition-all duration-200 ease-out",
+            collapsed ? "w-0 opacity-0" : "flex-1 opacity-100"
+          )}>
+            {loggingOut ? t("shell.loggingOut") : t("shell.logout")}
+          </span>
         </button>
       </nav>
 
@@ -362,17 +387,25 @@ export function NavButton({
   return (
     <button
       className={cx(
-        "group relative flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] font-bold transition focus:outline-none focus:ring-4 focus:ring-zinc-950/5",
-        active ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950",
-        collapsed && "justify-center px-0"
+        "group relative flex h-11 w-full items-center rounded-xl transition-all duration-200 ease-out focus:outline-none",
+        active ? "text-zinc-950" : "text-zinc-500 hover:text-zinc-950",
+        collapsed ? "justify-center px-0 gap-0" : "px-3 gap-3"
       )}
       onClick={onClick}
       title={collapsed ? label : undefined}
       type="button"
     >
-      {active && !collapsed && <span className="absolute -left-4 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-zinc-950" />}
-      <Icon size={16} />
-      {!collapsed && <span className="min-w-0 flex-1 text-left">{label}</span>}
+      <span className={cx(
+        "absolute top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-zinc-950 transition-all duration-200 ease-out",
+        active && !collapsed ? "-left-4 opacity-100" : "-left-5 opacity-0"
+      )} />
+      <Icon size={16} className="shrink-0" />
+      <span className={cx(
+        "overflow-hidden whitespace-nowrap text-left text-[13px] font-bold transition-all duration-200 ease-out",
+        collapsed ? "w-0 opacity-0" : "flex-1 opacity-100"
+      )}>
+        {label}
+      </span>
     </button>
   );
 }

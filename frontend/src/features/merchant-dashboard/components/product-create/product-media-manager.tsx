@@ -1120,10 +1120,11 @@ function variantImageAssignment(scope: MediaScope, options: VariantMediaOption[]
   if (scope !== "VARIANT" || options.length === 0) {
     return { variantIds: [], variantSkuIds: [] };
   }
+  const firstOption = options[0];
 
   return {
-    variantIds: options.map((option) => option.id),
-    variantSkuIds: options.flatMap((option) => option.sku ? [option.sku] : [])
+    variantIds: [firstOption.id],
+    variantSkuIds: firstOption.sku ? [firstOption.sku] : []
   };
 }
 

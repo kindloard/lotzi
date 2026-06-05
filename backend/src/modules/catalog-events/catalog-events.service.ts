@@ -228,6 +228,10 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
     if (!next) {
       return;
     }
+    const storeId = stringValue(payload.storeId);
+    if (storeId) {
+      await this.geoCache.invalidateStoreCards([storeId]);
+    }
     await this.geoCache.bumpLocationEpochs({
       previous: coordinatesValue(payload.previous),
       next
@@ -259,6 +263,10 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
       scopes.push(this.cache.categoryScope(this.cache.storePublicScope(storePublicId), nextCategoryId));
     }
     await this.cache.bumpScopes(scopes);
+    const storeId = stringValue(payload.storeId);
+    if (this.geoCache && storeId) {
+      await this.geoCache.invalidateStoreCards([storeId]);
+    }
     this.realtime.broadcast(toRealtimeEvent(eventId, eventType, schemaVersion, occurredAt, payload));
   }
 
@@ -298,6 +306,9 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
       this.cache.productPublicScope(productPublicId),
       this.cache.dealsScope()
     ]);
+    if (this.geoCache) {
+      await this.geoCache.invalidateStoreCards([storeId]);
+    }
     this.realtime.broadcast({
       eventId: eventId ?? `${eventType}:${productVariantId}`,
       eventType: "catalog.product.changed.v1",

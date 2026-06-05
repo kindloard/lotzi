@@ -68,6 +68,10 @@ export class ProductImageInputDto {
 
 export class ProductVariantInputDto {
   @IsOptional()
+  @IsUUID()
+  id?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   clientId?: string;
@@ -103,6 +107,10 @@ export class ProductVariantInputDto {
   @IsInt()
   @Min(1)
   stockVersion?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 
   @IsOptional()
   @ValidateNested()
@@ -161,6 +169,11 @@ export class CreateProductDto {
 
   @IsIn(productStatuses)
   status!: (typeof productStatuses)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
 
   @IsOptional()
   @IsString()
@@ -247,6 +260,11 @@ export class UpdateProductDto {
   @IsOptional()
   @IsIn(productStatuses)
   status?: (typeof productStatuses)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
 
   @IsOptional()
   @IsString()

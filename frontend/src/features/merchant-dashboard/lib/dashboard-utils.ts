@@ -96,23 +96,22 @@ export function updateVariant(
 
 export function isVisibleStockVariant(
   variant: VariantDraft,
-  draft: Pick<ProductDraft, "compareAtPrice" | "costPrice" | "measurement" | "name" | "price" | "sku" | "variants">,
-  index: number
+  _draft: Pick<ProductDraft, "compareAtPrice" | "costPrice" | "measurement" | "name" | "price" | "sku" | "variants">,
+  _index: number
 ) {
-  const productName = draft.name.trim();
-  const variantName = variant.name.trim();
-  const productSku = draft.sku.trim().toUpperCase();
-  const variantSku = variant.sku.trim().toUpperCase();
-
-  const differsFromProduct =
-    variant.price !== draft.price ||
-    (variant.mrp ?? 0) !== (draft.compareAtPrice ?? 0) ||
-    (variant.costPrice ?? 0) !== (draft.costPrice ?? 0) ||
-    (variantSku !== "" && variantSku !== productSku) ||
-    !sameMeasurement(variant.measurement, draft.measurement) ||
-    Boolean(variantName && variantName !== productName && variantName !== "Default" && variantName !== `Variant ${index + 1}`);
-
-  return differsFromProduct || (draft.variants.length > 1 && index > 0);
+  return Boolean(
+    variant._persisted ||
+    variant.name.trim() ||
+    variant.sku.trim() ||
+    variant.price > 0 ||
+    variant.mrp > 0 ||
+    variant.costPrice > 0 ||
+    variant.stock > 0 ||
+    variant.manualPrice ||
+    variant.manualPackSize ||
+    variant.manualUnit ||
+    variant.manualPackType
+  );
 }
 
 function hasDuplicateVariantSku(variants: VariantDraft[], productSku = "") {
@@ -132,15 +131,6 @@ function hasDuplicateVariantSku(variants: VariantDraft[], productSku = "") {
     seen.add(sku);
   }
   return false;
-}
-
-function sameMeasurement(left: ProductDraft["measurement"], right: ProductDraft["measurement"]) {
-  return (
-    left.unitGroup === right.unitGroup &&
-    left.quantityValue === right.quantityValue &&
-    left.quantityUnit === right.quantityUnit &&
-    left.packType === right.packType
-  );
 }
 
 export function initials(value: string) {

@@ -4,7 +4,8 @@ import {
   InventoryLedgerType,
   InventoryOperationStatus,
   InventoryReservationStatus,
-  Prisma
+  Prisma,
+  ProductVariantStatus
 } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -1122,16 +1123,61 @@ export class InventoryService {
           version = ${after.version},
           updated_at = now()
         WHERE id = ${before.id}::uuid
-        RETURNING product_variant_id
+        RETURNING
+          store_id,
+          product_variant_id,
+          available_stock,
+          reserved_stock,
+          sold_stock,
+          version
+      ),
+      updated_variant AS (
+        UPDATE product_variants
+        SET
+          stock = ${after.availableStock},
+          stock_on_hand = ${after.availableStock + after.reservedStock},
+          stock_reserved = ${after.reservedStock},
+          stock_version = ${after.version},
+          updated_at = now()
+        WHERE id = (SELECT product_variant_id FROM updated_inventory)
+        RETURNING id, product_id, status
       )
-      UPDATE product_variants
+      INSERT INTO variant_inventory_summary (
+        store_id,
+        product_id,
+        product_variant_id,
+        available_stock,
+        reserved_stock,
+        sold_stock,
+        in_stock,
+        variant_status,
+        stock_version,
+        updated_at
+      )
+      SELECT
+        updated_inventory.store_id,
+        updated_variant.product_id,
+        updated_inventory.product_variant_id,
+        updated_inventory.available_stock,
+        updated_inventory.reserved_stock,
+        updated_inventory.sold_stock,
+        updated_inventory.available_stock > 0
+          AND updated_variant.status = ${ProductVariantStatus.ACTIVE}::"ProductVariantStatus",
+        updated_variant.status,
+        updated_inventory.version,
+        now()
+      FROM updated_inventory
+      JOIN updated_variant ON updated_variant.id = updated_inventory.product_variant_id
+      ON CONFLICT (store_id, product_variant_id) DO UPDATE
       SET
-        stock = ${after.availableStock},
-        stock_on_hand = ${after.availableStock + after.reservedStock},
-        stock_reserved = ${after.reservedStock},
-        stock_version = ${after.version},
+        product_id = EXCLUDED.product_id,
+        available_stock = EXCLUDED.available_stock,
+        reserved_stock = EXCLUDED.reserved_stock,
+        sold_stock = EXCLUDED.sold_stock,
+        in_stock = EXCLUDED.in_stock,
+        variant_status = EXCLUDED.variant_status,
+        stock_version = EXCLUDED.stock_version,
         updated_at = now()
-      WHERE id = (SELECT product_variant_id FROM updated_inventory)
     `;
   }
 

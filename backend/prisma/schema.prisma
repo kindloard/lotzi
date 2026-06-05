@@ -285,6 +285,13 @@ enum UploadAssetStatus {
   REJECTED
 }
 
+enum UploadModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVIEW
+}
+
 enum UploadProvider {
   CLOUDINARY
 }
@@ -308,6 +315,16 @@ enum ProductStatus {
   PUBLISHED
   PAUSED
   NEEDS_REVIEW
+}
+
+enum ProductVariantStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum CartItemAvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE_VARIANT_ARCHIVED
 }
 
 enum UnitGroup {
@@ -827,6 +844,7 @@ model Store {
   approvedByUserId    String?                @map("approved_by_user_id") @db.Uuid
   name                String
   legalName           String?                @map("legal_name")
+  publicCode          String?                @map("public_code") @db.VarChar(6)
   slug                String                 @unique @db.Citext
   description         String?
   phone               String?
@@ -874,6 +892,7 @@ model Store {
   updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([createdByUserId, status])
+  @@index([publicCode, status, deletedAt])
   @@index([status, deletedAt])
   @@map("stores")
 }
@@ -1089,6 +1108,11 @@ model Product {
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([storeId, sku])
+  @@index([storeId, status, isActive, createdAt])
+  @@index([storeId, status, isActive, price])
+  @@index([storeId, status, isActive, updatedAt])
+  @@index([storeId, status, isActive, categoryId])
+  @@index([storeId, status, isActive, subCategory])
   @@index([storeId, status, updatedAt])
   @@index([storeId, isActive])
   @@index([categoryId, isActive])
@@ -1135,6 +1159,8 @@ model ProductVariant {
   packType         PackType              @default(UNIT) @map("pack_type")
   isDefault        Boolean               @default(false) @map("is_default")
   position         Int                   @default(0)
+  status           ProductVariantStatus  @default(ACTIVE)
+  archivedAt       DateTime?             @map("archived_at") @db.Timestamptz(3)
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
   product          Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1145,10 +1171,13 @@ model ProductVariant {
   inventoryItems   InventoryItem[]
   inventoryReservations InventoryReservation[]
   inventoryLedgerEntries InventoryLedger[]
+  inventorySummary VariantInventorySummary?
 
   @@unique([productId, sku])
   @@index([productId])
   @@index([productId, isDefault, position])
+  @@index([productId, status, isDefault, position])
+  @@index([status, archivedAt])
   @@index([unitGroup, quantityUnit])
   @@index([stockOnHand, stockReserved])
   @@map("product_variants")
@@ -1179,6 +1208,9 @@ model UploadAsset {
   height           Int
   bytes            Int
   failureReason    String?                 @map("failure_reason")
+  moderationStatus UploadModerationStatus  @default(PENDING) @map("moderation_status")
+  moderationCheckedAt DateTime?            @map("moderation_checked_at") @db.Timestamptz(3)
+  moderationReason String?                 @map("moderation_reason")
   originalProviderPublicId String?         @map("original_provider_public_id")
   originalSecureUrl        String?         @map("original_secure_url")
   cleanupAttemptedAt       DateTime?       @map("cleanup_attempted_at") @db.Timestamptz(3)
@@ -1198,6 +1230,7 @@ model UploadAsset {
   @@index([storeId, purpose, sourceSha256])
   @@index([storeId, purpose, draftId, sourceSha256])
   @@index([storeId, purpose, status])
+  @@index([storeId, purpose, moderationStatus])
   @@index([status, expiresAt])
   @@index([cleanupSucceededAt, cleanupAttemptCount])
   @@index([uploadedByUserId, createdAt])
@@ -1265,6 +1298,9 @@ model CartItem {
   productId String          @map("product_id") @db.Uuid
   variantId String?         @map("variant_id") @db.Uuid
   quantity  Int             @default(1)
+  availabilityStatus CartItemAvailabilityStatus @default(AVAILABLE) @map("availability_status")
+  unavailableReason String?        @map("unavailable_reason")
+  unavailableAt DateTime?          @map("unavailable_at") @db.Timestamptz(3)
   cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
   product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
@@ -1273,6 +1309,7 @@ model CartItem {
 
   @@unique([cartId, productId, variantId])
   @@index([variantId])
+  @@index([availabilityStatus, unavailableAt])
   @@map("cart_items")
 }
 
@@ -1420,6 +1457,27 @@ model InventoryItem {
   @@index([locationId, availableStock])
   @@index([productVariantId, locationId])
   @@map("inventory_items")
+}
+
+model VariantInventorySummary {
+  storeId          String               @map("store_id") @db.Uuid
+  productId        String               @map("product_id") @db.Uuid
+  productVariantId String               @map("product_variant_id") @db.Uuid
+  availableStock   Int                  @default(0) @map("available_stock")
+  reservedStock    Int                  @default(0) @map("reserved_stock")
+  soldStock        Int                  @default(0) @map("sold_stock")
+  inStock          Boolean              @default(false) @map("in_stock")
+  variantStatus    ProductVariantStatus @default(ACTIVE) @map("variant_status")
+  stockVersion     Int                  @default(1) @map("stock_version")
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  variant          ProductVariant        @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, productVariantId])
+  @@unique([productVariantId])
+  @@index([storeId, productId])
+  @@index([storeId, inStock])
+  @@index([productVariantId])
+  @@map("variant_inventory_summary")
 }
 
 model InventoryReservation {

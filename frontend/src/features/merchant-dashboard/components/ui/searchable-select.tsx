@@ -252,7 +252,7 @@ export function SearchableSelect({
           </div>
           <div
             aria-labelledby={labelId}
-            className="max-h-64 overflow-y-auto p-1"
+            className="max-h-64 overflow-y-auto p-1 scrollbar-hide"
             id={listboxId}
             role="listbox"
           >

@@ -207,6 +207,7 @@ function optimisticProductFromDraft(product: Product, draft: ProductDraft): Prod
     reorderPoint: draft.reorderPoint,
     measurement: draft.measurement,
     status: draft.status,
+    description: draft.description,
     seoTitle: draft.seoTitle,
     seoDescription: draft.seoDescription,
     catalogVersion: product.catalogVersion + 1,

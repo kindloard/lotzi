@@ -283,14 +283,14 @@ export function ProductCreateDrawer({
 
 function loadStoredDraft() {
   if (typeof window === "undefined") {
-    return defaultDraft;
+    return withSubcategoryFallback({ ...defaultDraft });
   }
 
   try {
     const stored = window.localStorage.getItem(storageKey);
-    return stored ? withSubcategoryFallback({ ...defaultDraft, ...(JSON.parse(stored) as ProductDraft) }) : defaultDraft;
+    return stored ? withSubcategoryFallback({ ...defaultDraft, ...(JSON.parse(stored) as ProductDraft) }) : withSubcategoryFallback({ ...defaultDraft });
   } catch {
-    return defaultDraft;
+    return withSubcategoryFallback({ ...defaultDraft });
   }
 }
 
@@ -302,6 +302,8 @@ function withSubcategoryFallback(draft: ProductDraft): ProductDraft {
   const measurement = coerceMeasurementForProduct(draft.measurement ?? defaultMeasurementForProduct(context), context);
   return {
     ...draft,
+    createIdempotencyKey: draft.createIdempotencyKey || createProductIdempotencyKey(),
+    description: draft.description ?? "",
     costPrice: draft.costPrice ?? 0,
     mediaScope: draft.mediaScope ?? "PRODUCT",
     sameImageAsProduct: draft.sameImageAsProduct ?? (draft.mediaScope ?? "PRODUCT") === "PRODUCT",
@@ -324,6 +326,8 @@ function withSubcategoryFallback(draft: ProductDraft): ProductDraft {
       const variantMeasurement = coerceMeasurementForProduct(variant.measurement ?? measurement, context);
       return {
         ...variant,
+        persistedId: variant.persistedId ?? (variant._persisted ? variant.id : null),
+        _persisted: variant._persisted ?? Boolean(variant.persistedId),
         manualPrice: variant.manualPrice ?? variant.price !== draft.price,
         manualPackSize: variant.manualPackSize ?? variantMeasurement.quantityValue !== measurement.quantityValue,
         manualUnit: variant.manualUnit ?? variantMeasurement.quantityUnit !== measurement.quantityUnit,
@@ -350,6 +354,13 @@ function persistableDraft(draft: ProductDraft): ProductDraft {
   };
 }
 
+function createProductIdempotencyKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `product-create:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+}
+
 function dirtyValidationSteps(original: ProductDraft, current: ProductDraft) {
   const dirty = new Set<number>();
   if (
@@ -359,6 +370,7 @@ function dirtyValidationSteps(original: ProductDraft, current: ProductDraft) {
     original.subCategory !== current.subCategory ||
     original.productType !== current.productType ||
     original.status !== current.status ||
+    original.description !== current.description ||
     original.seoTitle !== current.seoTitle ||
     original.seoDescription !== current.seoDescription
   ) {

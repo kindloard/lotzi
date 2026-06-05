@@ -34,6 +34,7 @@ import { UploadsController } from "./uploads.controller";
     UploadPolicyRegistry
   ],
   exports: [
+    IdempotencyService,
     UploadEngineService,
     UploadPolicyRegistry
   ]

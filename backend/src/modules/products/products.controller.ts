@@ -46,8 +46,17 @@ export class ProductsController {
     @Body() dto: CreateProductDto
   ) {
     const timer = requestTimer(request);
+    const idempotencyKey = request.header("Idempotency-Key") ?? request.header("idempotency-key");
+    if (!idempotencyKey?.trim()) {
+      throw new BadRequestException({
+        apiVersion: "v1",
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+        message: "Idempotency-Key is required for product creation.",
+        retryable: false
+      });
+    }
     try {
-      return await this.products.create(request.auth!, dto, timer);
+      return await this.products.create(request.auth!, dto, idempotencyKey.trim(), timer);
     } finally {
       this.finishProductTiming("product.create", request, response, timer);
     }

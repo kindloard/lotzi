@@ -2,6 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
 export const GEO_GRID_PRECISION = 3;
+export const GEO_GRID_CELL_BUFFER_METERS = 160;
 export const GEO_CURSOR_TTL_MS = 10 * 60 * 1000;
 export const GEO_DEFAULT_LIMIT = 24;
 export const GEO_MAX_LIMIT = 48;
@@ -62,6 +63,21 @@ export function parseLimit(value: unknown): number {
   return parsed;
 }
 
+export function parseRadiusKm(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!GEO_SUPPORTED_RADIUS_KM.includes(parsed as typeof GEO_SUPPORTED_RADIUS_KM[number])) {
+    throw new BadRequestException({
+      apiVersion: "v1",
+      code: "INVALID_RADIUS",
+      message: `radiusKm must be one of ${GEO_SUPPORTED_RADIUS_KM.join(", ")}.`
+    });
+  }
+  return parsed;
+}
+
 export function normalizeCoordinate(value: number, min: number, max: number): number {
   const rounded = Number(value.toFixed(7));
   return Math.min(max, Math.max(min, Object.is(rounded, -0) ? 0 : rounded));
@@ -76,6 +92,27 @@ export function gridForCoordinates(coordinates: GeoCoordinates): GeoGrid {
 
 export function gridValue(value: number): string {
   return (Math.round(value * 10 ** GEO_GRID_PRECISION) / 10 ** GEO_GRID_PRECISION).toFixed(GEO_GRID_PRECISION);
+}
+
+export function parseGridValue(value: unknown, field: "latGrid" | "lngGrid"): string {
+  const parsed = typeof value === "number" ? value : Number(value);
+  const min = field === "latGrid" ? -90 : -180;
+  const max = field === "latGrid" ? 90 : 180;
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    throw new BadRequestException({
+      apiVersion: "v1",
+      code: "INVALID_GEO_GRID",
+      message: `${field} must be a finite ${GEO_GRID_PRECISION}-decimal grid coordinate.`
+    });
+  }
+  return gridValue(parsed);
+}
+
+export function coordinatesFromGrid(grid: GeoGrid): GeoCoordinates {
+  return {
+    latitude: Number(grid.latGrid),
+    longitude: Number(grid.lngGrid)
+  };
 }
 
 export function radiusMeters(radiusKm: number): number {

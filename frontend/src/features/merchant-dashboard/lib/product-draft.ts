@@ -26,8 +26,19 @@ export function productToDraft(product: Product): ProductDraft {
   const variants = productVariantsToDraft(product, measurement);
   const baseVariant = findBaseVariant(product, variants, measurement) ?? productVariantFromProduct(product, measurement);
   const draftVariants = variants
-    .filter((variant) => variant.id !== baseVariant.id && !variant.isDefault)
+    .filter((variant) => variant.id !== baseVariant.id)
     .map((variant) => normalizeVariantFlags(variant, product, measurement, true));
+  const normalizedBaseVariant = normalizeVariantFlags(
+    {
+      ...baseVariant,
+      stock: baseVariant._persisted
+        ? baseVariant.stock
+        : Math.max(product.stock - draftVariants.reduce((total, variant) => total + variant.stock, 0), 0)
+    },
+    product,
+    measurement,
+    false
+  );
   const images = product.images
     .slice()
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
@@ -43,18 +54,19 @@ export function productToDraft(product: Product): ProductDraft {
     productType,
     price: product.price,
     compareAtPrice: product.compareAtPrice ?? 0,
-    costPrice: product.costPrice ?? baseVariant.costPrice ?? 0,
-    stock: baseVariant.stock,
+    costPrice: product.costPrice ?? normalizedBaseVariant.costPrice ?? 0,
+    stock: normalizedBaseVariant.stock,
     reorderPoint: product.reorderPoint,
     measurement,
     status: product.status,
+    description: product.description ?? "",
     seoTitle: product.seoTitle ?? "",
     seoDescription: (product.seoDescription ?? "").slice(0, PRODUCT_DESCRIPTION_MAX_LENGTH),
     mediaScope: hasVariantImages ? "VARIANT" : "PRODUCT",
     sameImageAsProduct: !hasVariantImages,
     images,
     variants: draftVariants,
-    baseVariant: normalizeVariantFlags(baseVariant, product, measurement, false),
+    baseVariant: normalizedBaseVariant,
     catalogVersion: product.catalogVersion
   };
 }
@@ -69,6 +81,8 @@ function productVariantsToDraft(product: Product, productMeasurement: ProductMea
     const normalized = normalizeMeasurement(measurement, variant.price || product.price);
     return {
       id: variant.id,
+      persistedId: variant.id,
+      _persisted: true,
       name: variant.name || product.name,
       sku: variant.sku || product.sku,
       price: variant.price || product.price,
@@ -92,6 +106,8 @@ function productVariantFromProduct(product: Product, productMeasurement: Product
   const normalized = normalizeMeasurement(productMeasurement, product.price);
   return {
     id: `${product.id}-base`,
+    persistedId: null,
+    _persisted: false,
     name: product.name || "Default",
     sku: product.sku,
     price: product.price,
@@ -115,11 +131,34 @@ function findBaseVariant(
   variants: VariantDraft[],
   productMeasurement: ProductMeasurement
 ) {
-  const defaultVariant = variants.find((variant) => variant.isDefault);
+  const defaultVariant = variants.find((variant) => variant.isDefault && isProductBackedVariant(product, variant, productMeasurement));
   if (defaultVariant) {
     return defaultVariant;
   }
-  return null;
+  return variants.find((variant) => isProductBackedVariant(product, variant, productMeasurement)) ?? null;
+}
+
+function isProductBackedVariant(product: Product, variant: VariantDraft, productMeasurement: ProductMeasurement) {
+  const variantName = variant.name.trim().toLowerCase();
+  const productName = product.name.trim().toLowerCase();
+  const nameMatches = variantName === "default" || variantName === productName;
+  const skuMatches = variant.sku.trim().toUpperCase() === product.sku.trim().toUpperCase();
+  const priceMatches = numbersEqual(variant.price, product.price);
+  const mrpMatches = numbersEqual(variant.mrp ?? 0, product.compareAtPrice ?? 0);
+  return nameMatches && skuMatches && priceMatches && mrpMatches && sameMeasurement(variant.measurement, productMeasurement);
+}
+
+function sameMeasurement(left: ProductMeasurement, right: ProductMeasurement) {
+  return (
+    left.unitGroup === right.unitGroup &&
+    left.quantityValue === right.quantityValue &&
+    left.quantityUnit === right.quantityUnit &&
+    left.packType === right.packType
+  );
+}
+
+function numbersEqual(left: number, right: number) {
+  return Math.abs(left - right) < 0.0001;
 }
 
 function normalizeVariantFlags(

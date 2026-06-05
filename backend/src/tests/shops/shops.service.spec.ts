@@ -1,4 +1,4 @@
-import { Prisma, ProductStatus } from "@prisma/client";
+import { Prisma, ProductStatus, StoreStatus } from "@prisma/client";
 import { ShopsService } from "../../modules/shops/shops.service";
 
 class RedisMock {
@@ -392,7 +392,7 @@ describe("ShopsService", () => {
     expect(response.products.map((product) => product.id)).toEqual(["prod-1", "prod-2"]);
   });
 
-  it("exposes image variant links in public product DTOs", async () => {
+  it("separates product and variant media in public product DTOs", async () => {
     const record = catalogProductWithVariantImagesFixture();
     const prisma = {
       product: {
@@ -415,7 +415,13 @@ describe("ShopsService", () => {
       loadProductsForShopDetail: (
         detail: Record<string, unknown>,
         query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
-      ) => Promise<{ products: Array<{ imageUrl: string | null; images: Array<{ id: string; variantIds: string[]; variantSkuIds: string[] }> }> }>;
+      ) => Promise<{
+        products: Array<{
+          imageUrl: string | null;
+          images: Array<{ id: string; mediaSource: "PRODUCT" | "VARIANT"; variantIds: string[]; variantSkuIds: string[] }>;
+          variants: Array<{ id: string; images: Array<{ id: string; mediaSource: "PRODUCT" | "VARIANT"; variantIds: string[]; variantSkuIds: string[] }> }>;
+        }>;
+      }>;
     }).loadProductsForShopDetail(shopDetailFixture(), {
       category: null,
       includeFacets: false,
@@ -429,13 +435,31 @@ describe("ShopsService", () => {
     expect(response.products[0].images).toEqual([
       expect.objectContaining({
         id: "image-front",
+        mediaSource: "PRODUCT",
         variantIds: [],
         variantSkuIds: []
-      }),
+      })
+    ]);
+    expect(response.products[0].variants.find((variant) => variant.id === "variant-1l")?.images).toEqual([
+      expect.objectContaining({
+        id: "image-shared",
+        mediaSource: "VARIANT",
+        variantIds: ["variant-1l", "variant-500ml"],
+        variantSkuIds: ["GW-1L", "GW-500"]
+      })
+    ]);
+    expect(response.products[0].variants.find((variant) => variant.id === "variant-500ml")?.images).toEqual([
       expect.objectContaining({
         id: "image-500ml",
+        mediaSource: "VARIANT",
         variantIds: ["variant-500ml"],
         variantSkuIds: ["GW-500"]
+      }),
+      expect.objectContaining({
+        id: "image-shared",
+        mediaSource: "VARIANT",
+        variantIds: ["variant-1l", "variant-500ml"],
+        variantSkuIds: ["GW-1L", "GW-500"]
       })
     ]);
   });
@@ -488,6 +512,202 @@ describe("ShopsService", () => {
     expect(searchTerm(activeWhere)).toBe("oil");
     expect(searchTerm(facetWhere)).toBe("oil");
     expect(searchTerm(subFacetWhere)).toBe("oil");
+  });
+
+  it("skips the count query when the first page is not full", async () => {
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => [catalogProductFixture("prod-1", "Spices", "grocery")]),
+        count: jest.fn(async () => 1),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    const response = await (service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<{ pagination: { total: number } }>;
+    }).loadProductsForShopDetail(shopDetailFixture(), {
+      category: null,
+      includeFacets: false,
+      limit: 24,
+      page: 1,
+      q: "",
+      sort: "relevance"
+    });
+
+    expect(prisma.product.count).not.toHaveBeenCalled();
+    expect(response.pagination.total).toBe(1);
+  });
+
+  it("runs the count query when the first page is full", async () => {
+    const records = Array.from({ length: 24 }, (_, index) =>
+      catalogProductFixture(`prod-${index}`, "Spices", "grocery")
+    );
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => records),
+        count: jest.fn(async () => 50),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    const response = await (service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<{ pagination: { total: number } }>;
+    }).loadProductsForShopDetail(shopDetailFixture(), {
+      category: null,
+      includeFacets: false,
+      limit: 24,
+      page: 1,
+      q: "",
+      sort: "relevance"
+    });
+
+    expect(prisma.product.count).toHaveBeenCalledTimes(1);
+    expect(response.pagination.total).toBe(50);
+  });
+
+  it("reuses cached facets across category-filtered catalog misses with the same search term", async () => {
+    const productGroupBy = jest.fn(async (args: { by: string[] }) =>
+      args.by[0] === "categoryId"
+        ? []
+        : [{ subCategory: "Cooking Oils", _count: { _all: 5 } }]
+    );
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => []),
+        count: jest.fn(async () => 0),
+        groupBy: productGroupBy
+      },
+      category: {
+        findMany: jest.fn(async () => [])
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+    const callable = service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<{ facets: { subCategories: Array<{ name: string; count: number }> } }>;
+    };
+
+    const first = await callable.loadProductsForShopDetail(shopDetailFixture(), {
+      category: "Cooking Oils",
+      includeFacets: true,
+      limit: 24,
+      page: 1,
+      q: "oil",
+      sort: "relevance"
+    });
+    const second = await callable.loadProductsForShopDetail(shopDetailFixture(), {
+      category: "Spices",
+      includeFacets: true,
+      limit: 24,
+      page: 1,
+      q: "oil",
+      sort: "relevance"
+    });
+
+    expect(productGroupBy).toHaveBeenCalledTimes(2);
+    expect(second.facets).toEqual(first.facets);
+  });
+
+  it("resolves public shop routes with the indexed public code", async () => {
+    const prisma = {
+      store: {
+        findMany: jest.fn(async () => [storeDetailRowFixture()])
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    const response = await (service as never as {
+      loadShopDetailByPublicRoute: (publicId: string, publicSlug: string) => Promise<{ publicId: string }>;
+    }).loadShopDetailByPublicRoute("123456", "test-shop");
+
+    expect(prisma.store.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        deletedAt: null,
+        publicCode: "123456",
+        status: StoreStatus.APPROVED
+      }
+    }));
+    expect(response.publicId).toBe("123456");
+  });
+
+  it("loads critical PDP data without recommendation or full shop-detail queries", async () => {
+    const productPublicId = "56af3a937eb84c4f9ae5421e378fce16";
+    const product = publicPdpProductFixture();
+    const prisma = {
+      product: {
+        findFirst: jest.fn(async () => product),
+        findMany: jest.fn()
+      },
+      store: {
+        findMany: jest.fn(),
+        findUnique: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    const response = await service.getProductDetailForShopByPublicRoute(
+      "123456",
+      "test-shop",
+      productPublicId,
+      { includeRecommendations: false }
+    );
+
+    expect(prisma.product.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: "56af3a93-7eb8-4c4f-9ae5-421e378fce16",
+        store: expect.objectContaining({
+          publicCode: "123456",
+          slug: "test-shop",
+          status: StoreStatus.APPROVED
+        })
+      })
+    }));
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+    expect(prisma.store.findMany).not.toHaveBeenCalled();
+    expect(prisma.store.findUnique).not.toHaveBeenCalled();
+    expect(response.data.store.address).toEqual({ city: "Nagercoil", state: "Tamil Nadu" });
+    expect(response.data.recommendations).toEqual([]);
   });
 });
 
@@ -570,6 +790,38 @@ function shopDetailFixture() {
   };
 }
 
+function storeDetailRowFixture() {
+  return {
+    id: "store-1",
+    slug: "test-shop",
+    publicCode: "123456",
+    name: "Test Shop",
+    description: null,
+    phone: null,
+    addressLine: null,
+    city: "Nagercoil",
+    state: "Tamil Nadu",
+    pincode: null,
+    latitude: null,
+    longitude: null,
+    status: StoreStatus.APPROVED,
+    deletedAt: null,
+    isDeliveryAvailable: true,
+    openingTime: null,
+    closingTime: null,
+    imageUrl: null,
+    businessProfile: { category: "grocery" },
+    branding: {
+      tagline: null,
+      description: null,
+      primaryColor: null,
+      accentColor: null,
+      logoMedia: null,
+      bannerMedia: null
+    }
+  };
+}
+
 function catalogProductFixture(id: string, subCategory: string, categorySlug: string) {
   return {
     id,
@@ -640,6 +892,35 @@ function catalogProductWithVariantImagesFixture() {
             }
           ]
         }
+      },
+      {
+        id: "image-shared",
+        altText: "Gold Winner variants",
+        isPrimary: false,
+        sortOrder: 2,
+        variants: [
+          {
+            productVariant: {
+              id: "variant-1l",
+              sku: "GW-1L"
+            }
+          },
+          {
+            productVariant: {
+              id: "variant-500ml",
+              sku: "GW-500"
+            }
+          }
+        ],
+        uploadAsset: {
+          renditions: [
+            {
+              secureUrl: "https://cdn.example.test/shared.webp",
+              width: 640,
+              height: 640
+            }
+          ]
+        }
       }
     ],
     variants: [
@@ -676,5 +957,24 @@ function catalogProductWithVariantImagesFixture() {
         position: 1
       }
     ]
+  };
+}
+
+function publicPdpProductFixture() {
+  return {
+    ...catalogProductWithVariantImagesFixture(),
+    id: "56af3a93-7eb8-4c4f-9ae5-421e378fce16",
+    name: "Gold Winner",
+    seoTitle: null,
+    seoDescription: null,
+    store: {
+      id: "store-1",
+      slug: "test-shop",
+      publicCode: "123456",
+      name: "Test Shop",
+      city: "Nagercoil",
+      state: "Tamil Nadu",
+      businessProfile: { category: "grocery" }
+    }
   };
 }

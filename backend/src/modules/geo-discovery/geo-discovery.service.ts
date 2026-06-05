@@ -2,6 +2,10 @@ import { ForbiddenException, HttpException, HttpStatus, Injectable, ServiceUnava
 import { ConfigService } from "@nestjs/config";
 import { Prisma, ProductStatus, StoreStatus } from "@prisma/client";
 import { createHash } from "node:crypto";
+import {
+  publicStoreCode,
+  publicStoreSlug
+} from "../../common/public-catalog-route";
 import { PrismaService } from "../../database/prisma.service";
 import { ObservabilityService } from "../observability/observability.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service";
@@ -10,12 +14,16 @@ import { GeoCursorService, type VerifiedGeoCursor } from "./geo-cursor.service";
 import { GeoDiscoveryCacheService } from "./geo-discovery-cache.service";
 import { GeoFraudService } from "./geo-fraud.service";
 import {
+  coordinatesFromGrid,
   formatApproximateDistance,
+  GEO_GRID_CELL_BUFFER_METERS,
   gridForCoordinates,
   numberFromDb,
+  parseGridValue,
   parseLatitude,
   parseLimit,
   parseLongitude,
+  parseRadiusKm,
   radiusMeters,
   sleep,
   type GeoCoordinates,
@@ -23,13 +31,17 @@ import {
 } from "./geo-utils";
 
 interface NearbyInput {
-  latitude: unknown;
-  longitude: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  latGrid?: unknown;
+  lngGrid?: unknown;
+  radiusKm?: unknown;
   limit: unknown;
   cursor?: string | null;
   ip: string;
   userId?: string | null;
   deviceId?: string | null;
+  publicCell?: boolean;
 }
 
 interface GeoCandidateRow {
@@ -52,17 +64,29 @@ export interface GeoNearbyResponse {
     hasNextPage: boolean;
     nextCursor: string | null;
   };
+  cache?: {
+    ageMs: number;
+    grid: GeoGrid;
+    source: "l1" | "l2" | "miss";
+  };
 }
 
 export interface GeoNearbyResult {
   data: GeoNearbyResponse;
   cacheHit: boolean;
+  cacheSource: "l1" | "l2" | "miss";
+  timings: GeoTimingSegment[];
+}
+
+export interface GeoTimingSegment {
+  name: string;
+  durationMs: number;
 }
 
 @Injectable()
 export class GeoDiscoveryService {
   private readonly enabled: boolean;
-  private readonly radiusKm: number;
+  private readonly defaultRadiusKm: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -74,7 +98,7 @@ export class GeoDiscoveryService {
     config: ConfigService
   ) {
     this.enabled = config.get<boolean>("SHOP_DISCOVERY_ENABLED", true);
-    this.radiusKm = config.get<number>("SHOP_DISCOVERY_RADIUS_KM", 5);
+    this.defaultRadiusKm = config.get<number>("SHOP_DISCOVERY_RADIUS_KM", 5);
   }
 
   async nearby(input: NearbyInput): Promise<GeoNearbyResult> {
@@ -86,23 +110,56 @@ export class GeoDiscoveryService {
       });
     }
 
-    const startedAt = process.hrtime.bigint();
-    const coordinates = this.parseCoordinates(input.latitude, input.longitude);
+    const timing = new GeoTiming();
+    const location = this.parseRequestLocation(input);
     const limit = parseLimit(input.limit);
-    const grid = gridForCoordinates(coordinates);
-    const sessionHash = sessionHashFor(input.deviceId ?? input.userId ?? null);
+    const radiusKm = parseRadiusKm(input.radiusKm, this.defaultRadiusKm);
+    const grid = location.grid;
+    const coordinates = location.coordinates;
+    const sessionHash = input.publicCell ? null : sessionHashFor(input.deviceId ?? input.userId ?? null);
     const cursorState = input.cursor
-      ? this.cursor.verify(input.cursor, { grid, radiusKm: this.radiusKm, sessionHash })
+      ? this.cursor.verify(input.cursor, { grid, radiusKm, sessionHash })
       : null;
+    timing.mark("geo-parse");
+
+    const epoch = await this.cache.getEpochContext(grid, radiusKm);
+    const cacheKey = this.cache.cacheKey(epoch, {
+      cursorHash: this.cache.cursorHash(input.cursor ?? null),
+      limit,
+      responseVersion: 1
+    });
+
+    if (input.publicCell) {
+      const cached = parseCacheEnvelopeWithSource(await this.cache.getWithSource(cacheKey));
+      timing.mark("geo-cache");
+      if (cached) {
+        const data = withCacheMetadata(cached.envelope.data, {
+          ageMs: Math.max(0, Date.now() - cached.envelope.cachedAt),
+          grid,
+          source: cached.source
+        });
+        this.observability.observeGeoSearch("hit", timing.totalMs());
+        return { data, cacheHit: true, cacheSource: cached.source, timings: timing.done() };
+      }
+    } else {
+      timing.mark("geo-cache");
+    }
 
     await this.enforceAbuseControls({ coordinates, grid, input });
+    timing.mark("geo-rate-limit");
 
-    const epoch = await this.cache.getEpochContext(grid, this.radiusKm);
-    const cacheKey = this.cache.cacheKey(epoch, this.cache.cursorHash(input.cursor ?? null));
-    const cached = parseCacheEnvelope(await this.cache.get(cacheKey));
-    if (cached) {
-      this.observability.observeGeoSearch("hit", durationMs(startedAt));
-      return { data: cached.data, cacheHit: true };
+    if (!input.publicCell) {
+      const cached = parseCacheEnvelopeWithSource(await this.cache.getWithSource(cacheKey));
+      timing.mark("geo-cache-private");
+      if (cached) {
+        const data = withCacheMetadata(cached.envelope.data, {
+          ageMs: Math.max(0, Date.now() - cached.envelope.cachedAt),
+          grid,
+          source: cached.source
+        });
+        this.observability.observeGeoSearch("hit", timing.totalMs());
+        return { data, cacheHit: true, cacheSource: cached.source, timings: timing.done() };
+      }
     }
 
     const lockAcquired = await this.cache.acquireLoadLock(cacheKey);
@@ -110,27 +167,55 @@ export class GeoDiscoveryService {
       const waitStarted = process.hrtime.bigint();
       await sleep(75);
       this.observability.observeGeoStampedeLockWait(durationMs(waitStarted));
-      const warmed = parseCacheEnvelope(await this.cache.get(cacheKey));
+      const warmed = parseCacheEnvelopeWithSource(await this.cache.getWithSource(cacheKey));
       if (warmed) {
-        this.observability.observeGeoSearch("hit", durationMs(startedAt));
-        return { data: warmed.data, cacheHit: true };
+        timing.mark("geo-stampede-wait");
+        const data = withCacheMetadata(warmed.envelope.data, {
+          ageMs: Math.max(0, Date.now() - warmed.envelope.cachedAt),
+          grid,
+          source: warmed.source
+        });
+        this.observability.observeGeoSearch("hit", timing.totalMs());
+        return { data, cacheHit: true, cacheSource: warmed.source, timings: timing.done() };
       }
     }
 
     try {
-      const data = await this.loadNearby({ coordinates, grid, limit, cursorState, sessionHash });
+      const data = await this.loadNearby({
+        coordinates,
+        grid,
+        limit,
+        cursorState,
+        sessionHash,
+        radiusKm,
+        useCellBuffer: Boolean(input.publicCell),
+        timing
+      });
       const cachedValue = JSON.stringify({ version: 1, cachedAt: Date.now(), data } satisfies NearbyCacheEnvelope);
       const cacheWritten = await this.cache.setIfEpochUnchanged(cacheKey, epoch, cachedValue);
       if (!cacheWritten) {
         this.observability.recordGeoStaleServe("epoch_conflict");
       }
-      this.observability.observeGeoSearch("miss", durationMs(startedAt));
-      return { data, cacheHit: false };
+      const dataWithMetadata = withCacheMetadata(data, { ageMs: 0, grid, source: "miss" });
+      this.observability.observeGeoSearch("miss", timing.totalMs());
+      return { data: dataWithMetadata, cacheHit: false, cacheSource: "miss", timings: timing.done() };
     } finally {
       if (lockAcquired) {
         await this.cache.releaseLoadLock(cacheKey);
       }
     }
+  }
+
+  private parseRequestLocation(input: NearbyInput): { coordinates: GeoCoordinates; grid: GeoGrid } {
+    if (input.publicCell) {
+      const grid = {
+        latGrid: parseGridValue(input.latGrid, "latGrid"),
+        lngGrid: parseGridValue(input.lngGrid, "lngGrid")
+      };
+      return { coordinates: coordinatesFromGrid(grid), grid };
+    }
+    const coordinates = this.parseCoordinates(input.latitude, input.longitude);
+    return { coordinates, grid: gridForCoordinates(coordinates) };
   }
 
   private parseCoordinates(latitude: unknown, longitude: unknown): GeoCoordinates {
@@ -218,23 +303,33 @@ export class GeoDiscoveryService {
     limit: number;
     cursorState: VerifiedGeoCursor | null;
     sessionHash: string | null;
+    radiusKm: number;
+    useCellBuffer: boolean;
+    timing: GeoTiming;
   }): Promise<GeoNearbyResponse> {
     const queryStarted = process.hrtime.bigint();
-    const candidates = await this.queryCandidates(input.coordinates, input.limit, input.cursorState);
+    const candidates = await this.queryCandidates(
+      input.coordinates,
+      input.limit,
+      input.cursorState,
+      input.radiusKm,
+      input.useCellBuffer
+    );
     this.observability.observeGeoQuery(durationMs(queryStarted));
+    input.timing.mark("geo-candidates");
 
     const hasNextPage = candidates.length > input.limit;
     const pageCandidates = candidates.slice(0, input.limit);
-    const stores = await this.fetchStores(pageCandidates.map((candidate) => candidate.id));
-    const storesById = new Map(stores.map((store) => [store.id, store]));
+    const storeCards = await this.fetchStoreCards(pageCandidates.map((candidate) => candidate.id));
+    input.timing.mark("geo-hydrate");
     const items = pageCandidates.flatMap((candidate) => {
-      const store = storesById.get(candidate.id);
+      const store = storeCards.get(candidate.id);
       if (!store) {
         return [];
       }
       const distanceMeters = Math.max(0, Math.round(numberFromDb(candidate.distance_meters) ?? 0));
       return [{
-        ...mapStoreToShopDto(store),
+        ...store,
         distance: formatApproximateDistance(distanceMeters),
         distanceMeters,
         distanceAccuracyMeters: null,
@@ -245,7 +340,7 @@ export class GeoDiscoveryService {
 
     return {
       apiVersion: "v1",
-      radiusKm: this.radiusKm,
+      radiusKm: input.radiusKm,
       items,
       pageInfo: {
         limit: input.limit,
@@ -253,7 +348,7 @@ export class GeoDiscoveryService {
         nextCursor: hasNextPage && last
           ? this.cursor.sign({
               grid: input.grid,
-              radiusKm: this.radiusKm,
+              radiusKm: input.radiusKm,
               distanceMeters: numberFromDb(last.distance_meters) ?? 0,
               id: last.id,
               sessionHash: input.sessionHash
@@ -266,10 +361,13 @@ export class GeoDiscoveryService {
   private queryCandidates(
     coordinates: GeoCoordinates,
     limit: number,
-    cursorState: VerifiedGeoCursor | null
+    cursorState: VerifiedGeoCursor | null,
+    radiusKm: number,
+    useCellBuffer: boolean
   ): Promise<GeoCandidateRow[]> {
     const cursorDistance = cursorState?.distanceMeters ?? null;
     const cursorId = cursorState?.id ?? "00000000-0000-4000-8000-000000000000";
+    const searchRadiusMeters = radiusMeters(radiusKm) + (useCellBuffer ? GEO_GRID_CELL_BUFFER_METERS : 0);
     return this.prisma.$queryRaw<GeoCandidateRow[]>(Prisma.sql`
       WITH origin AS (
         SELECT ST_SetSRID(ST_MakePoint(${coordinates.longitude}, ${coordinates.latitude}), 4326)::geography AS point
@@ -282,7 +380,7 @@ export class GeoDiscoveryService {
         WHERE s."status" = ${StoreStatus.APPROVED}::"StoreStatus"
           AND s."deleted_at" IS NULL
           AND s."location" IS NOT NULL
-          AND ST_DWithin(s."location", o."point", ${radiusMeters(this.radiusKm)}::double precision)
+          AND ST_DWithin(s."location", o."point", ${searchRadiusMeters}::double precision)
       )
       SELECT "id", distance_meters
       FROM candidates
@@ -293,18 +391,39 @@ export class GeoDiscoveryService {
     `);
   }
 
-  private fetchStores(ids: string[]): Promise<NearbyStoreRow[]> {
+  private async fetchStoreCards(ids: string[]): Promise<Map<string, NearbyStoreCard>> {
+    const cards = new Map<string, NearbyStoreCard>();
     if (!ids.length) {
-      return Promise.resolve([]);
+      return cards;
     }
-    return this.prisma.store.findMany({
+    const cached = await this.cache.getStoreCards(ids);
+    const missing: string[] = [];
+    for (const id of ids) {
+      const card = parseStoreCard(cached.get(id) ?? null);
+      if (card) {
+        cards.set(id, card);
+      } else {
+        missing.push(id);
+      }
+    }
+    if (!missing.length) {
+      return cards;
+    }
+
+    const stores = await this.prisma.store.findMany({
       where: {
-        id: { in: ids },
+        id: { in: missing },
         status: StoreStatus.APPROVED,
         deletedAt: null
       },
       select: nearbyStoreSelect
     });
+    await Promise.all(stores.map(async (store) => {
+      const card = mapStoreToShopDto(store);
+      cards.set(store.id, card);
+      await this.cache.setStoreCard(store.id, JSON.stringify({ version: 1, card } satisfies StoreCardEnvelope));
+    }));
+    return cards;
   }
 }
 
@@ -312,10 +431,13 @@ const nearbyStoreSelect = {
   id: true,
   name: true,
   slug: true,
+  publicCode: true,
   addressLine: true,
   latitude: true,
   longitude: true,
   isDeliveryAvailable: true,
+  openingTime: true,
+  closingTime: true,
   imageUrl: true,
   businessProfile: {
     select: {
@@ -340,6 +462,11 @@ const nearbyStoreSelect = {
       }
     }
   },
+  settings: {
+    select: {
+      businessHours: true
+    }
+  },
   products: {
     where: {
       isActive: true,
@@ -356,8 +483,14 @@ const nearbyStoreSelect = {
 } satisfies Prisma.StoreSelect;
 
 type NearbyStoreRow = Prisma.StoreGetPayload<{ select: typeof nearbyStoreSelect }>;
+type NearbyStoreCard = ShopDto;
 
-function mapStoreToShopDto(store: NearbyStoreRow): ShopDto {
+interface StoreCardEnvelope {
+  version: 1;
+  card: NearbyStoreCard;
+}
+
+function mapStoreToShopDto(store: NearbyStoreRow): NearbyStoreCard {
   const type = normalizeCategory(store.businessProfile?.category);
   const visual = categoryVisual(type);
   const fingerprint = stableNumber(store.id);
@@ -365,7 +498,7 @@ function mapStoreToShopDto(store: NearbyStoreRow): ShopDto {
     id: store.id,
     name: store.name,
     slug: store.slug,
-    publicId: publicStoreCode(store.id),
+    publicId: store.publicCode ?? publicStoreCode(store.id),
     publicSlug: publicStoreSlug(store.name),
     distance: "Set location",
     rating: (4.5 + (fingerprint % 5) * 0.1).toFixed(1),
@@ -388,6 +521,8 @@ function mapStoreToShopDto(store: NearbyStoreRow): ShopDto {
     distanceAccuracyMeters: null,
     durationSeconds: null,
     durationText: null,
+    businessHours: store.settings?.businessHours ?? null,
+    timezone: "Asia/Kolkata",
     branding: store.branding
       ? {
           tagline: store.branding.tagline,
@@ -409,6 +544,35 @@ function parseCacheEnvelope(raw: string | null): NearbyCacheEnvelope | null {
   } catch {
     return null;
   }
+}
+
+function parseCacheEnvelopeWithSource(
+  lookup: { source: "l1" | "l2"; value: string } | null
+): { envelope: NearbyCacheEnvelope; source: "l1" | "l2" } | null {
+  const envelope = parseCacheEnvelope(lookup?.value ?? null);
+  return envelope && lookup ? { envelope, source: lookup.source } : null;
+}
+
+function parseStoreCard(raw: string | null): NearbyStoreCard | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoreCardEnvelope>;
+    return parsed?.version === 1 && parsed.card?.id ? parsed.card as NearbyStoreCard : null;
+  } catch {
+    return null;
+  }
+}
+
+function withCacheMetadata(
+  data: GeoNearbyResponse,
+  cache: NonNullable<GeoNearbyResponse["cache"]>
+): GeoNearbyResponse {
+  return {
+    ...data,
+    cache
+  };
 }
 
 function sessionHashFor(value: string | null): string | null {
@@ -447,22 +611,6 @@ function stableNumber(value: string) {
   return value.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
 }
 
-function publicStoreCode(storeId: string) {
-  const hash = createHash("sha256").update(storeId).digest("hex");
-  const numeric = BigInt(`0x${hash.slice(0, 12)}`) % 1_000_000n;
-  return numeric.toString().padStart(6, "0");
-}
-
-function publicStoreSlug(storeName: string) {
-  const normalized = storeName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 96);
-  return normalized || "store";
-}
-
 function initialsFromName(value: string) {
   return value
     .split(" ")
@@ -474,4 +622,33 @@ function initialsFromName(value: string) {
 
 function durationMs(startedAt: bigint): number {
   return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+}
+
+class GeoTiming {
+  private readonly startedAt = process.hrtime.bigint();
+  private previous = this.startedAt;
+  private readonly segments: GeoTimingSegment[] = [];
+
+  mark(name: string): void {
+    const now = process.hrtime.bigint();
+    this.segments.push({
+      name,
+      durationMs: Number(now - this.previous) / 1_000_000
+    });
+    this.previous = now;
+  }
+
+  totalMs(): number {
+    return durationMs(this.startedAt);
+  }
+
+  done(): GeoTimingSegment[] {
+    return [
+      ...this.segments,
+      {
+        name: "geo-total",
+        durationMs: this.totalMs()
+      }
+    ];
+  }
 }

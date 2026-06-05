@@ -4,6 +4,7 @@ import {
   Prisma,
   StoreStatus,
   UploadAssetStatus,
+  UploadModerationStatus,
   UploadProvider,
   UploadPurpose,
   UploadRenditionKind
@@ -582,6 +583,9 @@ export class UploadEngineService implements OnModuleInit, OnModuleDestroy {
           uploadedByUserId: input.uploadedByUserId,
           purpose: input.purpose,
           status: UploadAssetStatus.READY,
+          moderationStatus: UploadModerationStatus.APPROVED,
+          moderationCheckedAt: new Date(),
+          moderationReason: "auto_approved_after_upload_validation",
           sourceSha256: input.sourceSha256,
           originalFilename: input.originalFilename,
           draftId: input.draftId,

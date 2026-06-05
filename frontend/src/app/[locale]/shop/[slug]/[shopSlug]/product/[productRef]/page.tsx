@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { ShopHeaderMobile } from "@/components/shop-header-mobile";
-import { getShopDetailForPage, getShopProductDetailForPage, ShopPageFetchError } from "@/features/shops/api/server-shops";
+import { getShopProductDetailForPage, getShopProductsForPage, ShopPageFetchError } from "@/features/shops/api/server-shops";
 import { parseProductRefSegment, productRefFromParts } from "@/features/shops/lib/product-route";
 import { ShopProductDetailView } from "@/features/shops/components/shop-product-detail-view";
 import { StorefrontFooter } from "@/features/shops/components/storefront-footer";
@@ -12,9 +12,6 @@ type ProductPageProps = {
   params: Promise<{ locale: string; slug: string; shopSlug: string; productRef: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
-
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { locale, slug, shopSlug, productRef } = await params;
@@ -94,10 +91,63 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
 
   const requestedImage = firstParam(rawSearchParams.image);
   const initialImageIndex = resolveInitialImageIndex(requestedImage, detail.product.images);
-  const shopForHeader = await getShopDetailForPage(detail.store.publicId, detail.store.publicSlug).catch(() => null);
-  const headerAddress = formatShopHeaderAddress(shopForHeader);
+  const headerAddress = formatShopHeaderAddress(detail.store);
   const storePath = `/shop/${detail.store.publicId}/${detail.store.publicSlug}`;
 
+  // Robust waterfall fallback for product discovery (Similar Products & Recommendations)
+  // 1. Fetch initial pool from the same category
+  const similarProductsRes = await getShopProductsForPage(detail.store.publicId, detail.store.publicSlug, { category: detail.product.categorySlug, limit: 30 });
+  let pool = similarProductsRes.data.products.filter(p => p.id !== detail.product.id);
+
+  // 2. If the category is sparse, backfill with store-wide products
+  if (pool.length < 10) {
+    const storeRes = await getShopProductsForPage(detail.store.publicId, detail.store.publicSlug, { limit: 30 });
+    const extra = storeRes.data.products.filter(p => p.id !== detail.product.id && !pool.some(ep => ep.id === p.id));
+    pool = [...pool, ...extra];
+  }
+
+  // 3. Build 'Similar Products' (Strict: exact productType ONLY)
+  let similarMatches = pool.filter(p => p.productType === detail.product.productType);
+  const similarProducts = similarMatches.slice(0, 5).map(p => ({
+    id: p.id,
+    publicId: p.publicId,
+    slug: p.slug,
+    name: p.name,
+    imageUrl: p.imageUrl,
+    price: p.price,
+    compareAtPrice: p.compareAtPrice,
+    unitDisplay: p.unitDisplay,
+    description: p.description,
+    inStock: p.inStock
+  }));
+
+  // 4. Build 'You might also like' (Fallback missing backend recommendations)
+  let recommendations = (detail.recommendations || []).map(r => {
+    const fullProduct = pool.find(p => p.id === r.id);
+    return {
+      ...r,
+      description: fullProduct ? fullProduct.description : r.description
+    };
+  });
+  if (recommendations.length < 5) {
+    const extraRecs = pool.filter(p => 
+      !similarProducts.some(s => s.id === p.id) && 
+      !recommendations.some(r => r.id === p.id)
+    ).map(p => ({
+      id: p.id,
+      publicId: p.publicId,
+      slug: p.slug,
+      name: p.name,
+      imageUrl: p.imageUrl,
+      price: p.price,
+      compareAtPrice: p.compareAtPrice,
+      unitDisplay: p.unitDisplay,
+      description: p.description,
+      inStock: p.inStock
+    }));
+    recommendations = [...recommendations, ...extraRecs].slice(0, 5);
+  }
+  detail.recommendations = recommendations;
   return (
     <main className="flex min-h-screen flex-col bg-white text-slate-950">
       <div className="flex-1 pb-32 md:pb-12">
@@ -108,22 +158,13 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
           backHref={storePath}
         />
         <div className="mx-auto hidden max-w-7xl px-4 py-6 sm:px-6 lg:block lg:px-8">
-          <nav aria-label="Breadcrumb" className="text-sm font-semibold text-slate-400">
-            <ol className="flex items-center gap-2 min-w-0">
-              <li className="shrink-0">
-                <Link href={storePath} className="hover:text-slate-900 transition-colors">
-                  {detail.store.name}
-                </Link>
-              </li>
-              <li aria-hidden="true" className="text-slate-300 shrink-0">/</li>
-              <li className="truncate text-slate-900 min-w-0">{detail.product.name}</li>
-            </ol>
-          </nav>
         </div>
         <ShopsQueryProvider>
           <ShopProductDetailView
             initialImageIndex={initialImageIndex}
             productDetail={detail}
+            similarProducts={similarProducts}
+            recommendations={recommendations}
           />
         </ShopsQueryProvider>
       </div>
@@ -229,9 +270,6 @@ function absoluteUrl(path: string) {
   return `${base}${path}`;
 }
 
-function formatShopHeaderAddress(shop: Awaited<ReturnType<typeof getShopDetailForPage>> | null) {
-  if (!shop) {
-    return "";
-  }
-  return [shop.address.city, shop.address.state].filter(Boolean).join(", ");
+function formatShopHeaderAddress(shop: { address?: { city: string | null; state: string | null } }) {
+  return [shop.address?.city, shop.address?.state].filter(Boolean).join(", ");
 }

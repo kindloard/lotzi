@@ -19,6 +19,7 @@ export const initialProducts: Product[] = [
 ];
 
 export const defaultDraft: ProductDraft = {
+  createIdempotencyKey: "",
   name: "",
   sku: "",
   category: "Grocery",
@@ -35,6 +36,7 @@ export const defaultDraft: ProductDraft = {
     productType: defaultTypeForSubcategory("Grocery", defaultSubcategoryForCategory("Grocery"))
   }),
   status: "Draft",
+  description: "",
   seoTitle: "",
   seoDescription: "",
   weight: "",
@@ -44,6 +46,8 @@ export const defaultDraft: ProductDraft = {
   images: [],
   variants: [{
     id: "v-1",
+    persistedId: null,
+    _persisted: false,
     name: "",
     sku: "",
     price: 0,
@@ -100,6 +104,7 @@ function product(
     pricePerBaseUnit: measurement.pricePerBaseUnit,
     pricePerBaseUnitDisplay: measurement.pricePerBaseUnitDisplay,
     status,
+    description: "",
     sales,
     revenue,
     conversion,
@@ -108,6 +113,8 @@ function product(
     catalogVersion: 1,
     variants: [{
       id: `${id}-default`,
+      persistedId: `${id}-default`,
+      _persisted: true,
       name: `${name} ${measurement.unitDisplay}`,
       sku,
       price,

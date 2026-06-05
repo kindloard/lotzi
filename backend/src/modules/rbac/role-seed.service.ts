@@ -90,61 +90,106 @@ export class RoleSeedService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    await this.seed();
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.seed();
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt === maxRetries) {
+          this.logger.error(
+            `RBAC seed failed after ${maxRetries} attempts — app will start without seeded roles: ${message}`
+          );
+          return;
+        }
+        const delayMs = 1000 * 2 ** (attempt - 1);
+        this.logger.warn(
+          `RBAC seed attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms — ${message}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   async seed() {
-    for (const permission of systemPermissions) {
-      await this.prisma.permission.upsert({
-        where: { code: permission.code },
-        update: {
-          description: permission.description,
-          scope: permission.scope
-        },
-        create: permission
-      });
-    }
+    const start = Date.now();
 
-    for (const role of systemRoles) {
-      const savedRole = await this.prisma.role.upsert({
-        where: { code: role.code },
-        update: {
-          name: role.name,
-          description: role.description,
-          scope: role.scope,
-          isSystem: true
-        },
-        create: {
-          code: role.code,
-          name: role.name,
-          description: role.description,
-          scope: role.scope,
-          isSystem: true
-        }
-      });
+    await this.prisma.$transaction(async (tx) => {
+      // Phase 1: Upsert all permissions in parallel
+      await Promise.all(
+        systemPermissions.map((permission) =>
+          tx.permission.upsert({
+            where: { code: permission.code },
+            update: {
+              description: permission.description,
+              scope: permission.scope
+            },
+            create: permission
+          })
+        )
+      );
 
-      const permissions = await this.prisma.permission.findMany({
-        where: { code: { in: [...role.permissions] } },
-        select: { id: true }
-      });
-
-      for (const permission of permissions) {
-        await this.prisma.rolePermission.upsert({
-          where: {
-            roleId_permissionId: {
-              roleId: savedRole.id,
-              permissionId: permission.id
+      // Phase 2: Upsert all roles in parallel
+      const savedRoles = await Promise.all(
+        systemRoles.map((role) =>
+          tx.role.upsert({
+            where: { code: role.code },
+            update: {
+              name: role.name,
+              description: role.description,
+              scope: role.scope,
+              isSystem: true
+            },
+            create: {
+              code: role.code,
+              name: role.name,
+              description: role.description,
+              scope: role.scope,
+              isSystem: true
             }
-          },
-          update: {},
-          create: {
-            roleId: savedRole.id,
-            permissionId: permission.id
-          }
-        });
-      }
-    }
+          })
+        )
+      );
 
-    this.logger.log("System RBAC roles and permissions are ready.");
+      // Phase 3: Wire role → permission mappings in parallel
+      const allPermissions = await tx.permission.findMany({
+        select: { id: true, code: true }
+      });
+      const permissionCodeToId = new Map(
+        allPermissions.map((p) => [p.code, p.id])
+      );
+
+      const rolePermissionUpserts = savedRoles.flatMap((savedRole, index) => {
+        const roleDef = systemRoles[index];
+        return [...roleDef.permissions]
+          .map((code) => permissionCodeToId.get(code))
+          .filter((id): id is string => id !== undefined)
+          .map((permissionId) =>
+            tx.rolePermission.upsert({
+              where: {
+                roleId_permissionId: {
+                  roleId: savedRole.id,
+                  permissionId
+                }
+              },
+              update: {},
+              create: {
+                roleId: savedRole.id,
+                permissionId
+              }
+            })
+          );
+      });
+
+      await Promise.all(rolePermissionUpserts);
+    }, {
+      timeout: 120_000, // 2 minutes to allow for high latency bulk upserts
+      maxWait: 15_000
+    });
+
+    this.logger.log(
+      `System RBAC roles and permissions are ready (${Date.now() - start}ms)`
+    );
   }
 }
