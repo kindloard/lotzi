@@ -116,13 +116,13 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
         <>
           {/* Mobile Full-Screen Location View */}
           <div className="flex flex-col items-center justify-center py-10 px-4 text-center md:hidden min-h-[50vh]">
-            <div className="relative mb-10">
-              <div className="relative z-10 flex size-24 items-center justify-center rounded-full bg-brand shadow-[0_0_30px_rgba(158,240,26,0.3)]">
-                <MapPin size={40} className="text-slate-900" strokeWidth={2.5} />
+            <div className="relative mb-10 mt-4">
+              <div className="relative z-10 flex items-center justify-center">
+                <MapPin size={64} className="text-slate-900" strokeWidth={1.5} />
               </div>
-              <Cloud className="absolute -left-10 -top-2 z-0 text-slate-200" size={48} strokeWidth={2} />
-              <Cloud className="absolute -right-8 top-4 z-0 text-slate-200" size={40} strokeWidth={2} />
-              <Cloud className="absolute -left-4 -bottom-4 z-0 text-slate-100" size={32} strokeWidth={2} />
+              <Cloud className="absolute -left-12 -top-4 z-0 text-slate-200" size={56} strokeWidth={2} />
+              <Cloud className="absolute -right-10 top-2 z-0 text-slate-200" size={48} strokeWidth={2} />
+              <Cloud className="absolute -left-4 -bottom-6 z-0 text-slate-100" size={40} strokeWidth={2} />
             </div>
             
             <h2 className="mb-3 text-2xl font-black tracking-tight text-slate-950">
@@ -138,7 +138,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                   type="button"
                   disabled={locationStatus === "loading"}
                   onClick={() => requestLocation({ ignoreCache: true })}
-                  className="inline-flex h-14 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
                 >
                   {locationStatus === "loading"
                     ? t("locationLoadingAction")
@@ -148,7 +148,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-14 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
                   onClick={() => {
                     // Visual only, or scrolls to search
                     window.scrollTo({ top: 0, behavior: 'smooth' });
