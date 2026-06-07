@@ -32,6 +32,8 @@
     "locationErrorDescription": "இருப்பிடத்தை இயக்கி மீண்டும் முயற்சிக்கவும்.",
     "locationUnsupportedTitle": "இருப்பிடம் கிடைக்கவில்லை",
     "locationUnsupportedDescription": "இந்த உலாவி உங்கள் இருப்பிடத்தை பகிர முடியாது.",
+    "locationAllowAction": "ஆம், நான் விரும்புகிறேன்",
+    "locationNotNowAction": "இப்போது வேண்டாம்",
     "enableLocation": "இருப்பிடத்தை இயக்கு",
     "noShopsTitle": "கடைகள் காணப்படவில்லை",
     "noShopsDescription": "இந்த வகைக்கு அங்கீகரிக்கப்பட்ட கடைகள் இன்னும் கிடைக்கவில்லை."

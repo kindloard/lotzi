@@ -115,19 +115,20 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       {locationNeedsAction ? (
         <>
           {/* Mobile Full-Screen Location View */}
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center md:hidden min-h-[60vh]">
-            <div className="relative mb-12">
-              <div className="flex size-32 items-center justify-center rounded-full bg-brand shadow-[0_0_40px_rgba(158,240,26,0.4)]">
-                <MapPin size={56} className="text-slate-900" strokeWidth={2} />
+          <div className="flex flex-col items-center justify-center py-10 px-4 text-center md:hidden min-h-[50vh]">
+            <div className="relative mb-10">
+              <div className="relative z-10 flex size-24 items-center justify-center rounded-full bg-brand shadow-[0_0_30px_rgba(158,240,26,0.3)]">
+                <MapPin size={40} className="text-slate-900" strokeWidth={2.5} />
               </div>
-              <Cloud className="absolute -left-12 top-2 text-slate-200" size={56} strokeWidth={1.5} />
-              <Cloud className="absolute -right-8 bottom-0 text-slate-200" size={48} strokeWidth={1.5} />
+              <Cloud className="absolute -left-10 -top-2 z-0 text-slate-200" size={48} strokeWidth={2} />
+              <Cloud className="absolute -right-8 top-4 z-0 text-slate-200" size={40} strokeWidth={2} />
+              <Cloud className="absolute -left-4 -bottom-4 z-0 text-slate-100" size={32} strokeWidth={2} />
             </div>
             
-            <h2 className="mb-4 text-[26px] font-black tracking-tight text-slate-950">
+            <h2 className="mb-3 text-2xl font-black tracking-tight text-slate-950">
               {locationNoticeTitle}
             </h2>
-            <p className="mb-10 max-w-[280px] text-[15px] font-medium leading-relaxed text-slate-500">
+            <p className="mb-8 max-w-[280px] text-sm font-medium leading-relaxed text-slate-500">
               {locationNoticeDescription}
             </p>
             
@@ -143,7 +144,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                     ? t("locationLoadingAction")
                     : locationStatus === "denied"
                       ? t("locationRetryAction")
-                      : "Sure, I'd like that"}
+                      : t("locationAllowAction")}
                 </button>
                 <button
                   type="button"
@@ -153,7 +154,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                 >
-                  Not now
+                  {t("locationNotNowAction")}
                 </button>
               </div>
             ) : null}
