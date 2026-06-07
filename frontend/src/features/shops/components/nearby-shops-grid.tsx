@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useMemo, useState } from "react";
-import { MapPin, ShoppingBag } from "lucide-react";
+import { MapPin, ShoppingBag, Cloud } from "lucide-react";
 import type { Shop } from "../shops-api";
 import type { LocationStatus } from "../hooks/use-precise-location";
 import { ShopCard } from "./shop-card";
@@ -113,33 +113,81 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       </div>
 
       {locationNeedsAction ? (
-        <div className="flex flex-col gap-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand/20">
-              <MapPin size={20} aria-hidden="true" className="text-slate-900" />
+        <>
+          {/* Mobile Full-Screen Location View */}
+          <div className="flex flex-col items-center justify-center py-20 px-4 text-center md:hidden min-h-[60vh]">
+            <div className="relative mb-12">
+              <div className="flex size-32 items-center justify-center rounded-full bg-brand shadow-[0_0_40px_rgba(158,240,26,0.4)]">
+                <MapPin size={56} className="text-slate-900" strokeWidth={2} />
+              </div>
+              <Cloud className="absolute -left-12 top-2 text-slate-200" size={56} strokeWidth={1.5} />
+              <Cloud className="absolute -right-8 bottom-0 text-slate-200" size={48} strokeWidth={1.5} />
             </div>
-            <div className="space-y-1.5 pt-0.5">
-              <p className="text-base font-black tracking-tight text-slate-950">{locationNoticeTitle}</p>
-              <p className="text-sm font-medium leading-relaxed text-slate-500">
-                {locationNoticeDescription}
-              </p>
-            </div>
+            
+            <h2 className="mb-4 text-[26px] font-black tracking-tight text-slate-950">
+              {locationNoticeTitle}
+            </h2>
+            <p className="mb-10 max-w-[280px] text-[15px] font-medium leading-relaxed text-slate-500">
+              {locationNoticeDescription}
+            </p>
+            
+            {locationStatus !== "unsupported" ? (
+              <div className="flex w-full flex-col gap-2 px-2">
+                <button
+                  type="button"
+                  disabled={locationStatus === "loading"}
+                  onClick={() => requestLocation({ ignoreCache: true })}
+                  className="inline-flex h-14 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
+                >
+                  {locationStatus === "loading"
+                    ? t("locationLoadingAction")
+                    : locationStatus === "denied"
+                      ? t("locationRetryAction")
+                      : "Sure, I'd like that"}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-14 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
+                  onClick={() => {
+                    // Visual only, or scrolls to search
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                >
+                  Not now
+                </button>
+              </div>
+            ) : null}
           </div>
-          {locationStatus !== "unsupported" ? (
-            <button
-              type="button"
-              disabled={locationStatus === "loading"}
-              onClick={() => requestLocation({ ignoreCache: true })}
-              className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-brand px-6 text-sm font-bold uppercase tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 sm:h-11 sm:w-auto"
-            >
-              {locationStatus === "loading"
-                ? t("locationLoadingAction")
-                : locationStatus === "denied"
-                  ? t("locationRetryAction")
-                  : t("enableLocation")}
-            </button>
-          ) : null}
-        </div>
+
+          {/* Desktop Compact View */}
+          <div className="hidden md:flex flex-col gap-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand/20">
+                <MapPin size={20} aria-hidden="true" className="text-slate-900" />
+              </div>
+              <div className="space-y-1.5 pt-0.5">
+                <p className="text-base font-black tracking-tight text-slate-950">{locationNoticeTitle}</p>
+                <p className="text-sm font-medium leading-relaxed text-slate-500">
+                  {locationNoticeDescription}
+                </p>
+              </div>
+            </div>
+            {locationStatus !== "unsupported" ? (
+              <button
+                type="button"
+                disabled={locationStatus === "loading"}
+                onClick={() => requestLocation({ ignoreCache: true })}
+                className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-brand px-6 text-sm font-bold uppercase tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 sm:h-11 sm:w-auto"
+              >
+                {locationStatus === "loading"
+                  ? t("locationLoadingAction")
+                  : locationStatus === "denied"
+                    ? t("locationRetryAction")
+                    : t("enableLocation")}
+              </button>
+            ) : null}
+          </div>
+        </>
       ) : null}
 
       {shouldRenderShopResults ? (
