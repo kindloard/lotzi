@@ -44,12 +44,12 @@ export function SearchInput({
     <label 
       className={`relative flex min-h-12 flex-1 items-center rounded-full border transition-all duration-200 ${
         isFocused 
-          ? "border-indigo-500 bg-white shadow-[0_0_0_4px_rgba(99,102,241,0.1)]" 
+          ? "border-brand bg-white shadow-[0_0_0_4px_rgba(158,240,26,0.1)]" 
           : "border-slate-300 bg-white shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:border-slate-400"
       }`}
     >
       <span className="sr-only">{t("label", { shopName })}</span>
-      <Search className={`pointer-events-none absolute left-4 transition-colors ${isFocused ? 'text-indigo-500' : 'text-slate-400'}`} size={20} />
+      <Search className={`pointer-events-none absolute left-4 transition-colors ${isFocused ? 'text-brand' : 'text-slate-400'}`} size={20} />
       <input
         value={value}
         onChange={(event) => setValue(event.target.value)}
