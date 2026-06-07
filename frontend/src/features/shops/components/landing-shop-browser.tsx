@@ -51,7 +51,7 @@ export function LandingShopBrowser({ initialNearby = null }: LandingShopBrowserP
 
   return (
     <>
-      {displayState !== "locationRequired" && (
+      {displayState !== "locationRequired" && shops.length > 0 && (
         <CategoryFilter
           shops={shops}
           selectedCategory={selectedCategory}
