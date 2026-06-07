@@ -107,7 +107,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   }
 
   // 3. Build 'Similar Products' (Strict: exact productType ONLY)
-  let similarMatches = pool.filter(p => p.productType === detail.product.productType);
+  const similarMatches = pool.filter(p => p.productType === detail.product.productType);
   const similarProducts = similarMatches.slice(0, 5).map(p => ({
     id: p.id,
     publicId: p.publicId,

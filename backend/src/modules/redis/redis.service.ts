@@ -21,6 +21,9 @@ export class RedisService implements OnModuleDestroy {
   constructor(config: ConfigService) {
     const url = config.get<string>("REDIS_URL");
     if (!url) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("REDIS_URL must be configured in production for geo discovery cache, stampede protection, and rate limits.");
+      }
       this.logger.warn("REDIS_URL is not configured. Auth rate limits use emergency in-process fallback.");
       return;
     }
@@ -30,8 +33,11 @@ export class RedisService implements OnModuleDestroy {
       maxRetriesPerRequest: 1,
       enableReadyCheck: true,
       lazyConnect: true,
-      commandTimeout: 200,
-      connectTimeout: 200,
+      // 50ms command timeout: co-located Redis completes in <1ms; 50ms catches hung connections.
+      commandTimeout: 50,
+      // 150ms connect timeout: safe for same-host or container-to-container.
+      connectTimeout: 150,
+      keepAlive: 1000,
       retryStrategy: (attempt) => Math.min(attempt * 500, 5_000)
     });
 
@@ -46,6 +52,10 @@ export class RedisService implements OnModuleDestroy {
 
   get isConfigured(): boolean {
     return Boolean(this.client);
+  }
+
+  get isCircuitBreakerOpen(): boolean {
+    return this.isCircuitOpen();
   }
 
   async eval(script: string, keys: string[], args: Array<string | number>): Promise<unknown> {
@@ -84,6 +94,32 @@ export class RedisService implements OnModuleDestroy {
     } catch (error) {
       this.openCircuit(error);
       return null;
+    }
+  }
+
+  /**
+   * Batch GET: single MGET round-trip for N keys.
+   * Falls back to null map when Redis is unavailable (strict — no local cache).
+   * Returns a Map<key, value|null>.
+   */
+  async mGetStrict(keys: string[]): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>(keys.map((k) => [k, null]));
+    if (!keys.length) {
+      return result;
+    }
+    if (!this.client || this.isCircuitOpen()) {
+      return result;
+    }
+    try {
+      await this.ensureConnected();
+      const values = await this.client.mget(...keys);
+      for (let i = 0; i < keys.length; i += 1) {
+        result.set(keys[i]!, values[i] ?? null);
+      }
+      return result;
+    } catch (error) {
+      this.openCircuit(error);
+      return result;
     }
   }
 

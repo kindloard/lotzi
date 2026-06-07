@@ -2,6 +2,7 @@ import { GeoDiscoveryCacheService } from "../../modules/geo-discovery/geo-discov
 
 class RedisMock {
   isConfigured = true;
+  isCircuitBreakerOpen = false;
   readonly values = new Map<string, string>();
 
   getStrict = jest.fn(async (key: string) => this.values.get(key) ?? null);
@@ -40,7 +41,8 @@ describe("GeoDiscoveryCacheService", () => {
   it("skips cache writes when the epoch changes during a DB query", async () => {
     const redis = new RedisMock();
     redis.values.set("geo:epoch:v1:global", "1");
-    redis.values.set("geo:epoch:v1:5:12.912:80.123", "1");
+    redis.values.set("geo:epoch:v1:location:5:12.912:80.123", "1");
+    redis.values.set("geo:epoch:v1:card:5:12.912:80.123", "1");
     const observability = observabilityMock();
     const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
     const context = await cache.getEpochContext({ latGrid: "12.912", lngGrid: "80.123" }, 5);
@@ -69,6 +71,22 @@ describe("GeoDiscoveryCacheService", () => {
     expect(observability.recordGeoStaleServe).not.toHaveBeenCalled();
   });
 
+  it("uses bounded L1 cache in non-production when Redis is configured but circuit-open", async () => {
+    const redis = new RedisMock();
+    redis.isCircuitBreakerOpen = true;
+    redis.setExStrict.mockResolvedValue(false);
+    const observability = observabilityMock();
+    const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
+    const context = await cache.getEpochContext({ latGrid: "12.912", lngGrid: "80.123" }, 5);
+    const key = cache.cacheKey(context, { cursorHash: "first", limit: 24, responseVersion: 1 });
+
+    await expect(cache.setIfEpochUnchanged(key, context, "{}")).resolves.toBe(true);
+    await expect(cache.get(key)).resolves.toBe("{}");
+    expect(observability.recordGeoRedisDegraded).toHaveBeenCalledWith("cache_set");
+    expect(observability.recordGeoCacheHit).toHaveBeenCalledWith("l1");
+    expect(observability.recordGeoStaleServe).not.toHaveBeenCalled();
+  });
+
   it("scopes nearby response cache keys by limit and response version", async () => {
     const redis = new RedisMock();
     const observability = observabilityMock();
@@ -83,5 +101,33 @@ describe("GeoDiscoveryCacheService", () => {
     expect(firstPage48).toContain("limit:48");
     expect(firstPage24).not.toEqual(firstPage48);
     expect(firstPage24).not.toEqual(nextVersion);
+  });
+
+  it("bumps location epochs without globally busting card-only cache keys", async () => {
+    const redis = new RedisMock();
+    const observability = observabilityMock();
+    const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
+
+    await cache.bumpLocationEpochs({
+      previous: { latitude: 12.9121, longitude: 80.1231 },
+      next: { latitude: 12.9131, longitude: 80.1241 }
+    });
+
+    expect(redis.values.get("geo:epoch:v1:global")).toBeUndefined();
+    expect(redis.values.get("geo:epoch:v1:location:5:12.913:80.124")).toBe("1");
+    expect(redis.values.get("geo:epoch:v1:location:5:12.912:80.123")).toBe("1");
+    expect(redis.values.get("geo:epoch:v1:card:5:12.913:80.124")).toBeUndefined();
+  });
+
+  it("bumps store-card epochs without globally invalidating location cells", async () => {
+    const redis = new RedisMock();
+    const observability = observabilityMock();
+    const cache = new GeoDiscoveryCacheService(redis as never, observability as never);
+
+    await cache.bumpStoreCardEpochs({ latitude: 12.9131, longitude: 80.1241 });
+
+    expect(redis.values.get("geo:epoch:v1:global")).toBeUndefined();
+    expect(redis.values.get("geo:epoch:v1:card:5:12.913:80.124")).toBe("1");
+    expect(redis.values.get("geo:epoch:v1:location:5:12.913:80.124")).toBeUndefined();
   });
 });

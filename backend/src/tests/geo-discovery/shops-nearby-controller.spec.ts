@@ -41,7 +41,11 @@ const nearbyResult = {
 };
 
 describe("ShopsController nearby discovery", () => {
-  it("serves the public cell route as cookie-free shared cache", async () => {
+  afterEach(() => {
+    delete process.env.SHOP_DISCOVERY_EDGE_CACHE_ENABLED;
+  });
+
+  it("keeps the public cell route private until the edge-cache flag is enabled", async () => {
     const { controller, nearby } = controllerWithGeo(jest.fn(async () => nearbyResult));
     const request = requestMock();
     const response = responseMock();
@@ -56,9 +60,23 @@ describe("ShopsController nearby discovery", () => {
     expect(response.removeHeader).toHaveBeenCalledWith("Set-Cookie");
     expect(response.setHeader).toHaveBeenCalledWith(
       "Cache-Control",
-      "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+      "private, max-age=15, stale-while-revalidate=15"
     );
     expect(response.vary).toHaveBeenCalledWith("Accept-Encoding");
+  });
+
+  it("serves public edge cache headers when the edge-cache rollout flag is enabled", async () => {
+    process.env.SHOP_DISCOVERY_EDGE_CACHE_ENABLED = "true";
+    const { controller } = controllerWithGeo(jest.fn(async () => nearbyResult));
+    const request = requestMock();
+    const response = responseMock();
+
+    await controller.nearbyCell("8.713", "77.422", "5", "24", undefined, request as never, response as never);
+
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "Cache-Control",
+      "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+    );
   });
 
   it("does not bind exact nearby cursors to per-request ids", async () => {

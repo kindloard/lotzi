@@ -1,25 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DealProduct, Shop } from "../shops-api";
 import { useNearbyShops } from "../hooks/use-nearby-shops";
 import { usePreciseLocation } from "../hooks/use-precise-location";
+import type { InitialNearbyPayload } from "../lib/geo-cookie";
 import { CategoryFilter } from "./category-filter";
-import { NearbyShopsGrid } from "./nearby-shops-grid";
+import { NearbyShopsGrid, type NearbyShopsDisplayState } from "./nearby-shops-grid";
 
 interface LandingShopBrowserProps {
-  initialProducts: DealProduct[];
-  initialShops: Shop[];
+  initialNearby?: InitialNearbyPayload | null;
 }
 
-export function LandingShopBrowser({
-  initialProducts,
-  initialShops
-}: LandingShopBrowserProps) {
+export function LandingShopBrowser({ initialNearby = null }: LandingShopBrowserProps) {
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const { coordinates, requestLocation, status: locationStatus } = usePreciseLocation();
-  const nearbyQuery = useNearbyShops(coordinates);
-  const shops = coordinates ? nearbyQuery.data?.items ?? [] : [];
+  const { coordinates, requestLocation, status: locationStatus } = usePreciseLocation(initialNearby?.coordinates ?? null);
+  const nearbyQuery = useNearbyShops(coordinates, null, {
+    initialData: initialNearby?.data ?? null,
+    initialDataUpdatedAt: initialNearby?.fetchedAt,
+    initialRadiusKm: initialNearby?.radiusKm
+  });
+  const nearbyShops = nearbyQuery.data?.items ?? [];
+  const hasNearbyShops = nearbyShops.length > 0;
+  const shops = coordinates ? nearbyShops : [];
+  const displayState: NearbyShopsDisplayState =
+    coordinates && hasNearbyShops
+      ? "nearbyResolved"
+      : nearbyQuery.isExpandingRadius
+        ? "expandingRadius"
+        : !coordinates
+          ? "locationRequired"
+          : nearbyQuery.exhaustedRadiusSearch
+            ? "trueEmpty"
+            : "nearbyResolved";
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -45,6 +57,8 @@ export function LandingShopBrowser({
         onSelectCategory={handleSelectCategory}
       />
       <NearbyShopsGrid
+        displayState={displayState}
+        effectiveRadiusKm={nearbyQuery.effectiveRadiusKm}
         isLoading={nearbyQuery.isLoading}
         locationStatus={locationStatus}
         requestLocation={requestLocation}

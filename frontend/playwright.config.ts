@@ -17,7 +17,10 @@ export default defineConfig({
     command: `npx next dev --turbopack -H 0.0.0.0 -p ${e2ePort}`,
     env: {
       NEXT_PUBLIC_API_URL: "http://localhost:4000",
-      NEXT_PUBLIC_E2E_GOOGLE_ID_TOKEN: "e2e-google-token-value"
+      NEXT_PUBLIC_E2E_GOOGLE_ID_TOKEN: "e2e-google-token-value",
+      NEXT_PUBLIC_HOME_GEO_EMPTY_CACHE_ENABLED: "false",
+      NEXT_PUBLIC_HOME_PROGRESSIVE_RADIUS_ENABLED: "true",
+      NEXT_PUBLIC_HOME_SSR_SHOPS_ENABLED: "false"
     },
     reuseExistingServer,
     timeout: 120_000,

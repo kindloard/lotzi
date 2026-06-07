@@ -16,7 +16,7 @@ export function gridForCoordinates(coordinates: Coordinates): GeoGrid {
 }
 
 export function nearbyCacheKey(grid: GeoGrid, radiusKm: number, limit: number, cursor: string | null) {
-  return `ns:shops:nearby:v1:${grid.latGrid}:${grid.lngGrid}:${radiusKm}:${limit}:${cursor ?? "first"}`;
+  return `ns:shops:nearby:v2:${grid.latGrid}:${grid.lngGrid}:${radiusKm}:${limit}:${cursor ?? "first"}`;
 }
 
 export function rankNearbyResponse(response: NearbyShopsResponse, coordinates: Coordinates): NearbyShopsResponse {

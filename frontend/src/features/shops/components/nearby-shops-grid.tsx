@@ -8,7 +8,11 @@ import { ShopCard } from "./shop-card";
 import { ShopCardSkeleton } from "./shop-card-skeleton";
 import { useTranslations } from "next-intl";
 
+export type NearbyShopsDisplayState = "locationRequired" | "expandingRadius" | "nearbyResolved" | "trueEmpty";
+
 interface NearbyShopsGridProps {
+  displayState: NearbyShopsDisplayState;
+  effectiveRadiusKm: number;
   isLoading: boolean;
   locationStatus: LocationStatus;
   requestLocation: (options?: { ignoreCache?: boolean }) => void;
@@ -17,6 +21,8 @@ interface NearbyShopsGridProps {
 }
 
 export const NearbyShopsGrid = memo(function NearbyShopsGrid({
+  displayState,
+  effectiveRadiusKm,
   isLoading,
   locationStatus,
   requestLocation,
@@ -32,7 +38,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
     locationStatus === "error" ||
     locationStatus === "unsupported";
   const locationSubtitle =
-    locationStatus === "loading"
+    locationStatus === "loading" || displayState === "expandingRadius"
       ? t("subtitleLoading")
       : locationStatus === "denied"
         ? t("subtitleDenied")
@@ -74,9 +80,11 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
     );
   }, []);
 
+  const shouldRenderShopResults = !locationNeedsAction;
   const isInitialLoading =
-    locationStatus === "loading" ||
-    (isLoading && visibleShops.length === 0);
+    shouldRenderShopResults &&
+    shops.length === 0 &&
+    isLoading;
   const shopsGridClassName =
     visibleShops.length === 1 && !isInitialLoading
       ? "grid w-full max-w-[440px] gap-4"
@@ -95,7 +103,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
         </div>
         {!locationNeedsAction ? (
           <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
-            {isInitialLoading
+            {isInitialLoading || displayState === "expandingRadius"
               ? t("statusLoading")
               : visibleShops.length === 0
                 ? t("statusEmpty")
@@ -134,8 +142,12 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
         </div>
       ) : null}
 
-      {!locationNeedsAction ? (
-        <div className={shopsGridClassName}>
+      {shouldRenderShopResults ? (
+        <div
+          className={shopsGridClassName}
+          data-display-state={displayState}
+          data-search-radius-km={effectiveRadiusKm}
+        >
           {isInitialLoading ? (
             Array.from({ length: 3 }).map((_, index) => (
               <ShopCardSkeleton key={index} />

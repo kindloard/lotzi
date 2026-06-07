@@ -231,6 +231,7 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
     const storeId = stringValue(payload.storeId);
     if (storeId) {
       await this.geoCache.invalidateStoreCards([storeId]);
+      await this.bumpGeoCardEpochForStore(storeId);
     }
     await this.geoCache.bumpLocationEpochs({
       previous: coordinatesValue(payload.previous),
@@ -266,6 +267,7 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
     const storeId = stringValue(payload.storeId);
     if (this.geoCache && storeId) {
       await this.geoCache.invalidateStoreCards([storeId]);
+      await this.bumpGeoCardEpochForStore(storeId);
     }
     this.realtime.broadcast(toRealtimeEvent(eventId, eventType, schemaVersion, occurredAt, payload));
   }
@@ -308,6 +310,7 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
     ]);
     if (this.geoCache) {
       await this.geoCache.invalidateStoreCards([storeId]);
+      await this.bumpGeoCardEpochForStore(storeId);
     }
     this.realtime.broadcast({
       eventId: eventId ?? `${eventType}:${productVariantId}`,
@@ -324,6 +327,26 @@ export class CatalogEventsService implements OnApplicationBootstrap, OnModuleDes
         productVariantId
       }
     });
+  }
+
+  private async bumpGeoCardEpochForStore(storeId: string): Promise<void> {
+    if (!this.geoCache) {
+      return;
+    }
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: {
+        latitude: true,
+        longitude: true
+      }
+    });
+    const coordinates = store ? coordinatesValue({
+      latitude: store.latitude?.toString(),
+      longitude: store.longitude?.toString()
+    }) : null;
+    if (coordinates) {
+      await this.geoCache.bumpStoreCardEpochs(coordinates);
+    }
   }
 }
 

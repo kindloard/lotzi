@@ -5,11 +5,28 @@ class RedisMock {
   private readonly store = new Map<string, string>();
 
   get = jest.fn(async (key: string) => this.store.get(key) ?? null);
+  getStrict = jest.fn(async (key: string) => this.store.get(key) ?? null);
   setEx = jest.fn(async (key: string, _seconds: number, value: string) => {
     this.store.set(key, value);
   });
+  setExStrict = jest.fn(async (key: string, _seconds: number, value: string) => {
+    this.store.set(key, value);
+    return true;
+  });
+  setNxEx = jest.fn(async (key: string, _seconds: number, value: string) => {
+    if (this.store.has(key)) {
+      return false;
+    }
+    this.store.set(key, value);
+    return true;
+  });
   del = jest.fn(async (key: string) => {
     this.store.delete(key);
+  });
+  incr = jest.fn(async (key: string) => {
+    const next = Number(this.store.get(key) ?? "0") + 1;
+    this.store.set(key, String(next));
+    return next;
   });
   delByPrefix = jest.fn(async (prefix: string) => {
     for (const key of this.store.keys()) {
@@ -26,7 +43,14 @@ const googleMapsMock = {
 
 function observabilityMock() {
   return {
-    recordShopPageCacheEvent: jest.fn()
+    observeShopCatalogCacheHit: jest.fn(),
+    observeShopCatalogPrewarm: jest.fn(),
+    observeShopCatalogStage: jest.fn(),
+    observeShopCatalogStampedeWait: jest.fn(),
+    recordShopPageCacheEvent: jest.fn(),
+    recordShopCatalogPrewarmFailure: jest.fn(),
+    recordShopCatalogStampedeFallback: jest.fn(),
+    setApprovedShopsAvailable: jest.fn()
   };
 }
 
@@ -517,7 +541,7 @@ describe("ShopsService", () => {
   it("skips the count query when the first page is not full", async () => {
     const prisma = {
       product: {
-        findMany: jest.fn(async () => [catalogProductFixture("prod-1", "Spices", "grocery")]),
+        findMany: jest.fn(async () => [catalogProductWithVariantImagesFixture()]),
         count: jest.fn(async () => 1),
         groupBy: jest.fn()
       },
@@ -587,6 +611,197 @@ describe("ShopsService", () => {
 
     expect(prisma.product.count).toHaveBeenCalledTimes(1);
     expect(response.pagination.total).toBe(50);
+  });
+
+  it("uses the lightweight catalog select when the rollout flag is enabled", async () => {
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => [catalogProductWithVariantImagesFixture()]),
+        count: jest.fn(async () => 1),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never,
+      { get: jest.fn((key: string, fallback?: unknown) => key === "SHOP_CATALOG_CARD_SELECT_ENABLED" ? "true" : fallback) } as never
+    );
+
+    const response = await (service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<{ products: Array<{ images: unknown[]; variants: Array<{ images: unknown[] }> }> }>;
+    }).loadProductsForShopDetail(shopDetailFixture(), {
+      category: null,
+      includeFacets: false,
+      limit: 24,
+      page: 1,
+      q: "",
+      sort: "relevance"
+    });
+
+    const firstCall = prisma.product.findMany.mock.calls[0] as Array<{ select: Record<string, unknown> }> | undefined;
+    const select = firstCall?.[0]?.select as Record<string, { take?: number; select?: Record<string, unknown> }>;
+    const imageSelect = select.images.select ?? {};
+    const variantSelect = select.variants.select ?? {};
+    expect(select.images.take).toBe(1);
+    expect(imageSelect.variants).toBeUndefined();
+    expect(variantSelect.inventorySummary).toBeUndefined();
+    expect(response.products[0]?.images).toHaveLength(1);
+    expect(response.products[0]?.variants[0]?.images).toEqual([]);
+  });
+
+  it("keeps the rich product select as the default rollout-safe path", async () => {
+    const prisma = {
+      product: {
+        findMany: jest.fn(async () => [catalogProductWithVariantImagesFixture()]),
+        count: jest.fn(async () => 1),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+
+    await (service as never as {
+      loadProductsForShopDetail: (
+        detail: Record<string, unknown>,
+        query: { category: string | null; includeFacets: boolean; limit: number; page: number; q: string; sort: "relevance" }
+      ) => Promise<unknown>;
+    }).loadProductsForShopDetail(shopDetailFixture(), {
+      category: null,
+      includeFacets: false,
+      limit: 24,
+      page: 1,
+      q: "",
+      sort: "relevance"
+    });
+
+    const firstCall = prisma.product.findMany.mock.calls[0] as Array<{ select: Record<string, unknown> }> | undefined;
+    const select = firstCall?.[0]?.select as Record<string, { take?: number; select?: Record<string, unknown> }>;
+    const imageSelect = select.images.select ?? {};
+    const variantSelect = select.variants.select ?? {};
+    expect(select.images.take).toBe(8);
+    expect(imageSelect.variants).toBeDefined();
+    expect(variantSelect.inventorySummary).toBeDefined();
+  });
+
+  it("uses one in-process DB loader for concurrent identical catalog cache misses", async () => {
+    const prisma = {
+      store: {
+        findMany: jest.fn(async () => [storeDetailRowFixture()])
+      },
+      product: {
+        findMany: jest.fn(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return [catalogProductFixture("prod-1", "Spices", "grocery")];
+        }),
+        count: jest.fn(async () => 1),
+        groupBy: jest.fn()
+      },
+      category: {
+        findMany: jest.fn()
+      }
+    };
+    const service = new ShopsService(
+      prisma as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never,
+      { get: jest.fn((key: string, fallback?: unknown) => key === "SHOP_CATALOG_STAMPEDE_LOCK_ENABLED" ? "true" : fallback) } as never
+    );
+
+    await Promise.all([
+      service.listProductsForShopByPublicRoute("871480", "auxi-store", {
+        category: null,
+        includeFacets: false,
+        limit: 24,
+        page: 1,
+        q: "",
+        sort: "relevance"
+      }),
+      service.listProductsForShopByPublicRoute("871480", "auxi-store", {
+        category: null,
+        includeFacets: false,
+        limit: 24,
+        page: 1,
+        q: "",
+        sort: "relevance"
+      })
+    ]);
+
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("prewarms public shop detail and first-page product catalog", async () => {
+    const service = new ShopsService(
+      {} as never,
+      googleMapsMock as never,
+      observabilityMock() as never,
+      new RedisMock() as never
+    );
+    const detailSpy = jest.spyOn(service, "getShopDetailByPublicRoute").mockResolvedValue({
+      cacheHit: false,
+      data: shopDetailFixture(),
+      etag: "detail"
+    });
+    const productsSpy = jest.spyOn(service, "listProductsForShopByPublicRoute").mockResolvedValue({
+      cacheHit: false,
+      data: {
+        facets: { categories: [], subCategories: [] },
+        filters: {
+          category: null,
+          includeFacets: true,
+          limit: 24,
+          page: 1,
+          q: "",
+          sort: "relevance"
+        },
+        pagination: {
+          hasNextPage: false,
+          limit: 24,
+          page: 1,
+          total: 0,
+          totalPages: 1
+        },
+        products: [],
+        store: {
+          id: "store-1",
+          name: "Test Shop",
+          publicId: "123456",
+          publicSlug: "test-shop",
+          slug: "test-shop"
+        }
+      },
+      etag: "products"
+    });
+
+    await (service as never as {
+      prewarmPublicShopCatalogCaches: (shops: Array<{ publicId: string; publicSlug: string }>, source: string) => Promise<void>;
+    }).prewarmPublicShopCatalogCaches([
+      { publicId: "123456", publicSlug: "test-shop" }
+    ], "test");
+
+    expect(detailSpy).toHaveBeenCalledTimes(1);
+    expect(detailSpy).toHaveBeenCalledWith("123456", "test-shop");
+    expect(productsSpy).toHaveBeenCalledTimes(1);
+    expect(productsSpy).toHaveBeenCalledWith("123456", "test-shop", expect.objectContaining({
+      includeFacets: true,
+      limit: 24,
+      page: 1
+    }));
   });
 
   it("reuses cached facets across category-filtered catalog misses with the same search term", async () => {

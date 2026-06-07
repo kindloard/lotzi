@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates } from "../shops-api";
+import { clearGeoGridCookie, coordinatesDriftedBeyondGrid } from "../lib/geo-cookie";
 
 const GEO_CACHE_KEY = "ns:shops:geo:v2";
 const GEO_CACHE_TTL_MS = 5 * 60 * 1000;
-const HIGH_ACCURACY_TIMEOUT_MS = 10_000;
+const LOCATION_REQUEST_TIMEOUT_MS = 2_500;
 const MIN_LOCATION_REQUEST_FEEDBACK_MS = 450;
 const GEOLOCATION_PERMISSION_DENIED_CODE = 1;
 
@@ -19,13 +20,14 @@ interface RequestLocationOptions {
   ignoreCache?: boolean;
 }
 
-export function usePreciseLocation() {
-  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
-  const [status, setStatus] = useState<LocationStatus>("idle");
+export function usePreciseLocation(initialCoordinates: Coordinates | null = null) {
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(initialCoordinates);
+  const [status, setStatus] = useState<LocationStatus>(initialCoordinates ? "resolved" : "idle");
   const requestIdRef = useRef(0);
 
   const requestLocation = useCallback(async (options: RequestLocationOptions = {}) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
+      clearGeoGridCookie();
       setStatus("unsupported");
       return;
     }
@@ -33,7 +35,21 @@ export function usePreciseLocation() {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
 
-    const cached = options.ignoreCache ? null : readCoordinatesCache();
+    const permissionState = await readGeolocationPermission();
+    if (requestIdRef.current !== requestId) {
+      return;
+    }
+    if (permissionState === "denied") {
+      clearCoordinatesCache();
+      clearGeoGridCookie();
+      setCoordinates(null);
+      setStatus("denied");
+      return;
+    }
+
+    const cached = !options.ignoreCache && permissionState === "granted"
+      ? readCoordinatesCache()
+      : null;
     if (cached) {
       setCoordinates(cached);
       setStatus("resolved");
@@ -60,19 +76,20 @@ export function usePreciseLocation() {
       if (requestIdRef.current !== requestId) {
         return;
       }
-      setStatus(isPermissionDenied(error) ? "denied" : "error");
+      if (isPermissionDenied(error)) {
+        clearCoordinatesCache();
+        clearGeoGridCookie();
+        setCoordinates(null);
+        setStatus("denied");
+      } else {
+        setStatus("error");
+      }
     }
   }, []);
 
   useEffect(() => {
-    const cached = readCoordinatesCache();
-    if (cached) {
-      setCoordinates(cached);
-      setStatus("resolved");
-      return;
-    }
-
     if (typeof navigator === "undefined" || !navigator.geolocation) {
+      clearGeoGridCookie();
       setStatus("unsupported");
       return;
     }
@@ -85,11 +102,14 @@ export function usePreciseLocation() {
         return;
       }
       if (permissionState === "denied") {
+        clearCoordinatesCache();
+        clearGeoGridCookie();
         setCoordinates(null);
         setStatus("denied");
       } else if (permissionState === "granted") {
         void requestLocation();
       } else if (permissionState === "prompt") {
+        setCoordinates(null);
         setStatus((current) =>
           current === "denied" || current === "error" ? "idle" : current
         );
@@ -144,9 +164,9 @@ function waitForMinimumFeedback(startedAt: number): Promise<void> {
 function getCurrentPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      maximumAge: 30_000,
-      timeout: HIGH_ACCURACY_TIMEOUT_MS
+      enableHighAccuracy: false,
+      maximumAge: 60_000,
+      timeout: LOCATION_REQUEST_TIMEOUT_MS
     });
   });
 }
@@ -183,6 +203,9 @@ function coordinatesFromPosition(position: GeolocationPosition): Coordinates {
 
 function bestCoordinates(current: Coordinates | null, next: Coordinates) {
   if (!current) {
+    return next;
+  }
+  if (coordinatesDriftedBeyondGrid(current, next)) {
     return next;
   }
 
@@ -222,5 +245,13 @@ function writeCoordinatesCache(coordinates: Coordinates) {
     );
   } catch {
     // Location still works without storage.
+  }
+}
+
+function clearCoordinatesCache() {
+  try {
+    sessionStorage.removeItem(GEO_CACHE_KEY);
+  } catch {
+    // Location gating still works without storage.
   }
 }

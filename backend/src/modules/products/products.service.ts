@@ -333,9 +333,12 @@ export class ProductsService implements OnModuleInit {
       }
       return written;
     }));
-    await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(dto.storeId, "product.create", productId)
-    );
+    // Fire-and-forget: cache invalidation is best-effort and must never block the API response.
+    // The versioned cache keys guarantee stale data expires naturally on the next read miss.
+    void this.invalidatePublicShopProductCache(dto.storeId, "product.create", productId)
+      .catch((error) => this.logger.warn(
+        `Background cache invalidation failed for product.create:${productId}: ${messageOf(error)}`
+      ));
 
     return {
       apiVersion: "v1",
@@ -490,7 +493,10 @@ export class ProductsService implements OnModuleInit {
       });
       return { product: updated, variants: writtenVariants, ...writtenImages };
     }));
-    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
+    // Fire-and-forget: catalog event recording + cache invalidation must never block the API response.
+    // Both are best-effort — catalog events are durably enqueued and retried independently,
+    // and versioned cache keys guarantee stale data self-heals on the next read miss.
+    void this.recordCatalogChange({
       changedFields: ["category", "details", "images", "inventory", "price", "publication"],
       catalogVersion: result.product.catalogVersion,
       nextCategoryId: category?.id ?? null,
@@ -504,10 +510,13 @@ export class ProductsService implements OnModuleInit {
       },
       storeId: fullDto.storeId,
       variantIds: result.variants.map((variant) => variant.id)
-    }));
-    await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(fullDto.storeId, "product.update", productId)
-    );
+    }).catch((error) => this.logger.warn(
+      `Background catalog event failed for product.update:${productId}: ${messageOf(error)}`
+    ));
+    void this.invalidatePublicShopProductCache(fullDto.storeId, "product.update", productId)
+      .catch((error) => this.logger.warn(
+        `Background cache invalidation failed for product.update:${productId}: ${messageOf(error)}`
+      ));
 
     return {
       apiVersion: "v1",
@@ -749,7 +758,8 @@ export class ProductsService implements OnModuleInit {
         }
       });
     }));
-    await timeStage(timer, "catalog-event", () => this.recordCatalogChange({
+    // Fire-and-forget: catalog event + cache invalidation must never block the API response.
+    void this.recordCatalogChange({
       changedFields: catalogChangedFieldsFromSparseDto(dto),
       catalogVersion: updated.catalogVersion,
       nextCategoryId: updated.categoryId,
@@ -763,10 +773,13 @@ export class ProductsService implements OnModuleInit {
       },
       storeId: dto.storeId,
       variantIds: updated.variants.map((variant) => variant.id)
-    }));
-    await timeStage(timer, "public-cache-invalidate", () =>
-      this.invalidatePublicShopProductCache(dto.storeId, "product.patch", productId)
-    );
+    }).catch((error) => this.logger.warn(
+      `Background catalog event failed for product.patch:${productId}: ${messageOf(error)}`
+    ));
+    void this.invalidatePublicShopProductCache(dto.storeId, "product.patch", productId)
+      .catch((error) => this.logger.warn(
+        `Background cache invalidation failed for product.patch:${productId}: ${messageOf(error)}`
+      ));
 
     return {
       apiVersion: "v1",
@@ -1804,19 +1817,18 @@ export class ProductsService implements OnModuleInit {
   private normalizedVariants(dto: CreateProductDto, productMeasurement: NormalizedMeasurement) {
     const clientVariants = dto.variants ?? [];
     const hasClientVariants = clientVariants.length > 0;
-    const explicitDefaultIndexes = clientVariants
-      .map((variant, index) => variant.isDefault ? index : -1)
-      .filter((index) => index >= 0);
-    if (explicitDefaultIndexes.length > 1) {
-      throw uploadError(
-        HttpStatus.BAD_REQUEST,
-        "PRODUCT_VARIANT_DEFAULT_CONFLICT",
-        "Exactly one variant can be marked as the default."
+    
+    let variants = [...clientVariants];
+    
+    if (hasClientVariants) {
+      const hasBaseVariant = variants.some(
+        (v) =>
+          v.price === dto.price &&
+          v.measurement?.quantityValue === dto.measurement?.quantityValue &&
+          v.measurement?.quantityUnit === dto.measurement?.quantityUnit
       );
-    }
-    const variants = hasClientVariants
-      ? clientVariants
-      : [{
+      if (!hasBaseVariant) {
+        variants.unshift({
           id: undefined,
           name: "Default",
           sku: dto.sku,
@@ -1825,18 +1837,45 @@ export class ProductsService implements OnModuleInit {
           costPrice: undefined,
           stock: dto.stock,
           clientId: undefined,
-          isDefault: true,
+          isDefault: false, // Default resolution handled below
           measurement: dto.measurement
-        }];
-    const fallbackSku = hasClientVariants ? null : normalizeOptionalSku(dto.sku);
+        });
+      }
+    } else {
+      variants = [{
+        id: undefined,
+        name: "Default",
+        sku: dto.sku,
+        price: dto.price,
+        mrp: dto.compareAtPrice,
+        costPrice: undefined,
+        stock: dto.stock,
+        clientId: undefined,
+        isDefault: true,
+        measurement: dto.measurement
+      }];
+    }
+
+    const explicitDefaultIndexes = variants
+      .map((variant, index) => variant.isDefault ? index : -1)
+      .filter((index) => index >= 0);
+
+    if (explicitDefaultIndexes.length > 1) {
+      throw uploadError(
+        HttpStatus.BAD_REQUEST,
+        "PRODUCT_VARIANT_DEFAULT_CONFLICT",
+        "Exactly one variant can be marked as the default."
+      );
+    }
+
+    const fallbackSku = normalizeOptionalSku(dto.sku);
     return variants.map((variant, index) => {
       this.validateVariantPrice(variant);
       const measurement = this.normalizeMeasurement(variant.measurement ?? dto.measurement, dto, variant.price);
-      const isDefault = hasClientVariants
-        ? explicitDefaultIndexes.length === 1
-          ? explicitDefaultIndexes[0] === index
-          : index === 0
-        : true;
+      const isDefault = explicitDefaultIndexes.length === 1
+        ? explicitDefaultIndexes[0] === index
+        : index === 0;
+
       return {
         id: variant.id,
         clientId: variant.clientId?.trim() || null,

@@ -59,7 +59,7 @@ export function ShopCatalog({
     }
   }, [gpsStatus, router]);
 
-  const isLocalCatalogMode = initialProducts.pagination.total <= initialProducts.pagination.limit;
+  const isLocalCatalogMode = !initialFailed && initialProducts.pagination.total <= initialProducts.pagination.limit;
   const shouldFetchFacets = !filters.category;
   const catalogFetchOptions = isLocalCatalogMode
     ? { includeFacets: true }
@@ -120,6 +120,7 @@ export function ShopCatalog({
     storePublicId: shop.publicId
   });
   const showProductError = !isLocalCatalogMode && (query.isError || (initialFailed && !query.data && !query.isFetching));
+  const showCatalogLoading = !isLocalCatalogMode && query.isFetching && data.products.length === 0;
   const hasCrossStoreItems = cartItems.some((item) => item.shopId !== shop.id);
   const cartByProductId = useMemo(() => {
     const quantities = new Map<string, number>();
@@ -314,6 +315,12 @@ export function ShopCatalog({
               {tCatalog("retry")}
             </button>
           </div>
+        ) : showCatalogLoading ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" aria-busy="true">
+            {Array.from({ length: 10 }).map((_, index) => (
+              <ProductCardSkeleton key={index} />
+            ))}
+          </div>
         ) : data.products.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {data.products.map((product, index) => (
@@ -440,6 +447,20 @@ function CategoryButton({
     >
       {label}
     </button>
+  );
+}
+
+function ProductCardSkeleton() {
+  return (
+    <div className="h-[278px] animate-pulse overflow-hidden rounded-2xl border border-slate-100 bg-white">
+      <div className="h-[130px] bg-slate-100 sm:h-[150px]" />
+      <div className="space-y-3 p-3">
+        <div className="h-4 w-3/4 rounded bg-slate-100" />
+        <div className="h-3 w-1/2 rounded bg-slate-100" />
+        <div className="h-5 w-2/5 rounded bg-slate-100" />
+        <div className="h-9 rounded-lg bg-slate-100" />
+      </div>
+    </div>
   );
 }
 

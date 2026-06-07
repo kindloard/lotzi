@@ -164,6 +164,45 @@ export class ObservabilityService implements OnModuleInit {
     help: "Public shop page rate limited requests by endpoint",
     labelNames: ["endpoint"]
   });
+  readonly shopCatalogStageDuration = new client.Histogram({
+    name: "lotzi_shop_catalog_stage_duration_seconds",
+    help: "Public shop catalog pipeline stage duration",
+    labelNames: ["stage", "key_family"],
+    buckets: [0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.9, 1.5, 3, 6]
+  });
+  readonly shopCatalogCacheHitRatio = new client.Histogram({
+    name: "lotzi_shop_catalog_cache_hit_ratio",
+    help: "Per-request public shop catalog cache hit indicator, observed as 1 for hit and 0 for miss",
+    labelNames: ["key_family"],
+    buckets: [0, 0.5, 1]
+  });
+  readonly shopCatalogPrewarmDuration = new client.Histogram({
+    name: "lotzi_shop_catalog_prewarm_duration_seconds",
+    help: "Public shop catalog prewarm job duration",
+    labelNames: ["source", "status"],
+    buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30]
+  });
+  readonly shopCatalogPrewarmFailures = new client.Counter({
+    name: "lotzi_shop_catalog_prewarm_failures_total",
+    help: "Public shop catalog prewarm failures by source and reason",
+    labelNames: ["source", "reason"]
+  });
+  readonly shopCatalogStampedeWait = new client.Histogram({
+    name: "lotzi_shop_catalog_stampede_wait_seconds",
+    help: "Time spent waiting for another request to fill a public shop catalog cache key",
+    labelNames: ["key_family"],
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5]
+  });
+  readonly shopCatalogStampedeFallbacks = new client.Counter({
+    name: "lotzi_shop_catalog_stampede_fallback_total",
+    help: "Public shop catalog stampede waits that had to fall back after the wait budget",
+    labelNames: ["key_family", "reason"]
+  });
+  readonly shopCatalogSsrBudgetExceeded = new client.Counter({
+    name: "lotzi_shop_catalog_ssr_budget_exceeded_total",
+    help: "Shop catalog SSR budget exceedances reported by server rendering",
+    labelNames: ["route"]
+  });
   readonly geoSearchLatency = new client.Histogram({
     name: "lotzi_geo_search_latency_seconds",
     help: "Nearby shop discovery request latency in seconds by cache outcome",
@@ -220,6 +259,36 @@ export class ObservabilityService implements OnModuleInit {
     name: "lotzi_geo_fraud_circuit_state",
     help: "Geo fraud circuit state: 0 closed, 1 half-open, 2 open"
   });
+  readonly shopsReturned = new client.Histogram({
+    name: "lotzi_shops_returned",
+    help: "Number of shops returned by public discovery surfaces",
+    labelNames: ["source"],
+    buckets: [0, 1, 2, 4, 8, 12, 24, 48]
+  });
+  readonly emptyShopResults = new client.Counter({
+    name: "lotzi_empty_shop_results_total",
+    help: "Shop discovery responses that returned zero shops",
+    labelNames: ["source", "radius_km", "approved_available"]
+  });
+  readonly approvedShopsAvailable = new client.Gauge({
+    name: "lotzi_approved_shops_available",
+    help: "Approved, non-deleted shops available in the marketplace"
+  });
+  readonly geoFilterRejections = new client.Counter({
+    name: "lotzi_geo_filter_rejections_total",
+    help: "Nearby discovery candidates rejected or missed by geo filtering stage",
+    labelNames: ["reason", "radius_km"]
+  });
+  readonly geoRadiusExpansions = new client.Counter({
+    name: "lotzi_geo_radius_expansions_total",
+    help: "Client-driven nearby discovery radius expansions",
+    labelNames: ["from_radius_km", "to_radius_km"]
+  });
+  readonly storeCardCacheHitRatio = new client.Histogram({
+    name: "lotzi_store_card_cache_hit_ratio",
+    help: "Per-request store-card cache hit ratio for geo discovery hydration",
+    buckets: [0, 0.25, 0.5, 0.75, 0.9, 0.99, 1]
+  });
   readonly checkoutTraceQueryCapReached = new client.Counter({
     name: "lotzi_checkout_trace_query_cap_reached_total",
     help: "Checkout trace requests that reached the per-request query trace cap"
@@ -259,6 +328,13 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.shopPageCacheEvents);
     this.registry.registerMetric(this.shopPageProductsReturned);
     this.registry.registerMetric(this.shopPageRateLimited);
+    this.registry.registerMetric(this.shopCatalogStageDuration);
+    this.registry.registerMetric(this.shopCatalogCacheHitRatio);
+    this.registry.registerMetric(this.shopCatalogPrewarmDuration);
+    this.registry.registerMetric(this.shopCatalogPrewarmFailures);
+    this.registry.registerMetric(this.shopCatalogStampedeWait);
+    this.registry.registerMetric(this.shopCatalogStampedeFallbacks);
+    this.registry.registerMetric(this.shopCatalogSsrBudgetExceeded);
     this.registry.registerMetric(this.geoSearchLatency);
     this.registry.registerMetric(this.geoQueryLatency);
     this.registry.registerMetric(this.geoCacheL1Hits);
@@ -271,6 +347,12 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.geoRateLimited);
     this.registry.registerMetric(this.geoRedisDegraded);
     this.registry.registerMetric(this.geoFraudCircuitState);
+    this.registry.registerMetric(this.shopsReturned);
+    this.registry.registerMetric(this.emptyShopResults);
+    this.registry.registerMetric(this.approvedShopsAvailable);
+    this.registry.registerMetric(this.geoFilterRejections);
+    this.registry.registerMetric(this.geoRadiusExpansions);
+    this.registry.registerMetric(this.storeCardCacheHitRatio);
     this.registry.registerMetric(this.checkoutTraceQueryCapReached);
   }
 
@@ -401,6 +483,37 @@ export class ObservabilityService implements OnModuleInit {
     this.shopPageRateLimited.inc({ endpoint });
   }
 
+  observeShopCatalogStage(stage: string, keyFamily: string, durationMs: number): void {
+    this.shopCatalogStageDuration.observe({ key_family: keyFamily, stage }, durationMs / 1000);
+  }
+
+  observeShopCatalogCacheHit(keyFamily: string, hit: boolean): void {
+    this.shopCatalogCacheHitRatio.observe({ key_family: keyFamily }, hit ? 1 : 0);
+  }
+
+  observeShopCatalogPrewarm(input: { durationMs: number; source: string; status: string }): void {
+    this.shopCatalogPrewarmDuration.observe({
+      source: input.source,
+      status: input.status
+    }, input.durationMs / 1000);
+  }
+
+  recordShopCatalogPrewarmFailure(source: string, reason: string): void {
+    this.shopCatalogPrewarmFailures.inc({ reason, source });
+  }
+
+  observeShopCatalogStampedeWait(keyFamily: string, durationMs: number): void {
+    this.shopCatalogStampedeWait.observe({ key_family: keyFamily }, durationMs / 1000);
+  }
+
+  recordShopCatalogStampedeFallback(keyFamily: string, reason: string): void {
+    this.shopCatalogStampedeFallbacks.inc({ key_family: keyFamily, reason });
+  }
+
+  recordShopCatalogSsrBudgetExceeded(route: string): void {
+    this.shopCatalogSsrBudgetExceeded.inc({ route });
+  }
+
   observeGeoSearch(cache: string, durationMs: number): void {
     this.geoSearchLatency.observe({ cache }, durationMs / 1000);
   }
@@ -447,6 +560,37 @@ export class ObservabilityService implements OnModuleInit {
 
   setGeoFraudCircuitState(state: "closed" | "half_open" | "open"): void {
     this.geoFraudCircuitState.set(state === "open" ? 2 : state === "half_open" ? 1 : 0);
+  }
+
+  observeShopsReturned(source: string, count: number): void {
+    this.shopsReturned.observe({ source }, count);
+  }
+
+  recordEmptyShopResult(input: { approvedAvailable: boolean; radiusKm?: number | null; source: string }): void {
+    this.emptyShopResults.inc({
+      approved_available: input.approvedAvailable ? "true" : "false",
+      radius_km: input.radiusKm == null ? "none" : String(input.radiusKm),
+      source: input.source
+    });
+  }
+
+  setApprovedShopsAvailable(count: number): void {
+    this.approvedShopsAvailable.set(count);
+  }
+
+  recordGeoFilterRejection(reason: string, radiusKm: number): void {
+    this.geoFilterRejections.inc({ reason, radius_km: String(radiusKm) });
+  }
+
+  recordGeoRadiusExpansion(fromRadiusKm: number, toRadiusKm: number): void {
+    this.geoRadiusExpansions.inc({
+      from_radius_km: String(fromRadiusKm),
+      to_radius_km: String(toRadiusKm)
+    });
+  }
+
+  observeStoreCardCacheHitRatio(ratio: number): void {
+    this.storeCardCacheHitRatio.observe(Math.min(1, Math.max(0, ratio)));
   }
 
   recordCheckoutTraceQueryCapReached(): void {

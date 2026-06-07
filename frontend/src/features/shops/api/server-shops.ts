@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createHash } from "node:crypto";
 import type {
   DealProduct,
+  NearbyShopsResponse,
   Shop,
   ShopDetail,
   ShopProductDetailResponse,
@@ -9,10 +10,15 @@ import type {
   ShopProductsResponse,
   ShopProductSort
 } from "../shops-api";
+import { parseGeoGridCookie, type InitialNearbyPayload } from "../lib/geo-cookie";
 
 const REQUIRED_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_FETCH_TIMEOUT_MS", 10_000);
 const OPTIONAL_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_OPTIONAL_FETCH_TIMEOUT_MS", 4_000);
+const SHOP_LANDING_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_LANDING_FETCH_TIMEOUT_MS", 1_500);
+const SHOP_CATALOG_SSR_BUDGET_MS = positiveIntegerFromEnv("SHOP_CATALOG_SSR_BUDGET_MS", 120);
+const HOME_GEO_SSR_BUDGET_MS = positiveIntegerFromEnv("HOME_GEO_SSR_BUDGET_MS", 120);
 const DEFAULT_CATALOG_LIMIT = 24;
+const DEFAULT_NEARBY_LIMIT = 24;
 const SHOP_DETAIL_REVALIDATE_SECONDS = positiveIntegerFromEnv("SHOP_DETAIL_REVALIDATE_SECONDS", 60 * 60);
 const SHOP_CATALOG_REVALIDATE_SECONDS = positiveIntegerFromEnv("SHOP_CATALOG_REVALIDATE_SECONDS", 60);
 
@@ -21,6 +27,7 @@ type NextServerFetchInit = RequestInit & {
     revalidate?: number;
     tags?: string[];
   };
+  timeoutMs?: number;
 };
 
 export class ShopPageFetchError extends Error {
@@ -37,7 +44,54 @@ export class ShopPageFetchError extends Error {
 }
 
 export async function getShopsForLanding(): Promise<Shop[]> {
-  return [];
+  if (!homeSsrShopsEnabled()) {
+    return [];
+  }
+  return serverFetchJson<Shop[]>("/v1/shops", [], {
+    name: "landing_shops",
+    timeoutMs: SHOP_LANDING_FETCH_TIMEOUT_MS
+  });
+}
+
+export async function getNearbyShopsForLandingGeoCookie(
+  cookieValue: string | undefined
+): Promise<InitialNearbyPayload | null> {
+  if (!homeGeoSsrEnabled() || !homeNearbyDehydrationEnabled()) {
+    return null;
+  }
+
+  const parsed = parseGeoGridCookie(cookieValue);
+  if (!parsed) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    latGrid: parsed.grid.latGrid,
+    lngGrid: parsed.grid.lngGrid,
+    limit: String(DEFAULT_NEARBY_LIMIT),
+    radiusKm: String(parsed.radiusKm)
+  });
+  const fetchedAt = Date.now();
+  const data = await serverFetchJson<NearbyShopsResponse | null>(
+    `/v1/shops/nearby/cell?${params.toString()}`,
+    null,
+    {
+      name: "landing_nearby_cell",
+      timeoutMs: HOME_GEO_SSR_BUDGET_MS
+    }
+  );
+
+  if (!isNearbyResponse(data)) {
+    return null;
+  }
+
+  return {
+    coordinates: parsed.coordinates,
+    data,
+    fetchedAt,
+    grid: parsed.grid,
+    radiusKm: parsed.radiusKm
+  };
 }
 
 export async function getDealProductsForLanding(): Promise<DealProduct[]> {
@@ -70,6 +124,7 @@ export async function getShopProductsForPage(
   filters: Partial<ShopProductsFilters>
 ): Promise<{ data: ShopProductsResponse; failed: boolean }> {
   const normalized = normalizeProductFilters(filters);
+  const startedAt = Date.now();
   try {
     return {
       data: await serverFetchRequired<ShopProductsResponse>(
@@ -78,12 +133,22 @@ export async function getShopProductsForPage(
           next: {
             revalidate: SHOP_CATALOG_REVALIDATE_SECONDS,
             tags: shopCatalogTags(publicId, normalized)
-          }
+          },
+          timeoutMs: shopCatalogSsrBudgetEnabled()
+            ? SHOP_CATALOG_SSR_BUDGET_MS
+            : undefined
         }
       ),
       failed: false
     };
-  } catch {
+  } catch (error) {
+    if (shopCatalogSsrBudgetEnabled()) {
+      logShopCatalogSsrBudgetFallback({
+        cause: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startedAt,
+        publicId
+      });
+    }
     return {
       data: emptyProductsResponse(publicId, publicSlug, normalized),
       failed: true
@@ -120,22 +185,41 @@ export const getProductRouteForShortLink = cache(async function getProductRouteF
   });
 });
 
-async function serverFetchJson<T>(path: string, fallback: T): Promise<T> {
+async function serverFetchJson<T>(
+  path: string,
+  fallback: T,
+  options: { name?: string; timeoutMs?: number } = {}
+): Promise<T> {
+  const startedAt = Date.now();
   try {
     const response = await fetch(apiUrl(path), {
       cache: "no-store",
       headers: {
         accept: "application/json"
       },
-      signal: AbortSignal.timeout(OPTIONAL_SERVER_FETCH_TIMEOUT_MS)
+      signal: AbortSignal.timeout(options.timeoutMs ?? OPTIONAL_SERVER_FETCH_TIMEOUT_MS)
     });
 
     if (!response.ok) {
+      logServerFetchFallback({
+        durationMs: Date.now() - startedAt,
+        fallback,
+        name: options.name ?? path,
+        path,
+        status: response.status
+      });
       return fallback;
     }
 
     return (await response.json()) as T;
-  } catch {
+  } catch (error) {
+    logServerFetchFallback({
+      cause: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
+      fallback,
+      name: options.name ?? path,
+      path
+    });
     return fallback;
   }
 }
@@ -150,7 +234,7 @@ async function serverFetchRequired<T>(path: string, init?: NextServerFetchInit):
         accept: "application/json",
         ...Object.fromEntries(new Headers(init?.headers))
       },
-      signal: AbortSignal.timeout(REQUIRED_SERVER_FETCH_TIMEOUT_MS)
+      signal: AbortSignal.timeout(init?.timeoutMs ?? REQUIRED_SERVER_FETCH_TIMEOUT_MS)
     });
   } catch (error) {
     throw new ShopPageFetchError(503, apiUnavailableMessage(error));
@@ -215,6 +299,79 @@ function apiUnavailableMessage(error: unknown) {
 function positiveIntegerFromEnv(key: string, fallback: number) {
   const value = Number(process.env[key]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function booleanFromEnv(key: string, fallback: boolean) {
+  const value = process.env[key]?.trim().toLowerCase();
+  if (!value) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "on"].includes(value)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(value)) {
+    return false;
+  }
+  return fallback;
+}
+
+function homeSsrShopsEnabled() {
+  // Rollout guard: SSR inventory is the primary fallback once enabled; disabling preserves the current geo-only path.
+  return booleanFromEnv("NEXT_PUBLIC_HOME_SSR_SHOPS_ENABLED", false);
+}
+
+function homeGeoSsrEnabled() {
+  return booleanFromEnv("HOME_GEO_SSR_ENABLED", false);
+}
+
+function homeNearbyDehydrationEnabled() {
+  return booleanFromEnv("HOME_NEARBY_DEHYDRATION_ENABLED", false);
+}
+
+function shopCatalogSsrBudgetEnabled() {
+  return booleanFromEnv("SHOP_CATALOG_SSR_BUDGET_ENABLED", false);
+}
+
+function logShopCatalogSsrBudgetFallback(input: {
+  cause: string;
+  durationMs: number;
+  publicId: string;
+}) {
+  console.warn(JSON.stringify({
+    cause: input.cause,
+    durationMs: input.durationMs,
+    event: "shop_catalog_ssr_budget_exceeded",
+    publicId: input.publicId
+  }));
+}
+
+function logServerFetchFallback(input: {
+  cause?: string;
+  durationMs: number;
+  fallback: unknown;
+  name: string;
+  path: string;
+  status?: number;
+}) {
+  console.warn(JSON.stringify({
+    cause: input.cause ?? null,
+    durationMs: input.durationMs,
+    endpoint: input.path,
+    event: "server_optional_fetch_fallback",
+    name: input.name,
+    returnedCount: Array.isArray(input.fallback) ? input.fallback.length : null,
+    status: input.status ?? null
+  }));
+}
+
+function isNearbyResponse(value: NearbyShopsResponse | null): value is NearbyShopsResponse {
+  return Boolean(
+    value &&
+    value.apiVersion === "v1" &&
+    Array.isArray(value.items) &&
+    value.pageInfo &&
+    Number.isFinite(value.radiusKm)
+  );
 }
 
 function ensureApiBase(value: string) {

@@ -2,6 +2,7 @@ import { Controller, Get, Header, Req, UnauthorizedException } from "@nestjs/com
 import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
 import { PrismaService } from "../../database/prisma.service";
+import { RedisService } from "../redis/redis.service";
 import { ObservabilityService } from "./observability.service";
 
 @Controller("internal")
@@ -9,7 +10,8 @@ export class ObservabilityController {
   constructor(
     private readonly observability: ObservabilityService,
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService
   ) {}
 
   @Get("health/db")
@@ -20,6 +22,19 @@ export class ObservabilityController {
     return {
       status: healthy ? "ok" : "degraded",
       latencyMs,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  @Get("health/catalog-cache")
+  healthCatalogCache() {
+    const configured = this.redis.isConfigured;
+    const circuitOpen = this.redis.isCircuitBreakerOpen;
+    const healthy = configured && !circuitOpen;
+    return {
+      status: healthy ? "ok" : "critical",
+      redisConfigured: configured,
+      redisCircuitOpen: circuitOpen,
       timestamp: new Date().toISOString()
     };
   }

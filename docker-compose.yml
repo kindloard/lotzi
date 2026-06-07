@@ -1,0 +1,25 @@
+version: "3.9"
+
+# Dev services for Namastore local development.
+# Usage: docker compose up -d
+# Then start the backend and frontend normally.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: namastore-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local

@@ -146,7 +146,12 @@ export function ShopProductDetailView({
   }, [detail.product.variants]);
 
   const visibleProductImages = useMemo(() => {
-    const productLevelImages = detail.product.images.filter((image) => (image.variantIds ?? []).length === 0);
+    // Use mediaSource for reliable classification instead of variantIds presence.
+    // Images now include both PRODUCT and VARIANT sources in the product-level array.
+    const productLevelImages = detail.product.images.filter(
+      (image) => image.mediaSource === "PRODUCT" || (image.variantIds ?? []).length === 0
+    );
+
     if (!selectedVariant?.id) {
       return productLevelImages.length ? productLevelImages : detail.product.images;
     }
@@ -154,6 +159,17 @@ export function ShopProductDetailView({
     const selectedVariantImages = detail.product.images.filter((image) =>
       (image.variantIds ?? []).includes(selectedVariant.id)
     );
+
+    // Amazon/Shopify PDP pattern: show variant-specific images first,
+    // then shared product-level images that aren't already in the set.
+    if (selectedVariantImages.length && productLevelImages.length) {
+      const variantImageIds = new Set(selectedVariantImages.map((img) => img.id));
+      const additionalProductImages = productLevelImages.filter(
+        (img) => !variantImageIds.has(img.id)
+      );
+      return [...selectedVariantImages, ...additionalProductImages];
+    }
+
     if (selectedVariantImages.length) {
       return selectedVariantImages;
     }

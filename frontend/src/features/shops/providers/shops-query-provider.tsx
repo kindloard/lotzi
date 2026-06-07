@@ -23,11 +23,15 @@ function createShopsQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
+        // 30s default stale time — individual queries override with their own.
+        // Nearby uses 120s; don't refetch everything on every focus event.
+        staleTime: 30 * 1000,
         gcTime: 5 * 60 * 1000,
         refetchOnReconnect: true,
-        refetchOnWindowFocus: true,
-        retry: 2,
-        staleTime: 0
+        // Nearby shop cards shouldn't flash-reload on Alt+Tab.
+        // The individual hook opts back in for its own logic.
+        refetchOnWindowFocus: false,
+        retry: 2
       },
       mutations: {
         retry: false

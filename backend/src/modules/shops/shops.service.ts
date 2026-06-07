@@ -28,8 +28,15 @@ const SHOP_PDP_RECOMMENDATIONS_CACHE_PREFIX = "shops:pdp-recommendations:v1:";
 const SHOP_CACHE_TTL_SECONDS = 5 * 60;
 const SHOP_FACET_CACHE_TTL_SECONDS = 5 * 60;
 const FRONTEND_REVALIDATE_TIMEOUT_MS = 1_500;
+const SHOP_CATALOG_STAMPEDE_LOCK_SECONDS = 10;
+const SHOP_CATALOG_STAMPEDE_WAIT_MS = 250;
+const SHOP_CATALOG_STAMPEDE_POLL_MS = 50;
 const MAX_LANDING_SHOPS = 48;
 const MAX_DEAL_PRODUCTS = 8;
+const DEFAULT_SHOP_CATALOG_WARM_TOP_STORES = 48;
+const DEFAULT_SHOP_CATALOG_WARM_LIMIT = 24;
+const DEFAULT_SHOP_CATALOG_WARM_CONCURRENCY = 3;
+const DEFAULT_SHOP_CATALOG_WARM_QUEUE_MAX = 200;
 const PRODUCT_SORTS = ["relevance", "newest", "price-asc", "price-desc"] as const;
 const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRODUCT_PUBLIC_ID_PATTERN = /^[0-9a-f]{32}$/;
@@ -286,6 +293,8 @@ interface CacheEnvelope<T> {
 export class ShopsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ShopsService.name);
   private readonly inFlightLoads = new Map<string, Promise<CachedResult<unknown>>>();
+  private readonly catalogWarmQueue = new Map<string, ShopWarmRoute>();
+  private catalogWarmQueueDraining = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -717,7 +726,7 @@ export class ShopsService implements OnApplicationBootstrap {
     let route: PublicStoreRoute | null = null;
     try {
       route = input.slug
-        ? { slug: input.slug, publicId: null }
+        ? { slug: input.slug, publicId: null, publicSlug: null }
         : await this.routeForStore(input.storeId);
       const scopes = new Set<string>([
         this.catalogCache.dealsScope(),
@@ -741,13 +750,16 @@ export class ShopsService implements OnApplicationBootstrap {
         this.redis.del(SHOP_LIST_CACHE_KEY),
         this.redis.del(DEAL_PRODUCTS_CACHE_KEY)
       ]);
-      await this.notifyFrontendCatalogRevalidation({
+      // Fire-and-forget: the frontend revalidation HTTP call must never block cache invalidation.
+      // Versioned cache keys already guarantee correctness on the next read miss.
+      void this.notifyFrontendCatalogRevalidation({
         invalidateCatalog: families !== "detail",
         invalidateDetail: families !== "products",
         invalidatePdp: Boolean(input.productIds?.length),
         productPublicIds: (input.productIds ?? []).map((productId) => publicProductCode(productId)),
         storePublicId: route?.publicId ?? (input.storeId ? publicStoreCode(input.storeId) : undefined)
       });
+      this.enqueuePublicShopCatalogWarm(route, "invalidation");
       this.observability.recordShopPageCacheEvent("invalidate", families);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -773,6 +785,7 @@ export class ShopsService implements OnApplicationBootstrap {
   }): Promise<void> {
     const publicId = publicStoreCode(input.storeId);
     try {
+      const route = await this.routeForStore(input.storeId);
       const productIds = new Set(input.productIds ?? []);
       if (input.productVariantIds?.length) {
         const variants = await this.prisma.productVariant.findMany({
@@ -798,6 +811,7 @@ export class ShopsService implements OnApplicationBootstrap {
         productPublicIds: Array.from(productIds).map((productId) => publicProductCode(productId)),
         storePublicId: publicId
       });
+      this.enqueuePublicShopCatalogWarm(route, "stock_invalidation");
       this.observability.recordShopPageCacheEvent("invalidate", "products");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -866,20 +880,126 @@ export class ShopsService implements OnApplicationBootstrap {
   }
 
   private async prewarmLandingCaches() {
+    const startedAt = process.hrtime.bigint();
     try {
       const lock = await this.redis.setNxEx("lock:cache_prewarm", 60, "1");
       if (!lock) {
         return;
       }
 
-      await Promise.all([
+      const [shops] = await Promise.all([
         this.listApprovedShops(),
         this.listDealProducts()
       ]);
+      if (shopCatalogPrewarmEnabled(this.config)) {
+        await this.prewarmPublicShopCatalogCaches(shops.data, "bootstrap");
+      }
       this.logger.log("Prewarmed shops landing caches.");
+      this.observability.observeShopCatalogPrewarm({
+        durationMs: durationMs(startedAt),
+        source: "bootstrap",
+        status: "success"
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.observability.recordShopCatalogPrewarmFailure("bootstrap", "error");
+      this.observability.observeShopCatalogPrewarm({
+        durationMs: durationMs(startedAt),
+        source: "bootstrap",
+        status: "error"
+      });
       this.logger.warn(`Unable to prewarm shops landing caches: ${message}`);
+    }
+  }
+
+  private async prewarmPublicShopCatalogCaches(shops: ShopDto[], source: string): Promise<void> {
+    const limit = positiveConfigInt(this.config, "SHOP_CATALOG_WARM_TOP_STORES", DEFAULT_SHOP_CATALOG_WARM_TOP_STORES);
+    const concurrency = positiveConfigInt(this.config, "SHOP_CATALOG_WARM_CONCURRENCY", DEFAULT_SHOP_CATALOG_WARM_CONCURRENCY);
+    const targets = shops.slice(0, limit).map((shop) => ({
+      publicId: shop.publicId,
+      publicSlug: shop.publicSlug
+    }));
+    await runWithConcurrency(targets, concurrency, (route) => this.warmPublicShopCatalog(route, source));
+  }
+
+  private enqueuePublicShopCatalogWarm(route: PublicStoreRoute | ShopWarmRoute | null | undefined, source: string): void {
+    if (
+      typeof route?.publicId !== "string" ||
+      typeof route.publicSlug !== "string" ||
+      !shopCatalogPrewarmEnabled(this.config)
+    ) {
+      return;
+    }
+    const job: ShopWarmRoute = {
+      publicId: route.publicId,
+      publicSlug: route.publicSlug
+    };
+    const key = `${job.publicId}:${job.publicSlug}`;
+    const queueMax = positiveConfigInt(this.config, "SHOP_CATALOG_WARM_QUEUE_MAX", DEFAULT_SHOP_CATALOG_WARM_QUEUE_MAX);
+    if (this.catalogWarmQueue.size >= queueMax && !this.catalogWarmQueue.has(key)) {
+      this.observability.recordShopCatalogPrewarmFailure(source, "queue_full");
+      this.logger.warn(JSON.stringify({
+        event: "shop_catalog_warm_queue_full",
+        publicId: job.publicId,
+        source
+      }));
+      return;
+    }
+    this.catalogWarmQueue.set(key, job);
+    void this.drainCatalogWarmQueue(source);
+  }
+
+  private async drainCatalogWarmQueue(source: string): Promise<void> {
+    if (this.catalogWarmQueueDraining) {
+      return;
+    }
+    this.catalogWarmQueueDraining = true;
+    try {
+      const concurrency = positiveConfigInt(this.config, "SHOP_CATALOG_WARM_CONCURRENCY", DEFAULT_SHOP_CATALOG_WARM_CONCURRENCY);
+      while (this.catalogWarmQueue.size > 0) {
+        const routes = Array.from(this.catalogWarmQueue.values()).slice(0, concurrency);
+        for (const route of routes) {
+          this.catalogWarmQueue.delete(`${route.publicId}:${route.publicSlug}`);
+        }
+        await Promise.all(routes.map((route) => this.warmPublicShopCatalog(route, source)));
+      }
+    } finally {
+      this.catalogWarmQueueDraining = false;
+    }
+  }
+
+  private async warmPublicShopCatalog(route: ShopWarmRoute, source: string): Promise<void> {
+    const startedAt = process.hrtime.bigint();
+    try {
+      await Promise.all([
+        this.getShopDetailByPublicRoute(route.publicId, route.publicSlug),
+        this.listProductsForShopByPublicRoute(route.publicId, route.publicSlug, defaultWarmCatalogQuery(this.config))
+      ]);
+      this.observability.observeShopCatalogPrewarm({
+        durationMs: durationMs(startedAt),
+        source,
+        status: "success"
+      });
+      this.logger.debug(JSON.stringify({
+        durationMs: Math.round(durationMs(startedAt)),
+        event: "shop_catalog_prewarmed",
+        publicId: route.publicId,
+        source
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.observability.recordShopCatalogPrewarmFailure(source, "error");
+      this.observability.observeShopCatalogPrewarm({
+        durationMs: durationMs(startedAt),
+        source,
+        status: "error"
+      });
+      this.logger.warn(JSON.stringify({
+        event: "shop_catalog_prewarm_failed",
+        message,
+        publicId: route.publicId,
+        source
+      }));
     }
   }
 
@@ -943,6 +1063,7 @@ export class ShopsService implements OnApplicationBootstrap {
       }
     });
 
+    this.observability.setApprovedShopsAvailable(stores.length);
     return stores.map((store) => mapStoreToDto(store));
   }
 
@@ -1039,7 +1160,9 @@ export class ShopsService implements OnApplicationBootstrap {
   }
 
   private async loadProductsForShop(slug: string, query: ShopProductsQuery): Promise<ShopProductsResponseDto> {
+    const detailStarted = process.hrtime.bigint();
     const detail = await this.getShopDetail(slug);
+    this.observability.observeShopCatalogStage("detail_resolve", "shop_products", durationMs(detailStarted));
     return this.loadProductsForShopDetail(detail.data, query);
   }
 
@@ -1048,7 +1171,9 @@ export class ShopsService implements OnApplicationBootstrap {
     publicSlug: string,
     query: ShopProductsQuery
   ): Promise<ShopProductsResponseDto> {
+    const detailStarted = process.hrtime.bigint();
     const detail = await this.getShopDetailByPublicRoute(publicId, publicSlug);
+    this.observability.observeShopCatalogStage("detail_resolve", "shop_products", durationMs(detailStarted));
     return this.loadProductsForShopDetail(detail.data, query);
   }
 
@@ -1122,25 +1247,32 @@ export class ShopsService implements OnApplicationBootstrap {
     const facetWhere = publicProductWhere(detail.id, { ...query, category: null });
     const orderBy = productOrderBy(query.sort);
     const skip = (query.page - 1) * query.limit;
+    const useCatalogCardSelect = shopCatalogCardSelectEnabled(this.config);
+    const productQueryStarted = process.hrtime.bigint();
     const products = await this.prisma.product.findMany({
       where,
       orderBy,
       skip,
       take: query.limit,
-      select: publicProductSelect
+      select: useCatalogCardSelect ? publicCatalogProductSelect : publicProductSelect
     });
+    this.observability.observeShopCatalogStage("product_query", "shop_products", durationMs(productQueryStarted));
     const canDeriveTotalFromFirstPage = query.page === 1 && products.length < query.limit;
     const totalPromise = canDeriveTotalFromFirstPage
       ? Promise.resolve(products.length)
-      : this.prisma.product.count({ where });
+      : timed("count_query", () => this.prisma.product.count({ where }), (stage, duration) =>
+          this.observability.observeShopCatalogStage(stage, "shop_products", duration)
+        );
     const facetsPromise = query.includeFacets
-      ? this.loadFacetsForShopDetail(detail, query, facetWhere)
+      ? timed("facet_query", () => this.loadFacetsForShopDetail(detail, query, facetWhere), (stage, duration) =>
+          this.observability.observeShopCatalogStage(stage, "shop_products", duration)
+        )
       : Promise.resolve(emptyShopProductFacets());
     const [total, facets] = await Promise.all([totalPromise, facetsPromise]);
 
     const totalPages = Math.max(1, Math.ceil(total / query.limit));
 
-    return {
+    const response = {
       store: {
         id: detail.id,
         slug: detail.slug,
@@ -1148,7 +1280,9 @@ export class ShopsService implements OnApplicationBootstrap {
         publicSlug: detail.publicSlug,
         name: detail.name
       },
-      products: products.map(mapShopProductToDto),
+      products: useCatalogCardSelect
+        ? (products as CatalogProductRow[]).map(mapCatalogProductToDto)
+        : (products as PublicProductRow[]).map(mapShopProductToDto),
       facets,
       pagination: {
         page: query.page,
@@ -1159,6 +1293,15 @@ export class ShopsService implements OnApplicationBootstrap {
       },
       filters: query
     };
+    this.logger.debug(JSON.stringify({
+      event: "shop_catalog_loaded",
+      facetsIncluded: query.includeFacets,
+      page: query.page,
+      productsReturned: response.products.length,
+      publicId: detail.publicId,
+      selectMode: useCatalogCardSelect ? "card" : "rich"
+    }));
+    return response;
   }
 
   private async loadFacetsForShopDetail(
@@ -1224,9 +1367,12 @@ export class ShopsService implements OnApplicationBootstrap {
     ttlSeconds: number,
     loader: () => Promise<T>
   ): Promise<CachedResult<T>> {
+    const cacheReadStarted = process.hrtime.bigint();
     const cached = await this.readCache<T>(key);
+    this.observability.observeShopCatalogStage("cache_read", keyFamily, durationMs(cacheReadStarted));
     if (cached) {
       this.observability.recordShopPageCacheEvent("hit", keyFamily);
+      this.observability.observeShopCatalogCacheHit(keyFamily, true);
       return {
         data: cached.data,
         etag: cached.etag,
@@ -1240,7 +1386,8 @@ export class ShopsService implements OnApplicationBootstrap {
     }
 
     this.observability.recordShopPageCacheEvent("miss", keyFamily);
-    const load = this.loadAndCache(key, loader, ttlSeconds);
+    this.observability.observeShopCatalogCacheHit(keyFamily, false);
+    const load = this.loadWithOptionalStampedeLock(key, keyFamily, loader, ttlSeconds);
     this.inFlightLoads.set(key, load as Promise<CachedResult<unknown>>);
     try {
       return await load;
@@ -1249,7 +1396,75 @@ export class ShopsService implements OnApplicationBootstrap {
     }
   }
 
-  private async loadAndCache<T>(key: string, loader: () => Promise<T>, ttlSeconds = SHOP_CACHE_TTL_SECONDS): Promise<CachedResult<T>> {
+  private async loadWithOptionalStampedeLock<T>(
+    key: string,
+    keyFamily: string,
+    loader: () => Promise<T>,
+    ttlSeconds: number
+  ): Promise<CachedResult<T>> {
+    if (!shopCatalogStampedeLockEnabled(this.config)) {
+      return this.loadAndCache(key, loader, ttlSeconds, keyFamily);
+    }
+
+    const lockKey = catalogLoadLockKey(key);
+    const acquired = await this.redis.setNxEx(lockKey, SHOP_CATALOG_STAMPEDE_LOCK_SECONDS, "1");
+    if (acquired) {
+      try {
+        return await this.loadAndCache(key, loader, ttlSeconds, keyFamily);
+      } finally {
+        await this.redis.del(lockKey);
+      }
+    }
+
+    const waitStarted = process.hrtime.bigint();
+    const warmed = await this.waitForCatalogCache<T>(key, SHOP_CATALOG_STAMPEDE_WAIT_MS);
+    const waitMs = durationMs(waitStarted);
+    this.observability.observeShopCatalogStampedeWait(keyFamily, waitMs);
+    if (warmed) {
+      this.observability.recordShopPageCacheEvent("hit_after_wait", keyFamily);
+      this.logger.debug(JSON.stringify({
+        event: "shop_catalog_stampede_wait_hit",
+        keyFamily,
+        waitMs: Math.round(waitMs)
+      }));
+      return {
+        data: warmed.data,
+        etag: warmed.etag,
+        cacheHit: true
+      };
+    }
+
+    this.observability.recordShopCatalogStampedeFallback(
+      keyFamily,
+      acquired === null ? "redis_degraded" : "wait_timeout"
+    );
+    this.logger.warn(JSON.stringify({
+      event: "shop_catalog_stampede_fallback",
+      keyFamily,
+      lockAcquired: acquired,
+      waitMs: Math.round(waitMs)
+    }));
+    return this.loadAndCache(key, loader, ttlSeconds, keyFamily);
+  }
+
+  private async waitForCatalogCache<T>(key: string, waitMs: number): Promise<CacheEnvelope<T> | null> {
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      await sleep(SHOP_CATALOG_STAMPEDE_POLL_MS);
+      const cached = await this.readCache<T>(key);
+      if (cached) {
+        return cached;
+      }
+    }
+    return null;
+  }
+
+  private async loadAndCache<T>(
+    key: string,
+    loader: () => Promise<T>,
+    ttlSeconds = SHOP_CACHE_TTL_SECONDS,
+    keyFamily = "unknown"
+  ): Promise<CachedResult<T>> {
     const data = await loader();
     const envelope: CacheEnvelope<T> = {
       data,
@@ -1258,7 +1473,9 @@ export class ShopsService implements OnApplicationBootstrap {
       version: 1
     };
 
+    const cacheWriteStarted = process.hrtime.bigint();
     await this.catalogCache.set(key, ttlSeconds, JSON.stringify(envelope));
+    this.observability.observeShopCatalogStage("cache_write", keyFamily, durationMs(cacheWriteStarted));
 
     return {
       data,
@@ -1273,12 +1490,13 @@ export class ShopsService implements OnApplicationBootstrap {
     }
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
-      select: { id: true, publicCode: true, slug: true }
+      select: { id: true, name: true, publicCode: true, slug: true }
     });
     return store
       ? {
           slug: store.slug,
-          publicId: store.publicCode ?? publicStoreCode(store.id)
+          publicId: store.publicCode ?? publicStoreCode(store.id),
+          publicSlug: publicStoreSlug(store.name)
         }
       : null;
   }
@@ -1465,6 +1683,81 @@ const publicProductSelect = {
   }
 } satisfies Prisma.ProductSelect;
 
+const publicCatalogProductSelect = {
+  id: true,
+  name: true,
+  subCategory: true,
+  productType: true,
+  description: true,
+  price: true,
+  compareAtPrice: true,
+  stock: true,
+  unitGroup: true,
+  quantityValue: true,
+  quantityUnit: true,
+  packType: true,
+  pricePerBaseUnit: true,
+  imageUrl: true,
+  category: {
+    select: {
+      name: true,
+      slug: true
+    }
+  },
+  images: {
+    orderBy: [
+      { isPrimary: "desc" as const },
+      { sortOrder: "asc" as const }
+    ],
+    take: 1,
+    select: {
+      id: true,
+      altText: true,
+      isPrimary: true,
+      sortOrder: true,
+      uploadAsset: {
+        select: {
+          renditions: {
+            where: {
+              kind: UploadRenditionKind.CARD
+            },
+            select: {
+              secureUrl: true,
+              width: true,
+              height: true
+            },
+            take: 1
+          }
+        }
+      }
+    }
+  },
+  variants: {
+    where: { status: ProductVariantStatus.ACTIVE },
+    orderBy: [
+      { isDefault: "desc" as const },
+      { position: "asc" as const },
+      { createdAt: "asc" as const }
+    ],
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      mrp: true,
+      stock: true,
+      stockOnHand: true,
+      stockReserved: true,
+      unitGroup: true,
+      quantityValue: true,
+      quantityUnit: true,
+      packType: true,
+      pricePerBaseUnit: true,
+      isDefault: true,
+      position: true
+    }
+  }
+} satisfies Prisma.ProductSelect;
+
 const publicProductDetailSelect = {
   ...publicProductSelect,
   seoTitle: true,
@@ -1537,6 +1830,7 @@ const storeDetailSelect = {
 } satisfies Prisma.StoreSelect;
 
 type PublicProductRow = Prisma.ProductGetPayload<{ select: typeof publicProductSelect }>;
+type CatalogProductRow = Prisma.ProductGetPayload<{ select: typeof publicCatalogProductSelect }>;
 type PublicProductDetailRow = Prisma.ProductGetPayload<{ select: typeof publicProductDetailSelect }>;
 type PublicProductDetailWithStoreRow = Prisma.ProductGetPayload<{ select: typeof publicProductDetailWithStoreSelect }>;
 type PdpStoreSummaryRow = PublicProductDetailWithStoreRow["store"];
@@ -1545,6 +1839,12 @@ type StoreDetailRow = Prisma.StoreGetPayload<{ select: typeof storeDetailSelect 
 type PublicStoreRoute = {
   slug: string | null;
   publicId: string | null;
+  publicSlug: string | null;
+};
+
+type ShopWarmRoute = {
+  publicId: string;
+  publicSlug: string;
 };
 
 function mapStoreDetailToDto(store: StoreDetailRow): ShopDetailDto {
@@ -1656,6 +1956,82 @@ function mapShopProductToDto(product: PublicProductRow): ShopProductDto {
       pricePerBaseUnitDisplay: formatPricePerBaseUnitDisplay(Number(variant.pricePerBaseUnit), variant.unitGroup),
       isDefault: variant.isDefault,
       images: variantImagesById.get(variant.id) ?? []
+    };
+  });
+  const defaultVariant = variants[0];
+  const fallbackStock = product.stock;
+  const productUnitDisplay = formatUnitDisplay({
+    packType: product.packType,
+    quantityUnit: product.quantityUnit,
+    quantityValue: Number(product.quantityValue)
+  });
+  const primaryImage = preferredPublicProductImage(productImages) ?? preferredPublicProductImage(allImages);
+
+  return {
+    id: product.id,
+    publicId: publicProductCode(product.id),
+    slug: publicProductSlug(product.name),
+    name: product.name,
+    category: product.category?.name ?? "Grocery",
+    categorySlug: product.category?.slug ?? "grocery",
+    subCategory: product.subCategory ?? "",
+    productType: product.productType ?? "",
+    description: product.description,
+    price: defaultVariant?.price ?? Number(product.price),
+    compareAtPrice: defaultVariant?.compareAtPrice ?? (product.compareAtPrice ? Number(product.compareAtPrice) : null),
+    stock: defaultVariant ? variants.reduce((sum, variant) => sum + variant.stock, 0) : fallbackStock,
+    inStock: defaultVariant ? variants.some((variant) => variant.inStock) : fallbackStock > 0,
+    unitDisplay: defaultVariant?.unitDisplay ?? productUnitDisplay,
+    pricePerBaseUnitDisplay:
+      defaultVariant?.pricePerBaseUnitDisplay ??
+      formatPricePerBaseUnitDisplay(Number(product.pricePerBaseUnit), product.unitGroup),
+    imageUrl: primaryImage?.url ?? product.imageUrl,
+    imageInitials: initialsFromName(product.name),
+    // Return ALL images with mediaSource metadata so the frontend can filter by variant.
+    // Previously only PRODUCT-sourced images were returned, causing an empty gallery when
+    // images were linked to variants (common for single-variant products).
+    images: allImages,
+    variants
+  };
+}
+
+function mapCatalogProductToDto(product: CatalogProductRow): ShopProductDto {
+  const productImages = product.images.slice(0, 1)
+    .flatMap<ShopProductMediaDto>((image) => {
+      const rendition = image.uploadAsset.renditions[0];
+      if (!rendition?.secureUrl) {
+        return [];
+      }
+      return [{
+        id: image.id,
+        url: rendition.secureUrl,
+        altText: image.altText,
+        width: rendition.width,
+        height: rendition.height,
+        isPrimary: image.isPrimary,
+        mediaSource: "PRODUCT",
+        variantIds: [],
+        variantSkuIds: []
+      }];
+    });
+  const variants = product.variants.map((variant) => {
+    const stock = availableStock(variant.stockOnHand, variant.stockReserved);
+    const unitDisplay = formatUnitDisplay({
+      packType: variant.packType,
+      quantityUnit: variant.quantityUnit,
+      quantityValue: Number(variant.quantityValue)
+    });
+    return {
+      id: variant.id,
+      name: variant.name,
+      price: Number(variant.price),
+      compareAtPrice: variant.mrp ? Number(variant.mrp) : null,
+      stock,
+      inStock: stock > 0,
+      unitDisplay,
+      pricePerBaseUnitDisplay: formatPricePerBaseUnitDisplay(Number(variant.pricePerBaseUnit), variant.unitGroup),
+      isDefault: variant.isDefault,
+      images: []
     };
   });
   const defaultVariant = variants[0];
@@ -2034,6 +2410,88 @@ function emptyShopProductFacets(): ShopProductsResponseDto["facets"] {
     categories: [],
     subCategories: []
   };
+}
+
+function shopCatalogCardSelectEnabled(config?: ConfigService) {
+  return booleanConfig(config, "SHOP_CATALOG_CARD_SELECT_ENABLED", false);
+}
+
+function shopCatalogPrewarmEnabled(config?: ConfigService) {
+  return booleanConfig(config, "SHOP_CATALOG_PREWARM_ENABLED", false);
+}
+
+function shopCatalogStampedeLockEnabled(config?: ConfigService) {
+  return booleanConfig(config, "SHOP_CATALOG_STAMPEDE_LOCK_ENABLED", false);
+}
+
+function defaultWarmCatalogQuery(config?: ConfigService): ShopProductsQuery {
+  return {
+    category: null,
+    includeFacets: true,
+    limit: positiveConfigInt(config, "SHOP_CATALOG_WARM_LIMIT", DEFAULT_SHOP_CATALOG_WARM_LIMIT),
+    page: 1,
+    q: "",
+    sort: "relevance"
+  };
+}
+
+function booleanConfig(config: ConfigService | undefined, key: string, fallback: boolean) {
+  const raw = config?.get<string>(key) ?? process.env[key];
+  const value = raw?.trim().toLowerCase();
+  if (!value) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "on"].includes(value)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(value)) {
+    return false;
+  }
+  return fallback;
+}
+
+function positiveConfigInt(config: ConfigService | undefined, key: string, fallback: number) {
+  const raw = config?.get<string | number>(key) ?? process.env[key];
+  const value = typeof raw === "number" ? raw : Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function catalogLoadLockKey(key: string) {
+  return `lock:catalog:${createHash("sha256").update(key).digest("hex").slice(0, 32)}`;
+}
+
+function durationMs(startedAt: bigint) {
+  return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+}
+
+async function timed<T>(
+  stage: string,
+  callback: () => Promise<T>,
+  record: (stage: string, durationMs: number) => void
+): Promise<T> {
+  const startedAt = process.hrtime.bigint();
+  try {
+    return await callback();
+  } finally {
+    record(stage, durationMs(startedAt));
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  callback: (item: T) => Promise<void>
+) {
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async (_, workerIndex) => {
+    for (let index = workerIndex; index < items.length; index += Math.max(1, concurrency)) {
+      await callback(items[index]);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function distanceInMeters(origin: LatLng, destination: LatLng) {

@@ -10,7 +10,8 @@ const STOCK_SENSITIVE_CACHE_CONTROL = "no-store, max-age=0, must-revalidate";
 const PRODUCTS_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
 const PDP_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
 const NEARBY_PRIVATE_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=15";
-const NEARBY_CELL_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+const NEARBY_CELL_EDGE_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+const NEARBY_CELL_LOCAL_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=15";
 const PUBLIC_ID_PATTERN = /^\d{6}$/;
 const SHOP_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRODUCT_REF_PATTERN = /^([0-9a-f]{32})(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$/i;
@@ -34,6 +35,15 @@ export class ShopsController {
   ) {
     const startedAt = process.hrtime.bigint();
     const result = await this.shops.listApprovedShops();
+    this.observability.observeShopsReturned("landing", result.data.length);
+    this.observability.setApprovedShopsAvailable(result.data.length);
+    if (result.data.length === 0) {
+      this.observability.recordEmptyShopResult({
+        approvedAvailable: false,
+        radiusKm: null,
+        source: "landing"
+      });
+    }
     setPublicCacheHeaders(response, result, durationMs(startedAt), "shops", STOCK_SENSITIVE_CACHE_CONTROL);
 
     if (etagMatches(ifNoneMatch, result.etag)) {
@@ -124,7 +134,7 @@ export class ShopsController {
     });
 
     response.removeHeader("Set-Cookie");
-    response.setHeader("Cache-Control", NEARBY_CELL_CACHE_CONTROL);
+    response.setHeader("Cache-Control", nearbyCellCacheControl());
     response.vary("Accept-Encoding");
     response.setHeader("Server-Timing", nearbyServerTiming(result.timings, durationMs(startedAt), result.cacheSource));
     return result.data;
@@ -542,4 +552,24 @@ function nearbyServerTiming(
 
 function statusForError(error: unknown) {
   return error instanceof HttpException ? String(error.getStatus()) : "500";
+}
+
+function nearbyCellCacheControl() {
+  return booleanFromEnv("SHOP_DISCOVERY_EDGE_CACHE_ENABLED", false)
+    ? NEARBY_CELL_EDGE_CACHE_CONTROL
+    : NEARBY_CELL_LOCAL_CACHE_CONTROL;
+}
+
+function booleanFromEnv(key: string, fallback: boolean) {
+  const value = process.env[key]?.trim().toLowerCase();
+  if (!value) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "on"].includes(value)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(value)) {
+    return false;
+  }
+  return fallback;
 }
