@@ -92,25 +92,27 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
 
   return (
     <div id="shops-section" className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-black sm:text-3xl">
-            {t("title")}
-          </h2>
-          <p className="hidden text-sm font-medium text-slate-500 md:block">
-            {locationSubtitle}
-          </p>
+      {!(shouldRenderShopResults && visibleShops.length === 0 && !isInitialLoading) ? (
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-black sm:text-3xl">
+              {t("title")}
+            </h2>
+            <p className="hidden text-sm font-medium text-slate-500 md:block">
+              {locationSubtitle}
+            </p>
+          </div>
+          {!locationNeedsAction ? (
+            <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
+              {isInitialLoading || displayState === "expandingRadius"
+                ? t("statusLoading")
+                : visibleShops.length === 0
+                  ? t("statusEmpty")
+                  : t("statusCount", { count: visibleShops.length })}
+            </span>
+          ) : null}
         </div>
-        {!locationNeedsAction ? (
-          <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
-            {isInitialLoading || displayState === "expandingRadius"
-              ? t("statusLoading")
-              : visibleShops.length === 0
-                ? t("statusEmpty")
-                : t("statusCount", { count: visibleShops.length })}
-          </span>
-        ) : null}
-      </div>
+      ) : null}
 
       {locationNeedsAction ? (
         <>
