@@ -25,7 +25,7 @@
     "locationDeniedDescription": "உங்கள் அருகிலுள்ள கடைகளை காட்ட இருப்பிடத்தை இயக்கவும்.",
     "locationBlockedDescription": "இருப்பிட அணுகல் முடக்கப்பட்டுள்ளது. அருகில் உள்ள கடைகளை பார்க்க உங்கள் உலாவி அமைப்புகளில் அதை இயக்கவும்.",
     "locationLoadingTitle": "Requesting location",
-    "locationLoadingDescription": "Waiting for Chrome location permission. Allow it to show nearby shops.",
+    "locationLoadingDescription": "அருகிலுள்ள கடைகளைக் கண்டறிய உங்கள் சாதனத்தில் இருப்பிடக் கோரிக்கையை ஏற்கவும்.",
     "locationLoadingAction": "Requesting...",
     "locationRetryAction": "Retry location",
     "locationErrorTitle": "இருப்பிடம் முடக்கப்பட்டுள்ளது",

@@ -25,7 +25,7 @@
     "locationDeniedDescription": "Enable location to show shops near you.",
     "locationBlockedDescription": "Location access is disabled. Enable it in your browser settings to discover shops near you.",
     "locationLoadingTitle": "Requesting location",
-    "locationLoadingDescription": "Waiting for Chrome location permission. Allow it to show nearby shops.",
+    "locationLoadingDescription": "Approve the location request on your device to discover nearby shops.",
     "locationLoadingAction": "Requesting...",
     "locationRetryAction": "Retry location",
     "locationErrorTitle": "Location is off",
