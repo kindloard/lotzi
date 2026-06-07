@@ -36,7 +36,7 @@
     "locationNotNowAction": "Not now",
     "enableLocation": "Enable location",
     "noShopsTitle": "No Shops Found",
-    "noShopsDescription": "No approved shops are available for this category yet."
+    "noShopsDescription": "We couldn't find any nearby shops."
   },
   "filters": {
     "all": "All",
