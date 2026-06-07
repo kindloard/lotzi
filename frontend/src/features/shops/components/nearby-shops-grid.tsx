@@ -138,7 +138,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                   type="button"
                   disabled={locationStatus === "loading"}
                   onClick={() => requestLocation({ ignoreCache: true })}
-                  className="inline-flex h-12 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
                 >
                   {locationStatus === "loading"
                     ? t("locationLoadingAction")
@@ -148,7 +148,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-12 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
                   onClick={() => {
                     // Visual only, or scrolls to search
                     window.scrollTo({ top: 0, behavior: 'smooth' });
