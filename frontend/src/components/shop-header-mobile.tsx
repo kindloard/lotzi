@@ -64,7 +64,7 @@ export function ShopHeaderMobile({
       <Link
         href="/cart"
         aria-label={tAria("openCart")}
-        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/40 text-slate-950 backdrop-blur-sm"
+        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-950 shadow-sm"
       >
         <ShoppingCart size={18} strokeWidth={2.3} />
         {cartItemCount > 0 ? (
