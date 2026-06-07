@@ -20,9 +20,45 @@ interface RequestLocationOptions {
   ignoreCache?: boolean;
 }
 
+let memoryCoordinates: Coordinates | null = null;
+let memoryStatus: LocationStatus | null = null;
+let isHydrated = false;
+
 export function usePreciseLocation(initialCoordinates: Coordinates | null = null) {
-  const [coordinates, setCoordinates] = useState<Coordinates | null>(initialCoordinates);
-  const [status, setStatus] = useState<LocationStatus>(initialCoordinates ? "resolved" : "idle");
+  const [coordinates, setInternalCoordinates] = useState<Coordinates | null>(() => {
+    if (initialCoordinates) return initialCoordinates;
+    if (memoryCoordinates) return memoryCoordinates;
+    if (typeof window !== "undefined" && isHydrated) {
+      return readCoordinatesCache();
+    }
+    return null;
+  });
+
+  const [status, setInternalStatus] = useState<LocationStatus>(() => {
+    if (initialCoordinates) return "resolved";
+    if (memoryStatus) return memoryStatus;
+    if (typeof window !== "undefined" && isHydrated) {
+      return readCoordinatesCache() ? "resolved" : "idle";
+    }
+    return "idle";
+  });
+
+  const setCoordinates = useCallback((updater: Coordinates | null | ((c: Coordinates | null) => Coordinates | null)) => {
+    setInternalCoordinates((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      memoryCoordinates = next;
+      return next;
+    });
+  }, []);
+
+  const setStatus = useCallback((updater: LocationStatus | ((s: LocationStatus) => LocationStatus)) => {
+    setInternalStatus((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      memoryStatus = next;
+      return next;
+    });
+  }, []);
+
   const requestIdRef = useRef(0);
 
   const requestLocation = useCallback(async (options: RequestLocationOptions = {}) => {
@@ -88,6 +124,7 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
   }, []);
 
   useEffect(() => {
+    isHydrated = true;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       clearGeoGridCookie();
       setStatus("unsupported");

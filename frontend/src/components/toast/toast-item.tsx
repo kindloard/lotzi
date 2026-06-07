@@ -13,8 +13,8 @@ import { ToastRecord, ToastVariant } from "@/components/toast/toast-context";
 
 const variantStyles: Record<ToastVariant, { icon: ReactNode; className: string }> = {
   success: {
-    icon: <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"><Check size={18} strokeWidth={3} /></div>,
-    className: "border-emerald-100 bg-white text-slate-800"
+    icon: <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand-strong ring-1 ring-brand/30"><Check size={18} strokeWidth={3} /></div>,
+    className: "border-brand/20 bg-white text-slate-800"
   },
   error: {
     icon: <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100"><X size={18} strokeWidth={3} /></div>,

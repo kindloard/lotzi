@@ -140,7 +140,7 @@ export class ShopsController {
     return result.data;
   }
 
-  @Get(":publicId/:publicSlug/products")
+  @Get(":publicId(\\d{6})/:publicSlug/products")
   async productsForPublicShop(
     @Param("publicId") rawPublicId: string,
     @Param("publicSlug") rawPublicSlug: string,
@@ -180,7 +180,7 @@ export class ShopsController {
     }
   }
 
-  @Get(":publicId/:publicSlug/products/:productRef")
+  @Get(":publicId(\\d{6})/:publicSlug/products/:productRef")
   async productForPublicShop(
     @Param("publicId") rawPublicId: string,
     @Param("publicSlug") rawPublicSlug: string,
@@ -222,7 +222,7 @@ export class ShopsController {
     }
   }
 
-  @Get(":publicId/:publicSlug")
+  @Get(":publicId(\\d{6})/:publicSlug")
   async publicDetail(
     @Param("publicId") rawPublicId: string,
     @Param("publicSlug") rawPublicSlug: string,

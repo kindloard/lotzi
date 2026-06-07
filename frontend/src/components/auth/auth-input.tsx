@@ -79,7 +79,7 @@ export function AuthInput({
             hasError
               ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10"
               : hasSuccess
-              ? "border-emerald-300 focus:border-emerald-500 focus:ring-emerald-500/10"
+              ? "border-brand focus:border-brand-strong focus:ring-brand/20"
               : "border-zinc-200 focus:border-zinc-950 focus:ring-zinc-950/5"
           } ${isPassword ? "pr-11" : "pr-9"}`}
           disabled={disabled}
@@ -114,7 +114,7 @@ export function AuthInput({
         ) : hasSuccess ? (
           <CheckCircle2
             aria-hidden="true"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-strong"
             size={15}
           />
         ) : null}

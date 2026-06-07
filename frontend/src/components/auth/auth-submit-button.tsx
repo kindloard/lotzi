@@ -25,7 +25,7 @@ export function AuthSubmitButton({
 }: AuthSubmitButtonProps) {
   const stateClass =
     status === "success"
-      ? "bg-emerald-600 text-white"
+      ? "bg-brand text-zinc-950"
       : status === "error"
       ? "bg-rose-600 text-white"
       : "bg-zinc-950 text-white hover:bg-zinc-900 active:translate-y-px";
