@@ -28,18 +28,12 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
   const [coordinates, setInternalCoordinates] = useState<Coordinates | null>(() => {
     if (initialCoordinates) return initialCoordinates;
     if (memoryCoordinates) return memoryCoordinates;
-    if (typeof window !== "undefined" && isHydrated) {
-      return readCoordinatesCache();
-    }
     return null;
   });
 
   const [status, setInternalStatus] = useState<LocationStatus>(() => {
     if (initialCoordinates) return "resolved";
     if (memoryStatus) return memoryStatus;
-    if (typeof window !== "undefined" && isHydrated) {
-      return readCoordinatesCache() ? "resolved" : "idle";
-    }
     return "idle";
   });
 
@@ -78,12 +72,13 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
     if (permissionState === "denied") {
       clearCoordinatesCache();
       clearGeoGridCookie();
+      removeGeoGrantedFlag();
       setCoordinates(null);
       setStatus("denied");
       return;
     }
 
-    const cached = !options.ignoreCache && permissionState === "granted"
+    const cached = !options.ignoreCache && (permissionState === "granted" || permissionState === null)
       ? readCoordinatesCache()
       : null;
     if (cached) {
@@ -103,6 +98,7 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
       const next = coordinatesFromPosition(position);
       setCoordinates((current) => bestCoordinates(current, next));
       writeCoordinatesCache(next);
+      writeGeoGrantedFlag();
       setStatus("resolved");
     } catch (error) {
       if (requestIdRef.current !== requestId) {
@@ -115,6 +111,7 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
       if (isPermissionDenied(error)) {
         clearCoordinatesCache();
         clearGeoGridCookie();
+        removeGeoGrantedFlag();
         setCoordinates(null);
         setStatus("denied");
       } else {
@@ -124,23 +121,31 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
   }, []);
 
   useEffect(() => {
-    isHydrated = true;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       clearGeoGridCookie();
       setStatus("unsupported");
       return;
     }
 
+    if (!initialCoordinates && !memoryCoordinates) {
+      const cached = readCoordinatesCache();
+      if (cached) {
+        setCoordinates(cached);
+        setStatus("resolved");
+      }
+    }
+
     let cancelled = false;
     let permissionStatus: PermissionStatus | null = null;
 
     const applyPermissionState = (permissionState: PermissionState | null) => {
-      if (cancelled || !permissionState) {
+      if (cancelled) {
         return;
       }
       if (permissionState === "denied") {
         clearCoordinatesCache();
         clearGeoGridCookie();
+        removeGeoGrantedFlag();
         setCoordinates(null);
         setStatus("denied");
       } else if (permissionState === "granted") {
@@ -150,6 +155,10 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
         setStatus((current) =>
           current === "denied" || current === "error" ? "idle" : current
         );
+      } else if (permissionState === null) {
+        if (readGeoGrantedFlag() || readCoordinatesCache()) {
+          void requestLocation();
+        }
       }
     };
 
@@ -290,5 +299,31 @@ function clearCoordinatesCache() {
     sessionStorage.removeItem(GEO_CACHE_KEY);
   } catch {
     // Location gating still works without storage.
+  }
+}
+
+const GEO_GRANTED_FLAG_KEY = "ns:shops:geo:granted";
+
+function writeGeoGrantedFlag() {
+  try {
+    localStorage.setItem(GEO_GRANTED_FLAG_KEY, "true");
+  } catch {
+    // Ignore
+  }
+}
+
+function readGeoGrantedFlag() {
+  try {
+    return localStorage.getItem(GEO_GRANTED_FLAG_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function removeGeoGrantedFlag() {
+  try {
+    localStorage.removeItem(GEO_GRANTED_FLAG_KEY);
+  } catch {
+    // Ignore
   }
 }
