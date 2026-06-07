@@ -51,11 +51,13 @@ export function LandingShopBrowser({ initialNearby = null }: LandingShopBrowserP
 
   return (
     <>
-      <CategoryFilter
-        shops={shops}
-        selectedCategory={selectedCategory}
-        onSelectCategory={handleSelectCategory}
-      />
+      {displayState !== "locationRequired" && (
+        <CategoryFilter
+          shops={shops}
+          selectedCategory={selectedCategory}
+          onSelectCategory={handleSelectCategory}
+        />
+      )}
       <NearbyShopsGrid
         displayState={displayState}
         effectiveRadiusKm={nearbyQuery.effectiveRadiusKm}

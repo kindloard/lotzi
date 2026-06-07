@@ -113,14 +113,14 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
       </div>
 
       {locationNeedsAction ? (
-        <div className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white px-4 py-4 text-sm text-black shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 gap-3">
-            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-neutral-100 bg-neutral-50 text-black">
-              <MapPin size={18} aria-hidden="true" />
-            </span>
-            <div className="space-y-1">
-              <p className="font-bold">{locationNoticeTitle}</p>
-              <p className="text-xs font-semibold leading-5 text-slate-600">
+        <div className="flex flex-col gap-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand/20">
+              <MapPin size={20} aria-hidden="true" className="text-slate-900" />
+            </div>
+            <div className="space-y-1.5 pt-0.5">
+              <p className="text-base font-black tracking-tight text-slate-950">{locationNoticeTitle}</p>
+              <p className="text-sm font-medium leading-relaxed text-slate-500">
                 {locationNoticeDescription}
               </p>
             </div>
@@ -130,7 +130,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
               type="button"
               disabled={locationStatus === "loading"}
               onClick={() => requestLocation({ ignoreCache: true })}
-              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-black px-5 text-xs font-bold uppercase text-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 sm:h-10"
+              className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-brand px-6 text-sm font-bold uppercase tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 sm:h-11 sm:w-auto"
             >
               {locationStatus === "loading"
                 ? t("locationLoadingAction")
