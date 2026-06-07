@@ -23,7 +23,7 @@
     "locationDeniedTitle": "Turn on location",
     "locationPromptDescription": "Tap enable location and allow this site to use your location.",
     "locationDeniedDescription": "Enable location to show shops near you.",
-    "locationBlockedDescription": "Location is blocked for this site. Turn Location on in the address bar popup, or click Reset permissions, then retry.",
+    "locationBlockedDescription": "Location access is disabled. Enable it in your browser settings to discover shops near you.",
     "locationLoadingTitle": "Requesting location",
     "locationLoadingDescription": "Waiting for Chrome location permission. Allow it to show nearby shops.",
     "locationLoadingAction": "Requesting...",

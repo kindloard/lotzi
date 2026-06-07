@@ -23,7 +23,7 @@
     "locationDeniedTitle": "இருப்பிடத்தை இயக்கவும்",
     "locationPromptDescription": "Tap enable location and allow this site to use your location.",
     "locationDeniedDescription": "உங்கள் அருகிலுள்ள கடைகளை காட்ட இருப்பிடத்தை இயக்கவும்.",
-    "locationBlockedDescription": "Location is blocked for this site. Turn Location on in the address bar popup, or click Reset permissions, then retry.",
+    "locationBlockedDescription": "இருப்பிட அணுகல் முடக்கப்பட்டுள்ளது. அருகில் உள்ள கடைகளை பார்க்க உங்கள் உலாவி அமைப்புகளில் அதை இயக்கவும்.",
     "locationLoadingTitle": "Requesting location",
     "locationLoadingDescription": "Waiting for Chrome location permission. Allow it to show nearby shops.",
     "locationLoadingAction": "Requesting...",
