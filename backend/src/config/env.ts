@@ -53,7 +53,10 @@ export const envSchema = z
     FIREBASE_SERVICE_ACCOUNT_JSON: optionalString,
     GOOGLE_MAPS_API_KEY: optionalString,
     SHOP_DISCOVERY_ENABLED: booleanFromStringDefault(true),
-    SHOP_DISCOVERY_RADIUS_KM: z.coerce.number().min(1).max(50).default(5),
+    SHOP_DISCOVERY_RADIUS_KM: z.coerce.number().refine(
+      (value) => [3, 5, 10, 15].includes(value),
+      "SHOP_DISCOVERY_RADIUS_KM must be one of 3, 5, 10, or 15."
+    ).default(3),
     SHOP_DISCOVERY_CARD_READ_MODEL_ENABLED: booleanFromStringDefault(false),
     SHOP_DISCOVERY_SWR_ENABLED: booleanFromStringDefault(false),
     SHOP_DISCOVERY_EDGE_CACHE_ENABLED: booleanFromStringDefault(false),

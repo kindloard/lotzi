@@ -482,7 +482,12 @@ function OrderLineItemsPanel({ order }: { order: Order }) {
                 <div className="min-w-0 flex-1">
                   <p className="min-w-0 truncate text-[14px] font-semibold text-zinc-950">{line.name}</p>
                   <p className="mt-0.5 truncate text-[12px] font-normal text-zinc-500">
-                    {[line.variantName, line.unitDisplay].filter(Boolean).join(" - ") || t("orders.drawer.productLine")}
+                    {[
+                      line.variantName && line.variantName.trim().toLowerCase() !== line.name.trim().toLowerCase() 
+                        ? line.variantName 
+                        : undefined, 
+                      line.unitDisplay
+                    ].filter(Boolean).join(" - ") || t("orders.drawer.productLine")}
                   </p>
                   {line.sku && (
                     <p className="mt-0.5 font-mono text-[11px] font-medium text-zinc-400">{t("orders.drawer.sku")}: {line.sku}</p>

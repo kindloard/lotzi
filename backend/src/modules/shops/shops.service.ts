@@ -550,13 +550,26 @@ export class ShopsService implements OnApplicationBootstrap {
             name: true,
             slug: true,
             status: true,
-            deletedAt: true
+            deletedAt: true,
+            inactive: true,
+            isBanned: true,
+            isClosed: true,
+            outOfService: true
           }
         }
       }
     });
 
-    if (!product || !product.store || product.store.deletedAt || product.store.status !== StoreStatus.APPROVED) {
+    if (
+      !product ||
+      !product.store ||
+      product.store.deletedAt ||
+      product.store.status !== StoreStatus.APPROVED ||
+      product.store.inactive ||
+      product.store.isBanned ||
+      product.store.isClosed ||
+      product.store.outOfService
+    ) {
       throw new NotFoundException("Product was not found.");
     }
 
@@ -648,6 +661,10 @@ export class ShopsService implements OnApplicationBootstrap {
       where: {
         status: StoreStatus.APPROVED,
         deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false,
         latitude: { not: null },
         longitude: { not: null }
       },
@@ -658,6 +675,7 @@ export class ShopsService implements OnApplicationBootstrap {
       take: MAX_LANDING_SHOPS,
       select: {
         id: true,
+        deliveryRadiusKm: true,
         latitude: true,
         longitude: true
       }
@@ -680,6 +698,9 @@ export class ShopsService implements OnApplicationBootstrap {
 
       const route = routeDistances?.[index] ?? null;
       if (route) {
+        if (!storeCanServeDistance(store.deliveryRadiusKm, route.distanceMeters)) {
+          return [];
+        }
         const distance: ShopDistanceDto = {
           shopId: store.id,
           distance: formatRouteDistance(route.distanceMeters, route.distanceText),
@@ -693,6 +714,9 @@ export class ShopsService implements OnApplicationBootstrap {
       }
 
       const distanceMeters = Math.round(distanceInMeters(origin, { latitude, longitude }));
+      if (!storeCanServeDistance(store.deliveryRadiusKm, distanceMeters)) {
+        return [];
+      }
       const distance: ShopDistanceDto = {
         shopId: store.id,
         distance: formatApproximateDistance(distanceMeters, accuracyMeters),
@@ -1007,7 +1031,11 @@ export class ShopsService implements OnApplicationBootstrap {
     const stores = await this.prisma.store.findMany({
       where: {
         status: StoreStatus.APPROVED,
-        deletedAt: null
+        deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false
       },
       orderBy: [
         { approvedAt: "desc" },
@@ -1074,7 +1102,11 @@ export class ShopsService implements OnApplicationBootstrap {
         status: ProductStatus.PUBLISHED,
         store: {
           status: StoreStatus.APPROVED,
-          deletedAt: null
+          deletedAt: null,
+          inactive: false,
+          isBanned: false,
+          isClosed: false,
+          outOfService: false
         }
       },
       orderBy: {
@@ -1132,7 +1164,11 @@ export class ShopsService implements OnApplicationBootstrap {
       where: {
         publicCode: publicId,
         status: StoreStatus.APPROVED,
-        deletedAt: null
+        deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false
       },
       select: storeDetailSelect
     });
@@ -1152,7 +1188,13 @@ export class ShopsService implements OnApplicationBootstrap {
     if (store.deletedAt) {
       throw new GoneException("Shop is no longer available.");
     }
-    if (store.status !== StoreStatus.APPROVED) {
+    if (
+      store.status !== StoreStatus.APPROVED ||
+      store.inactive ||
+      store.isBanned ||
+      store.isClosed ||
+      store.outOfService
+    ) {
       throw new NotFoundException("Shop was not found.");
     }
 
@@ -1195,6 +1237,10 @@ export class ShopsService implements OnApplicationBootstrap {
         status: ProductStatus.PUBLISHED,
         store: {
           deletedAt: null,
+          inactive: false,
+          isBanned: false,
+          isClosed: false,
+          outOfService: false,
           publicCode: publicId,
           slug: publicSlug,
           status: StoreStatus.APPROVED
@@ -1800,6 +1846,10 @@ const storeDetailSelect = {
   longitude: true,
   status: true,
   deletedAt: true,
+  inactive: true,
+  isBanned: true,
+  isClosed: true,
+  outOfService: true,
   isDeliveryAvailable: true,
   openingTime: true,
   closingTime: true,
@@ -2295,6 +2345,15 @@ function initialsFromName(value: string) {
 
 function decimalToNumber(value: Prisma.Decimal | null | undefined) {
   return value == null ? null : Number(value.toString());
+}
+
+function storeCanServeDistance(deliveryRadiusKm: Prisma.Decimal | number | string | null | undefined, distanceMeters: number) {
+  const radiusKm = decimalToNumber(
+    deliveryRadiusKm instanceof Prisma.Decimal || deliveryRadiusKm == null
+      ? deliveryRadiusKm
+      : new Prisma.Decimal(deliveryRadiusKm)
+  );
+  return radiusKm == null || distanceMeters <= radiusKm * 1000;
 }
 
 function createWeakEtag(value: unknown) {

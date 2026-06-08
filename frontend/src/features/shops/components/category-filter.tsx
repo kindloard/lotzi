@@ -52,12 +52,41 @@ export const CategoryFilter = memo(function CategoryFilter({
   selectedCategory,
   onSelectCategory
 }: CategoryFilterProps) {
-  const counts = useMemo(() => {
-    const next: Record<string, number> = { all: shops.length };
+  const { counts, dynamicCategories } = useMemo(() => {
+    const nextCounts: Record<string, number> = { all: shops.length };
+    const dynamicCatsMap = new Map<string, { id: string; name: string; icon: LucideIcon }>();
+
     for (const shop of shops) {
-      next[shop.type] = (next[shop.type] ?? 0) + 1;
+      nextCounts[shop.type] = (nextCounts[shop.type] ?? 0) + 1;
+      
+      if (!dynamicCatsMap.has(shop.type)) {
+        const hardcoded = categories.find((c) => c.id === shop.type);
+        if (hardcoded) {
+          dynamicCatsMap.set(shop.type, hardcoded);
+        } else {
+          dynamicCatsMap.set(shop.type, {
+            id: shop.type,
+            name: shop.typeName || shop.type,
+            icon: ShoppingBag
+          });
+        }
+      }
     }
-    return next;
+
+    const allCategory = categories[0];
+    const otherCategories = Array.from(dynamicCatsMap.values()).sort((a, b) => {
+      const aIndex = categories.findIndex((c) => c.id === a.id);
+      const bIndex = categories.findIndex((c) => c.id === b.id);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return (nextCounts[b.id] ?? 0) - (nextCounts[a.id] ?? 0);
+    });
+
+    return {
+      counts: nextCounts,
+      dynamicCategories: [allCategory, ...otherCategories]
+    };
   }, [shops]);
 
   return (
@@ -78,7 +107,7 @@ export const CategoryFilter = memo(function CategoryFilter({
       </div>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide sm:mx-0 sm:px-0 md:pb-3">
-        {categories.map((category) => {
+        {dynamicCategories.map((category) => {
           const Icon = category.icon;
           const isSelected = selectedCategory === category.id;
           const count = counts[category.id] ?? 0;

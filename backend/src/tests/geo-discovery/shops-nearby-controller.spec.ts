@@ -33,7 +33,7 @@ const nearbyResult = {
   cacheSource: "l1" as const,
   data: {
     apiVersion: "v1" as const,
-    radiusKm: 5,
+    radiusKm: 3,
     items: [],
     pageInfo: { limit: 24, hasNextPage: false, nextCursor: null }
   },
@@ -41,6 +41,10 @@ const nearbyResult = {
 };
 
 describe("ShopsController nearby discovery", () => {
+  beforeEach(() => {
+    delete process.env.SHOP_DISCOVERY_EDGE_CACHE_ENABLED;
+  });
+
   afterEach(() => {
     delete process.env.SHOP_DISCOVERY_EDGE_CACHE_ENABLED;
   });
@@ -50,7 +54,7 @@ describe("ShopsController nearby discovery", () => {
     const request = requestMock();
     const response = responseMock();
 
-    await controller.nearbyCell("8.713", "77.422", "5", "24", undefined, request as never, response as never);
+    await controller.nearbyCell("8.713", "77.422", "3", "24", undefined, request as never, response as never);
 
     expect(nearby).toHaveBeenCalledWith(expect.objectContaining({
       latGrid: "8.713",
@@ -60,7 +64,7 @@ describe("ShopsController nearby discovery", () => {
     expect(response.removeHeader).toHaveBeenCalledWith("Set-Cookie");
     expect(response.setHeader).toHaveBeenCalledWith(
       "Cache-Control",
-      "private, max-age=15, stale-while-revalidate=15"
+      "private, max-age=60"
     );
     expect(response.vary).toHaveBeenCalledWith("Accept-Encoding");
   });
@@ -71,11 +75,11 @@ describe("ShopsController nearby discovery", () => {
     const request = requestMock();
     const response = responseMock();
 
-    await controller.nearbyCell("8.713", "77.422", "5", "24", undefined, request as never, response as never);
+    await controller.nearbyCell("8.713", "77.422", "3", "24", undefined, request as never, response as never);
 
     expect(response.setHeader).toHaveBeenCalledWith(
       "Cache-Control",
-      "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+      "public, max-age=60, s-maxage=60"
     );
   });
 
@@ -87,10 +91,11 @@ describe("ShopsController nearby discovery", () => {
     });
     const response = responseMock();
 
-    await controller.nearby("8.7", "77.4", "24", undefined, request as never, response as never);
+    await controller.nearby("8.7", "77.4", "3", "24", undefined, request as never, response as never);
 
     expect(nearby).toHaveBeenCalledWith(expect.objectContaining({
-      deviceId: null
+      deviceId: null,
+      radiusKm: "3"
     }));
   });
 });

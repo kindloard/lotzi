@@ -14,6 +14,7 @@ interface CursorPayload {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
+  originKey?: string | null;
   sessionHash: string | null;
 }
 
@@ -44,6 +45,7 @@ export class GeoCursorService {
     radiusKm: number;
     distanceMeters: number;
     id: string;
+    originKey?: string | null;
     sessionHash?: string | null;
   }): string {
     const issuedAt = Date.now();
@@ -58,6 +60,7 @@ export class GeoCursorService {
       issuedAt,
       expiresAt: issuedAt + GEO_CURSOR_TTL_MS,
       nonce: randomUUID(),
+      originKey: input.originKey ?? null,
       sessionHash: input.sessionHash ?? null
     };
     const encoded = encode(JSON.stringify(payload));
@@ -66,7 +69,7 @@ export class GeoCursorService {
 
   verify(
     cursor: string,
-    context: { grid: GeoGrid; radiusKm: number; sessionHash?: string | null }
+    context: { grid: GeoGrid; originKey?: string | null; radiusKm: number; sessionHash?: string | null }
   ): VerifiedGeoCursor {
     const [encoded, signature] = cursor.split(".");
     if (!encoded || !signature || cursor.split(".").length !== 2) {
@@ -90,6 +93,7 @@ export class GeoCursorService {
       payload.latGrid !== context.grid.latGrid ||
       payload.lngGrid !== context.grid.lngGrid ||
       payload.radiusKm !== context.radiusKm ||
+      (payload.originKey ?? null) !== (context.originKey ?? null) ||
       (payload.sessionHash && context.sessionHash && payload.sessionHash !== context.sessionHash) ||
       !isUuid(payload.id) ||
       !Number.isFinite(payload.distanceMeters)

@@ -284,6 +284,17 @@ export class ObservabilityService implements OnModuleInit {
     help: "Client-driven nearby discovery radius expansions",
     labelNames: ["from_radius_km", "to_radius_km"]
   });
+  readonly geoSearchRadiusUsed = new client.Counter({
+    name: "lotzi_geo_search_radius_used_total",
+    help: "Nearby discovery searches by selected radius",
+    labelNames: ["radius_km", "returned_count"]
+  });
+  readonly geoDistanceDistribution = new client.Histogram({
+    name: "lotzi_geo_result_distance_km",
+    help: "Distance distribution for shops returned by nearby discovery",
+    labelNames: ["radius_km"],
+    buckets: [0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 15, 25, 50]
+  });
   readonly storeCardCacheHitRatio = new client.Histogram({
     name: "lotzi_store_card_cache_hit_ratio",
     help: "Per-request store-card cache hit ratio for geo discovery hydration",
@@ -352,6 +363,8 @@ export class ObservabilityService implements OnModuleInit {
     this.registry.registerMetric(this.approvedShopsAvailable);
     this.registry.registerMetric(this.geoFilterRejections);
     this.registry.registerMetric(this.geoRadiusExpansions);
+    this.registry.registerMetric(this.geoSearchRadiusUsed);
+    this.registry.registerMetric(this.geoDistanceDistribution);
     this.registry.registerMetric(this.storeCardCacheHitRatio);
     this.registry.registerMetric(this.checkoutTraceQueryCapReached);
   }
@@ -587,6 +600,20 @@ export class ObservabilityService implements OnModuleInit {
       from_radius_km: String(fromRadiusKm),
       to_radius_km: String(toRadiusKm)
     });
+  }
+
+  recordGeoSearchRadiusUsed(radiusKm: number, returnedCount: number): void {
+    this.geoSearchRadiusUsed.inc({
+      radius_km: String(radiusKm),
+      returned_count: String(returnedCount)
+    });
+  }
+
+  observeGeoResultDistance(radiusKm: number, distanceMeters: number): void {
+    if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
+      return;
+    }
+    this.geoDistanceDistribution.observe({ radius_km: String(radiusKm) }, distanceMeters / 1000);
   }
 
   observeStoreCardCacheHitRatio(ratio: number): void {

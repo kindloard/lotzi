@@ -30,22 +30,24 @@ export class RedisService implements OnModuleDestroy {
 
     this.client = new Redis(url, {
       enableOfflineQueue: false,
-      maxRetriesPerRequest: 1,
+      maxRetriesPerRequest: 3,
       enableReadyCheck: true,
       lazyConnect: true,
-      // 50ms command timeout: co-located Redis completes in <1ms; 50ms catches hung connections.
-      commandTimeout: 50,
-      // 150ms connect timeout: safe for same-host or container-to-container.
-      connectTimeout: 150,
-      keepAlive: 1000,
-      retryStrategy: (attempt) => Math.min(attempt * 500, 5_000)
+      commandTimeout: 250, // More forgiving for network hiccups
+      connectTimeout: 2000, // 2s is safer for remote instances or cold starts
+      keepAlive: 10000,
+      retryStrategy: (attempt) => Math.min(attempt * 1000, 5_000)
     });
 
     this.client.on("error", (error) => {
       const now = Date.now();
       if (now - this.lastErrorLogAt > 60_000) {
         this.lastErrorLogAt = now;
-        this.logger.error(`Redis error: ${error.message}`);
+        if (process.env.NODE_ENV !== "production") {
+          this.logger.debug(`Redis offline (dev fallback active): ${error.message}`);
+        } else {
+          this.logger.warn(`Redis connection error: ${error.message}`);
+        }
       }
     });
   }
@@ -360,11 +362,11 @@ export class RedisService implements OnModuleDestroy {
     }
     this.lastErrorLogAt = now;
     const message = error instanceof Error ? error.message : String(error);
-    this.logger.warn(
-      `Redis unavailable; opening auth/cache circuit for ${Math.ceil(
-        REDIS_CIRCUIT_OPEN_MS / 1000
-      )}s. ${message}`
-    );
+    if (this.allowLocalOnlyFallback()) {
+      this.logger.debug(`Redis offline; using local fallback. (${message})`);
+    } else {
+      this.logger.warn(`Redis unavailable; opening auth/cache circuit for ${Math.ceil(REDIS_CIRCUIT_OPEN_MS / 1000)}s. ${message}`);
+    }
   }
 
   private getLocal(key: string): string | null {

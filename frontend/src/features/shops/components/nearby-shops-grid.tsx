@@ -205,13 +205,8 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
             ))
           ) : visibleShops.length === 0 ? (
             <div className="col-span-full space-y-4 rounded-lg bg-white p-8 py-12 text-center">
-              <div className="mx-auto inline-flex size-24 items-center justify-center mb-2">
-                <svg width="80" height="80" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M22 40 v40 q0 5 5 5 h46 q5 0 5 -5 v-40 z" fill="#909090" />
-                  <rect x="30" y="55" width="16" height="16" rx="3" fill="#D0D0D0" />
-                  <path d="M54 58 q0 -3 3 -3 h10 q3 0 3 3 v27 h-16 z" fill="#D0D0D0" />
-                  <path d="M15 35 Q15 20 30 20 H70 Q85 20 85 35 V40 A 7 7 0 0 1 71 40 A 7 7 0 0 1 57 40 A 7 7 0 0 1 43 40 A 7 7 0 0 1 29 40 A 7 7 0 0 1 15 40 Z" fill="#D0D0D0" />
-                </svg>
+              <div className="mx-auto flex h-32 w-32 items-center justify-center mb-6 overflow-hidden rounded-full bg-slate-50/50">
+                <img src="/images/shop-empty-state.png" alt="No shops nearby" className="h-full w-full object-cover mix-blend-multiply" />
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-black">

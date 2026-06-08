@@ -55,6 +55,14 @@ function observabilityMock() {
 }
 
 describe("ShopsService", () => {
+  beforeEach(() => {
+    delete process.env.SHOP_CATALOG_CARD_SELECT_ENABLED;
+  });
+
+  afterEach(() => {
+    delete process.env.SHOP_CATALOG_CARD_SELECT_ENABLED;
+  });
+
   it("returns slim approved shop DTOs from cache after the first Prisma load", async () => {
     const prisma = {
       store: {
@@ -456,14 +464,26 @@ describe("ShopsService", () => {
     });
 
     expect(response.products[0].imageUrl).toBe("https://cdn.example.test/front.webp");
-    expect(response.products[0].images).toEqual([
+    expect(response.products[0].images).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "image-front",
         mediaSource: "PRODUCT",
         variantIds: [],
         variantSkuIds: []
+      }),
+      expect.objectContaining({
+        id: "image-500ml",
+        mediaSource: "VARIANT",
+        variantIds: ["variant-500ml"],
+        variantSkuIds: ["GW-500"]
+      }),
+      expect.objectContaining({
+        id: "image-shared",
+        mediaSource: "VARIANT",
+        variantIds: ["variant-1l", "variant-500ml"],
+        variantSkuIds: ["GW-1L", "GW-500"]
       })
-    ]);
+    ]));
     expect(response.products[0].variants.find((variant) => variant.id === "variant-1l")?.images).toEqual([
       expect.objectContaining({
         id: "image-shared",
@@ -872,11 +892,15 @@ describe("ShopsService", () => {
     }).loadShopDetailByPublicRoute("123456", "test-shop");
 
     expect(prisma.store.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
+      where: expect.objectContaining({
         deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false,
         publicCode: "123456",
         status: StoreStatus.APPROVED
-      }
+      })
     }));
     expect(response.publicId).toBe("123456");
   });
@@ -912,6 +936,10 @@ describe("ShopsService", () => {
       where: expect.objectContaining({
         id: "56af3a93-7eb8-4c4f-9ae5-421e378fce16",
         store: expect.objectContaining({
+          inactive: false,
+          isBanned: false,
+          isClosed: false,
+          outOfService: false,
           publicCode: "123456",
           slug: "test-shop",
           status: StoreStatus.APPROVED
@@ -1021,6 +1049,10 @@ function storeDetailRowFixture() {
     longitude: null,
     status: StoreStatus.APPROVED,
     deletedAt: null,
+    inactive: false,
+    isBanned: false,
+    isClosed: false,
+    outOfService: false,
     isDeliveryAvailable: true,
     openingTime: null,
     closingTime: null,

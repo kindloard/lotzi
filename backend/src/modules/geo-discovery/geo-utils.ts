@@ -6,7 +6,8 @@ export const GEO_GRID_CELL_BUFFER_METERS = 160;
 export const GEO_CURSOR_TTL_MS = 10 * 60 * 1000;
 export const GEO_DEFAULT_LIMIT = 24;
 export const GEO_MAX_LIMIT = 48;
-export const GEO_SUPPORTED_RADIUS_KM = [2, 5, 10, 25, 50] as const;
+export const GEO_SUPPORTED_RADIUS_KM = [3, 5, 10, 15] as const;
+export const GEO_STRICT_DEFAULT_RADIUS_KM = 3;
 
 export interface GeoCoordinates {
   latitude: number;
@@ -65,7 +66,9 @@ export function parseLimit(value: unknown): number {
 
 export function parseRadiusKm(value: unknown, fallback: number): number {
   if (value === undefined || value === null || value === "") {
-    return fallback;
+    return GEO_SUPPORTED_RADIUS_KM.includes(fallback as typeof GEO_SUPPORTED_RADIUS_KM[number])
+      ? fallback
+      : GEO_STRICT_DEFAULT_RADIUS_KM;
   }
   const parsed = Number(value);
   if (!GEO_SUPPORTED_RADIUS_KM.includes(parsed as typeof GEO_SUPPORTED_RADIUS_KM[number])) {

@@ -68,11 +68,12 @@ export class RateLimitService {
         this.redisCircuitOpenUntil = now + REDIS_CIRCUIT_OPEN_MS;
         if (now - this.lastRedisErrorLogAt >= REDIS_CIRCUIT_OPEN_MS) {
           this.lastRedisErrorLogAt = now;
-          this.logger.error(
-            `Redis rate limiter unavailable; using emergency local throttle for ${Math.ceil(
-              REDIS_CIRCUIT_OPEN_MS / 1000
-            )}s. ${error instanceof Error ? error.message : String(error)}`
-          );
+          const msg = `Redis rate limiter unavailable; using emergency local throttle for ${Math.ceil(REDIS_CIRCUIT_OPEN_MS / 1000)}s. ${error instanceof Error ? error.message : String(error)}`;
+          if (process.env.NODE_ENV !== "production") {
+            this.logger.debug(msg);
+          } else {
+            this.logger.warn(msg);
+          }
         }
       }
     }

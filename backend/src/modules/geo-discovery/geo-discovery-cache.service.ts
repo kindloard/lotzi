@@ -10,10 +10,9 @@ const L1_MAX_TTL_MS = 30_000;
 const L1_REDIS_DEGRADED_TTL_MS = 30_000;
 // Epoch L1 TTL: 5s (was 3s) — reduces hot epoch re-reads per process.
 const EPOCH_L1_TTL_MS = 5_000;
-// L2 TTLs: 60–120s for normal cache; 10min for SWR extension.
-const L2_MIN_TTL_SECONDS = 60;
-const L2_MAX_TTL_SECONDS = 120;
-const L2_SWR_TTL_SECONDS = 10 * 60;
+// Location result caches stay short so GPS-based availability remains fresh.
+const L2_TTL_SECONDS = 60;
+const L2_SWR_TTL_SECONDS = 60;
 const LOCK_TTL_SECONDS = 3;
 const STORE_CARD_TTL_SECONDS = 10 * 60;
 
@@ -86,7 +85,7 @@ export class GeoDiscoveryCacheService {
 
   cacheKey(
     context: GeoEpochContext,
-    parts: { cursorHash: string; limit: number; responseVersion: number }
+    parts: { cursorHash: string; limit: number; originKey?: string; responseVersion: number }
   ): string {
     return [
       "geo",
@@ -95,6 +94,7 @@ export class GeoDiscoveryCacheService {
       context.grid.latGrid,
       context.grid.lngGrid,
       context.radiusKm,
+      parts.originKey ? `origin:${parts.originKey}` : "origin:cell",
       `limit:${parts.limit}`,
       `v${context.globalEpoch}.${context.locationEpoch}.${context.cardEpoch}`,
       `cursor:${parts.cursorHash}`
@@ -203,7 +203,7 @@ export class GeoDiscoveryCacheService {
 
     const ttlSeconds = options.staleWhileRevalidate
       ? L2_SWR_TTL_SECONDS
-      : jitterSeconds(L2_MIN_TTL_SECONDS, L2_MAX_TTL_SECONDS);
+      : L2_TTL_SECONDS;
     const ok = await this.redis.setExStrict(key, ttlSeconds, value);
     if (!ok) {
       this.observability.recordGeoRedisDegraded("cache_set");
@@ -395,10 +395,6 @@ function gridKey(grid: GeoGrid): string {
 }
 
 function jitterMs(min: number, max: number): number {
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
-
-function jitterSeconds(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 

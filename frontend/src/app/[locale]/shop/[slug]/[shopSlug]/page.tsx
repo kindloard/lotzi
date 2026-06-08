@@ -15,6 +15,7 @@ import { ShopCatalog } from "@/features/shops/components/shop-catalog";
 import { StorefrontFooter } from "@/features/shops/components/storefront-footer";
 import { ShopsQueryProvider } from "@/features/shops/providers/shops-query-provider";
 import type { ShopDetail, ShopProductsFilters, ShopProductsResponse } from "@/features/shops/shops-api";
+import { ScrollToTop } from "@/components/scroll-to-top";
 
 type ShopPageProps = {
   params: Promise<{ locale: string; slug: string; shopSlug: string }>;
@@ -121,6 +122,7 @@ export default async function ShopPage({ params, searchParams }: ShopPageProps) 
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950" id="main-content">
+      <ScrollToTop />
       <ShopHero addressFallback={addressFallback} shop={shop} typeName={localizedTypeName} />
       <ShopsQueryProvider>
         <Suspense fallback={<CatalogFallback />}>

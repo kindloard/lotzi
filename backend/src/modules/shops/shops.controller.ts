@@ -9,9 +9,9 @@ const DETAIL_CACHE_CONTROL = "public, max-age=300, s-maxage=3600, stale-while-re
 const STOCK_SENSITIVE_CACHE_CONTROL = "no-store, max-age=0, must-revalidate";
 const PRODUCTS_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
 const PDP_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=60";
-const NEARBY_PRIVATE_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=15";
-const NEARBY_CELL_EDGE_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
-const NEARBY_CELL_LOCAL_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=15";
+const NEARBY_PRIVATE_CACHE_CONTROL = "private, max-age=60";
+const NEARBY_CELL_EDGE_CACHE_CONTROL = "public, max-age=60, s-maxage=60";
+const NEARBY_CELL_LOCAL_CACHE_CONTROL = "private, max-age=60";
 const PUBLIC_ID_PATTERN = /^\d{6}$/;
 const SHOP_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRODUCT_REF_PATTERN = /^([0-9a-f]{32})(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$/i;
@@ -92,6 +92,7 @@ export class ShopsController {
   async nearby(
     @Query("latitude") latitude: string | undefined,
     @Query("longitude") longitude: string | undefined,
+    @Query("radiusKm") radiusKm: string | undefined,
     @Query("limit") limit: string | undefined,
     @Query("cursor") cursor: string | undefined,
     @Req() request: Request,
@@ -101,6 +102,7 @@ export class ShopsController {
     const result = await this.geoDiscovery.nearby({
       latitude,
       longitude,
+      radiusKm,
       limit,
       cursor,
       ip: clientIp(request),

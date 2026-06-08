@@ -70,6 +70,7 @@ interface GeoDiscoveryCardRow {
   featured_product: string;
   branding_json: Prisma.JsonValue | null;
   business_hours_json: Prisma.JsonValue | null;
+  delivery_radius_km: number | string | Prisma.Decimal | null;
   distance_meters: number | string | Prisma.Decimal;
 }
 
@@ -125,7 +126,7 @@ export class GeoDiscoveryService {
     config: ConfigService
   ) {
     this.enabled = config.get<boolean>("SHOP_DISCOVERY_ENABLED", true);
-    this.defaultRadiusKm = config.get<number>("SHOP_DISCOVERY_RADIUS_KM", 5);
+    this.defaultRadiusKm = config.get<number>("SHOP_DISCOVERY_RADIUS_KM", 3);
     this.cardReadModelEnabled = config.get<boolean>("SHOP_DISCOVERY_CARD_READ_MODEL_ENABLED", false);
     this.swrEnabled = config.get<boolean>("SHOP_DISCOVERY_SWR_ENABLED", false);
   }
@@ -148,9 +149,10 @@ export class GeoDiscoveryService {
     }
     const grid = location.grid;
     const coordinates = location.coordinates;
+    const originKey = input.publicCell ? null : coordinatesCacheKey(coordinates);
     const sessionHash = input.publicCell ? null : sessionHashFor(input.deviceId ?? input.userId ?? null);
     const cursorState = input.cursor
-      ? this.cursor.verify(input.cursor, { grid, radiusKm, sessionHash })
+      ? this.cursor.verify(input.cursor, { grid, originKey, radiusKm, sessionHash })
       : null;
     const cursorHash = this.cache.cursorHash(input.cursor ?? null);
     timing.mark("geo-parse");
@@ -178,9 +180,10 @@ export class GeoDiscoveryService {
             epoch,
             grid,
             limit,
+            originKey,
             radiusKm,
             sessionHash,
-            useCellBuffer: true
+            useCellBuffer: false
           });
         }
         const data = withCacheMetadata(cached.envelope.data, {
@@ -216,7 +219,8 @@ export class GeoDiscoveryService {
       try {
         const data = await this.loadNearby({
           coordinates, grid, limit, cursorState, sessionHash, radiusKm,
-          useCellBuffer: true, timing
+          originKey,
+          useCellBuffer: false, timing
         });
         const cachedValue = JSON.stringify({ version: 1, cachedAt: Date.now(), data } satisfies NearbyCacheEnvelope);
         const cacheWritten = await this.cache.setIfEpochUnchanged(cacheKey, epoch, cachedValue, {
@@ -238,7 +242,7 @@ export class GeoDiscoveryService {
 
     // Private cell path (authenticated nearby with exact coordinates).
     const epoch = await this.cache.getEpochContext(grid, radiusKm);
-    const cacheKey = this.cache.cacheKey(epoch, { cursorHash, limit, responseVersion: 1 });
+    const cacheKey = this.cache.cacheKey(epoch, { cursorHash, limit, originKey: originKey ?? undefined, responseVersion: 1 });
     timing.mark("geo-cache");
 
     await this.enforceAbuseControls({ coordinates, grid, input });
@@ -282,9 +286,10 @@ export class GeoDiscoveryService {
         grid,
         limit,
         cursorState,
+        originKey,
         sessionHash,
         radiusKm,
-        useCellBuffer: Boolean(input.publicCell),
+        useCellBuffer: false,
         timing
       });
       const cachedValue = JSON.stringify({ version: 1, cachedAt: Date.now(), data } satisfies NearbyCacheEnvelope);
@@ -402,6 +407,7 @@ export class GeoDiscoveryService {
     limit: number;
     cursorState: VerifiedGeoCursor | null;
     sessionHash: string | null;
+    originKey: string | null;
     radiusKm: number;
     useCellBuffer: boolean;
     timing: GeoTiming;
@@ -470,6 +476,7 @@ export class GeoDiscoveryService {
               radiusKm: input.radiusKm,
               distanceMeters: numberFromDb(last.distance_meters) ?? 0,
               id: last.id,
+              originKey: input.originKey,
               sessionHash: input.sessionHash
             })
           : null
@@ -483,6 +490,7 @@ export class GeoDiscoveryService {
     limit: number;
     cursorState: VerifiedGeoCursor | null;
     sessionHash: string | null;
+    originKey: string | null;
     radiusKm: number;
     useCellBuffer: boolean;
     timing: GeoTiming;
@@ -529,6 +537,7 @@ export class GeoDiscoveryService {
               radiusKm: input.radiusKm,
               distanceMeters: numberFromDb(last.distance_meters) ?? 0,
               id: last.store_id,
+              originKey: input.originKey,
               sessionHash: input.sessionHash
             })
           : null
@@ -552,19 +561,38 @@ export class GeoDiscoveryService {
       ),
       candidates AS MATERIALIZED (
         SELECT s."id",
+               s."delivery_radius_km",
+               COALESCE(s."merchant_rating", 0) * 20 AS rating_score,
+               LEAST(100, GREATEST(0, COALESCE(s."order_volume_score", 0))) AS order_volume_score,
+               LEAST(100, GREATEST(0, COALESCE(s."conversion_score", 0))) AS conversion_score,
                ST_Distance(s."location", o."point") AS distance_meters
         FROM "stores" s
         CROSS JOIN origin o
         WHERE s."status" = ${StoreStatus.APPROVED}::"StoreStatus"
           AND s."deleted_at" IS NULL
+          AND s."inactive" = false
+          AND s."is_closed" = false
+          AND s."is_banned" = false
+          AND s."out_of_service" = false
           AND s."location" IS NOT NULL
           AND ST_DWithin(s."location", o."point", ${searchRadiusMeters}::double precision)
       )
       SELECT "id", distance_meters
       FROM candidates
-      WHERE ${cursorDistance}::double precision IS NULL
-        OR (distance_meters, "id") > (${cursorDistance}::double precision, ${cursorId}::uuid)
-      ORDER BY distance_meters ASC, "id" ASC
+      WHERE ("delivery_radius_km" IS NULL OR ("delivery_radius_km"::double precision * 1000) >= distance_meters)
+        AND (
+          ${cursorDistance}::double precision IS NULL
+          OR (distance_meters, "id") > (${cursorDistance}::double precision, ${cursorId}::uuid)
+        )
+      ORDER BY
+        distance_meters ASC,
+        (
+          ((100 - LEAST(distance_meters / 1000, 100)) * 0.70) +
+          (rating_score * 0.15) +
+          (order_volume_score * 0.10) +
+          (conversion_score * 0.05)
+        ) DESC,
+        "id" ASC
       LIMIT ${limit + 1}
     `);
   }
@@ -602,6 +630,10 @@ export class GeoDiscoveryService {
           c."featured_product",
           c."branding_json",
           c."business_hours_json",
+          c."delivery_radius_km",
+          COALESCE(c."merchant_rating", 0) * 20 AS rating_score,
+          LEAST(100, GREATEST(0, COALESCE(c."order_volume_score", 0))) AS order_volume_score,
+          LEAST(100, GREATEST(0, COALESCE(c."conversion_score", 0))) AS conversion_score,
           ST_Distance(c."location", o."point") AS distance_meters
         FROM "shop_discovery_cards" c
         CROSS JOIN origin o
@@ -610,9 +642,20 @@ export class GeoDiscoveryService {
       )
       SELECT *
       FROM candidates
-      WHERE ${cursorDistance}::double precision IS NULL
-        OR (distance_meters, "store_id") > (${cursorDistance}::double precision, ${cursorId}::uuid)
-      ORDER BY distance_meters ASC, "store_id" ASC
+      WHERE ("delivery_radius_km" IS NULL OR ("delivery_radius_km"::double precision * 1000) >= distance_meters)
+        AND (
+          ${cursorDistance}::double precision IS NULL
+          OR (distance_meters, "store_id") > (${cursorDistance}::double precision, ${cursorId}::uuid)
+        )
+      ORDER BY
+        distance_meters ASC,
+        (
+          ((100 - LEAST(distance_meters / 1000, 100)) * 0.70) +
+          (rating_score * 0.15) +
+          (order_volume_score * 0.10) +
+          (conversion_score * 0.05)
+        ) DESC,
+        "store_id" ASC
       LIMIT ${limit + 1}
     `);
   }
@@ -624,6 +667,7 @@ export class GeoDiscoveryService {
     epoch: Awaited<ReturnType<GeoDiscoveryCacheService["getEpochContext"]>>;
     grid: GeoGrid;
     limit: number;
+    originKey: string | null;
     radiusKm: number;
     sessionHash: string | null;
     useCellBuffer: boolean;
@@ -639,6 +683,7 @@ export class GeoDiscoveryService {
           cursorState: input.cursorState,
           grid: input.grid,
           limit: input.limit,
+          originKey: input.originKey,
           radiusKm: input.radiusKm,
           sessionHash: input.sessionHash,
           timing: new GeoTiming(),
@@ -690,7 +735,11 @@ export class GeoDiscoveryService {
       where: {
         id: { in: missing },
         status: StoreStatus.APPROVED,
-        deletedAt: null
+        deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false
       },
       select: nearbyStoreSelect
     });
@@ -710,6 +759,12 @@ export class GeoDiscoveryService {
   ): void {
     const returnedCount = data.items.length;
     this.observability.observeShopsReturned("nearby", returnedCount);
+    this.observability.recordGeoSearchRadiusUsed(data.radiusKm, returnedCount);
+    for (const item of data.items) {
+      if (item.distanceMeters != null) {
+        this.observability.observeGeoResultDistance(data.radiusKm, item.distanceMeters);
+      }
+    }
     this.logger.debug(JSON.stringify({
       cacheSource,
       durationMs,
@@ -751,7 +806,11 @@ export class GeoDiscoveryService {
     const count = await this.prisma.store.count({
       where: {
         status: StoreStatus.APPROVED,
-        deletedAt: null
+        deletedAt: null,
+        inactive: false,
+        isBanned: false,
+        isClosed: false,
+        outOfService: false
       }
     });
     this.observability.setApprovedShopsAvailable(count);
@@ -968,6 +1027,10 @@ function withCacheMetadata(
 
 function sessionHashFor(value: string | null): string | null {
   return value ? createHash("sha256").update(value).digest("hex").slice(0, 16) : null;
+}
+
+function coordinatesCacheKey(coordinates: GeoCoordinates): string {
+  return `${coordinates.latitude.toFixed(5)}:${coordinates.longitude.toFixed(5)}`;
 }
 
 function categoryVisual(type: string) {

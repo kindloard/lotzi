@@ -6,7 +6,7 @@ import { clearGeoGridCookie, coordinatesDriftedBeyondGrid } from "../lib/geo-coo
 
 const GEO_CACHE_KEY = "ns:shops:geo:v2";
 const GEO_CACHE_TTL_MS = 5 * 60 * 1000;
-const LOCATION_REQUEST_TIMEOUT_MS = 2_500;
+const LOCATION_REQUEST_TIMEOUT_MS = 15_000;
 const MIN_LOCATION_REQUEST_FEEDBACK_MS = 450;
 const GEOLOCATION_PERMISSION_DENIED_CODE = 1;
 
@@ -34,6 +34,11 @@ export function usePreciseLocation(initialCoordinates: Coordinates | null = null
   const [status, setInternalStatus] = useState<LocationStatus>(() => {
     if (initialCoordinates) return "resolved";
     if (memoryStatus) return memoryStatus;
+    if (typeof window !== "undefined") {
+      const cached = readCoordinatesCache();
+      if (cached) return "resolved";
+      if (readGeoGrantedFlag()) return "loading";
+    }
     return "idle";
   });
 

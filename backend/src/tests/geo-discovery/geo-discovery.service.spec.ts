@@ -26,6 +26,17 @@ function serviceFixture(input: {
       locationEpoch: "1",
       radiusKm
     })),
+    getEpochAndCell: jest.fn(async (grid, radiusKm, cellKeyFn) => {
+      const epoch = {
+        cardEpoch: "1",
+        cellEpoch: "1",
+        globalEpoch: "1",
+        grid,
+        locationEpoch: "1",
+        radiusKm
+      };
+      return { epoch, cellLookup: null, cacheKey: cellKeyFn(epoch) };
+    }),
     getWithSource: jest.fn(async () => null),
     releaseLoadLock: jest.fn(async () => undefined),
     setIfEpochUnchanged: jest.fn(async () => true),
@@ -35,11 +46,13 @@ function serviceFixture(input: {
   const observability = {
     observeGeoQuery: jest.fn(),
     observeGeoSearch: jest.fn(),
+    observeGeoResultDistance: jest.fn(),
     observeShopsReturned: jest.fn(),
     observeStoreCardCacheHitRatio: jest.fn(),
     recordEmptyShopResult: jest.fn(),
     recordGeoFilterRejection: jest.fn(),
     recordGeoRadiusExpansion: jest.fn(),
+    recordGeoSearchRadiusUsed: jest.fn(),
     setApprovedShopsAvailable: jest.fn()
   };
   const service = new GeoDiscoveryService(
@@ -71,15 +84,16 @@ describe("GeoDiscoveryService observability", () => {
       limit: "24",
       lngGrid: "77.422",
       publicCell: true,
-      radiusKm: "5"
+      radiusKm: "3"
     });
 
     expect(result.data.items).toEqual([]);
-    expect(observability.recordGeoFilterRejection).toHaveBeenCalledWith("radius", 5);
+    expect(observability.recordGeoFilterRejection).toHaveBeenCalledWith("radius", 3);
     expect(observability.observeShopsReturned).toHaveBeenCalledWith("nearby", 0);
+    expect(observability.recordGeoSearchRadiusUsed).toHaveBeenCalledWith(3, 0);
     expect(observability.recordEmptyShopResult).toHaveBeenCalledWith({
       approvedAvailable: true,
-      radiusKm: 5,
+      radiusKm: 3,
       source: "nearby"
     });
     expect(observability.setApprovedShopsAvailable).toHaveBeenCalledWith(1);
@@ -124,7 +138,7 @@ describe("GeoDiscoveryService observability", () => {
       radiusKm: "10"
     });
 
-    expect(observability.recordGeoRadiusExpansion).toHaveBeenCalledWith(5, 10);
+    expect(observability.recordGeoRadiusExpansion).toHaveBeenCalledWith(3, 10);
   });
 
   it("uses the shop discovery read model without nested store hydration when flagged on", async () => {

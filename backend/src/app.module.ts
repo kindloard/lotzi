@@ -25,6 +25,7 @@ import { ShopsModule } from "./modules/shops/shops.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 import { UsersModule } from "./modules/users/users.module";
 import { RbacModule } from "./modules/rbac/rbac.module";
+import { PosModule } from './modules/pos/pos.module';
 
 @Module({
   imports: [
@@ -52,7 +53,8 @@ import { RbacModule } from "./modules/rbac/rbac.module";
     PaymentsModule,
     PaymentSettingsModule,
     UploadsModule,
-    AdminModule
+    AdminModule,
+    PosModule
   ]
 })
 export class AppModule {}
