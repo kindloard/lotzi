@@ -9,12 +9,14 @@ const toneByScore = [
 ] as const;
 
 export function PasswordStrengthMeter({ strength }: { strength: PasswordStrength }) {
+  const fillPercent = strength.score >= 3 ? 100 : strength.percent;
+
   return (
-    <div className="mt-2" aria-live="polite">
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+    <div className="mt-2 w-full" aria-live="polite">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
         <div
           className={`h-full rounded-full transition-all duration-200 ${toneByScore[strength.score]}`}
-          style={{ width: `${strength.percent}%` }}
+          style={{ width: `${fillPercent}%` }}
         />
       </div>
       <p className="mt-1 text-[11px] font-extrabold text-slate-600">

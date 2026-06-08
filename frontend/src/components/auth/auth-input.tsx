@@ -98,7 +98,7 @@ export function AuthInput({
         {isPassword ? (
           <button
             aria-label={showPassword ? "Hide password" : "Show password"}
-            className="absolute right-2.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 focus:outline-none focus:ring-4 focus:ring-zinc-950/5 disabled:pointer-events-none"
+            className="absolute right-2.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center text-zinc-500 transition-colors hover:text-zinc-950 focus:outline-none disabled:pointer-events-none"
             disabled={disabled}
             onClick={() => setShowPassword((current) => !current)}
             type="button"

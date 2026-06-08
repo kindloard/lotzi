@@ -79,6 +79,12 @@ export interface SendPhoneOtpResponse {
   };
 }
 
+export interface SignupOtpResponse {
+  status: "OTP_REQUIRED";
+  email: string;
+  cooldownUntil?: string;
+}
+
 export function signup(
   input: {
     name: string;
@@ -89,7 +95,7 @@ export function signup(
   },
   options: AuthRequestOptions = {}
 ) {
-  return apiFetch<{ status: string; email: string; cooldownUntil?: string }>("/auth/signup", {
+  return apiFetch<SignupOtpResponse>("/auth/signup", {
     method: "POST",
     signal: options.signal,
     body: JSON.stringify(input)
@@ -160,7 +166,7 @@ export function verifySignup(input: { email: string; otp: string }, options: Aut
 }
 
 export function resendSignupOtp(input: { email: string }, options: AuthRequestOptions = {}) {
-  return apiFetch<{ status: string; email: string; cooldownUntil?: string }>("/auth/otp/resend", {
+  return apiFetch<SignupOtpResponse>("/auth/otp/resend", {
     method: "POST",
     signal: options.signal,
     body: JSON.stringify(input)

@@ -101,11 +101,15 @@ function mapAuthError(error: unknown, mode: CredentialMode) {
     }
 
     if (error.status === 409) {
+      const code = apiErrorCode(error.body);
+      if (code === "EMAIL_ALREADY_REGISTERED") {
+        return "This email already has an account. Log in to continue.";
+      }
       if (
         error.body &&
         typeof error.body === "object" &&
         "code" in error.body &&
-        error.body.code === "LINK_REQUIRED"
+        code === "LINK_REQUIRED"
       ) {
         return "This email already uses password sign-in. Sign in first, then link Google from your profile.";
       }
@@ -143,6 +147,9 @@ function credentialErrorMessage(
   if (error instanceof ApiError) {
     if (mode === "login" && isInvalidCredentialError(error)) {
       return translateApiError(error, "AUTH_INVALID_CREDENTIALS");
+    }
+    if (apiErrorCode(error.body) === "EMAIL_OTP_PROVIDER_UNAVAILABLE") {
+      return translateApiError(error, "EMAIL_OTP_PROVIDER_UNAVAILABLE");
     }
     if (error.status === 0 || error.status >= 500) {
       return mapAuthError(error, mode);
@@ -379,7 +386,7 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
     try {
       const email = normalizeEmail(values.email);
       if (isRegistration) {
-        await signup(
+        const signupResult = await signup(
           {
             name: values.name.trim(),
             email,
@@ -390,6 +397,11 @@ export function CredentialAuthScreen({ mode }: CredentialAuthScreenProps) {
           { signal: controller.signal }
         );
         localStorage.setItem("lotzi:pending-signup-email", email);
+        if (signupResult.cooldownUntil) {
+          localStorage.setItem("lotzi:signup-otp-cooldown-until", signupResult.cooldownUntil);
+        } else {
+          localStorage.removeItem("lotzi:signup-otp-cooldown-until");
+        }
         setStatus("success");
         toast.success(isMerchantSignup ? t("merchantSignup.success") : t("signup.success"));
         navigated = true;

@@ -224,7 +224,10 @@ export class AuthService {
             );
 
             if (userResult.blockedByExistingActiveUser) {
-              return { user: userResult.user, otpId: "", sent: false, cooldownUntil: undefined };
+              throw new ConflictException({
+                code: "EMAIL_ALREADY_REGISTERED",
+                message: "This email already has an account. Log in to continue."
+              });
             }
 
             const createdOtp = await this.repository.createSignupOtp(

@@ -45,7 +45,7 @@ BEGIN
   END IF;
 END $$;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_merchants_geo"
+CREATE INDEX IF NOT EXISTS "idx_merchants_geo"
   ON "stores" USING GIST ("location")
   WHERE "status" = 'APPROVED'
     AND "deleted_at" IS NULL
@@ -55,7 +55,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_merchants_geo"
     AND "out_of_service" = false
     AND "location" IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "stores_geo_eligibility_idx"
+CREATE INDEX IF NOT EXISTS "stores_geo_eligibility_idx"
   ON "stores" ("status", "deleted_at", "inactive", "is_closed", "is_banned", "out_of_service", "updated_at", "id");
 
 ALTER TABLE "shop_discovery_cards"
@@ -64,7 +64,7 @@ ALTER TABLE "shop_discovery_cards"
   ADD COLUMN IF NOT EXISTS "order_volume_score" NUMERIC(5, 2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS "conversion_score" NUMERIC(5, 2) NOT NULL DEFAULT 0;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_shop_discovery_cards_geo"
+CREATE INDEX IF NOT EXISTS "idx_shop_discovery_cards_geo"
   ON "shop_discovery_cards" USING GIST ("location")
   WHERE "location" IS NOT NULL;
 

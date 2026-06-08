@@ -24,7 +24,10 @@ const routeState = {
 
 function serviceWith(overrides: {
   repository?: Record<string, unknown>;
+  users?: Record<string, unknown>;
+  userCreation?: Record<string, unknown>;
   password?: Record<string, unknown>;
+  otp?: Record<string, unknown>;
   tokens?: Record<string, unknown>;
   mail?: Record<string, unknown>;
   audit?: Record<string, unknown>;
@@ -58,6 +61,21 @@ function serviceWith(overrides: {
     revokeSession: jest.fn(),
     ...overrides.sessions
   };
+  const users = {
+    findByEmail: jest.fn(async () => null),
+    ...overrides.users
+  };
+  const userCreation = {
+    createOrUpdatePendingEmailUser: jest.fn(),
+    ...overrides.userCreation
+  };
+  const otp = {
+    generate: jest.fn(() => "123456"),
+    nonce: jest.fn(() => "otp-nonce"),
+    hash: jest.fn(() => "otp-hash"),
+    hashPhone: jest.fn(() => "phone-otp-hash"),
+    ...overrides.otp
+  };
   const sessionCache = {
     set: jest.fn(),
     invalidate: jest.fn(),
@@ -83,8 +101,8 @@ function serviceWith(overrides: {
     service: new AuthService(
       repository as never,
       authState as never,
-      {} as never,
-      {} as never,
+      users as never,
+      userCreation as never,
       {} as never,
       {} as never,
       {} as never,
@@ -96,7 +114,7 @@ function serviceWith(overrides: {
         verify: jest.fn(async () => true),
         ...overrides.password
       } as never,
-      {} as never,
+      otp as never,
       {
         normalizeIndianMobile: jest.fn((value: string) => value),
         toFast2SmsMobile: jest.fn((value: string) => value.replace(/^\+91/, "")),
@@ -146,6 +164,8 @@ function serviceWith(overrides: {
     ),
     crypto,
     repository,
+    users,
+    userCreation,
     sessions,
     sessionCache,
     authState,
@@ -291,6 +311,54 @@ describe("AuthService critical security flows", () => {
     ).signupSessionRoleCodes({ accountType: "MERCHANT", storeName: "Fresh Mart" });
 
     expect(roleCodes).toEqual(["MERCHANT_OWNER"]);
+  });
+
+  it("rejects active duplicate signup without entering the OTP flow", async () => {
+    const transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({}));
+    const createSignupOtp = jest.fn();
+    const sendSignupOtp = jest.fn();
+    const { service } = serviceWith({
+      repository: {
+        createSignupOtp,
+        prisma: { $transaction: transaction }
+      },
+      users: {
+        findByEmail: jest.fn(async () => ({
+          id: "user-1",
+          email: "buyer@example.com",
+          status: UserStatus.ACTIVE
+        }))
+      },
+      userCreation: {
+        createOrUpdatePendingEmailUser: jest.fn(async () => ({
+          user: {
+            id: "user-1",
+            email: "buyer@example.com",
+            status: UserStatus.ACTIVE
+          },
+          created: false,
+          blockedByExistingActiveUser: true
+        }))
+      },
+      mail: {
+        sendSignupOtp
+      }
+    });
+
+    await expect(
+      service.signup(
+        { name: "Buyer One", email: "buyer@example.com", password: "Password1" },
+        context
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: "EMAIL_ALREADY_REGISTERED"
+      })
+    });
+
+    expect(createSignupOtp).not.toHaveBeenCalled();
+    expect(sendSignupOtp).not.toHaveBeenCalled();
   });
 
   it("rejects missing signup OTP without starting the verification transaction", async () => {

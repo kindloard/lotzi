@@ -9,6 +9,8 @@
   "CSRF_INVALID": "Security verification failed. Refresh the page and try again.",
   "AUTH_INVALID_CREDENTIALS": "Email or password is incorrect.",
   "AUTH_EMAIL_EXISTS": "An account already exists for this email.",
+  "EMAIL_ALREADY_REGISTERED": "This email already has an account. Log in to continue.",
+  "EMAIL_OTP_PROVIDER_UNAVAILABLE": "We could not send the verification email. Try again shortly.",
   "AUTH_SESSION_EXPIRED": "Your session expired. Please log in again.",
   "AUTH_OTP_INVALID": "The verification code is invalid.",
   "AUTH_OTP_EXPIRED": "The verification code has expired.",

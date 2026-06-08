@@ -16,7 +16,7 @@ BEGIN
      ) THEN
     EXECUTE 'UPDATE "orders"
              SET "payment_method" = ''CASHFREE''
-             WHERE "payment_method"::text IN (''COD'', ''RAZORPAY'')';
+             WHERE "payment_method"::text IN (''COD'', ''RAZORPAY'', ''PHONEPE'')';
     EXECUTE 'ALTER TABLE "orders" ALTER COLUMN "payment_method" DROP DEFAULT';
   END IF;
 
@@ -30,7 +30,7 @@ BEGIN
      ) THEN
     EXECUTE 'UPDATE "payments"
              SET "method" = ''CASHFREE''
-             WHERE "method"::text IN (''COD'', ''RAZORPAY'')';
+             WHERE "method"::text IN (''COD'', ''RAZORPAY'', ''PHONEPE'')';
     EXECUTE 'ALTER TABLE "payments" ALTER COLUMN "method" DROP DEFAULT';
   END IF;
 
@@ -152,7 +152,7 @@ BEGIN
      ) THEN
     EXECUTE 'UPDATE "payments"
              SET "provider" = ''CASHFREE''
-             WHERE "provider"::text IN (''COD'', ''RAZORPAY'')';
+             WHERE "provider"::text IN (''COD'', ''RAZORPAY'', ''PHONEPE'')';
     EXECUTE 'ALTER TABLE "payments" ALTER COLUMN "provider" DROP DEFAULT';
   END IF;
 
@@ -166,8 +166,21 @@ BEGIN
      ) THEN
     EXECUTE 'UPDATE "webhook_events"
              SET "provider" = ''CASHFREE''
-             WHERE "provider"::text IN (''COD'', ''RAZORPAY'')';
+             WHERE "provider"::text IN (''COD'', ''RAZORPAY'', ''PHONEPE'')';
     EXECUTE 'ALTER TABLE "webhook_events" ALTER COLUMN "provider" DROP DEFAULT';
+  END IF;
+
+  IF to_regclass('shop_payment_settings') IS NOT NULL
+     AND EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'shop_payment_settings'
+         AND column_name = 'provider'
+     ) THEN
+    EXECUTE 'UPDATE "shop_payment_settings"
+             SET "provider" = ''CASHFREE''
+             WHERE "provider"::text IN (''COD'', ''RAZORPAY'', ''PHONEPE'')';
   END IF;
 
   IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PaymentProvider_old') THEN
@@ -199,6 +212,20 @@ BEGIN
            AND NOT attisdropped
        ) THEN
       ALTER TABLE "webhook_events"
+        ALTER COLUMN "provider" TYPE "PaymentProvider"
+        USING "provider"::text::"PaymentProvider";
+    END IF;
+
+    IF to_regclass('shop_payment_settings') IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM pg_attribute
+         WHERE attrelid = 'shop_payment_settings'::regclass
+           AND attname = 'provider'
+           AND atttypid = (SELECT oid FROM pg_type WHERE typname = 'PaymentProvider_old')
+           AND NOT attisdropped
+       ) THEN
+      ALTER TABLE "shop_payment_settings"
         ALTER COLUMN "provider" TYPE "PaymentProvider"
         USING "provider"::text::"PaymentProvider";
     END IF;
@@ -236,6 +263,19 @@ BEGIN
              AND column_name = 'provider'
          ) THEN
         ALTER TABLE "webhook_events"
+          ALTER COLUMN "provider" TYPE "PaymentProvider"
+          USING "provider"::text::"PaymentProvider";
+      END IF;
+
+      IF to_regclass('shop_payment_settings') IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'shop_payment_settings'
+             AND column_name = 'provider'
+         ) THEN
+        ALTER TABLE "shop_payment_settings"
           ALTER COLUMN "provider" TYPE "PaymentProvider"
           USING "provider"::text::"PaymentProvider";
       END IF;

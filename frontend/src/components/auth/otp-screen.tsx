@@ -76,6 +76,7 @@ export function OtpScreen() {
 
   useEffect(() => {
     const nextEmail = searchParams.get("email") ?? localStorage.getItem("lotzi:pending-signup-email") ?? "";
+    const pendingCooldown = localStorage.getItem("lotzi:signup-otp-cooldown-until");
     if (!nextEmail) {
       toastWarning(t("otp.missingSignup"));
       router.replace("/auth/signup");
@@ -83,6 +84,10 @@ export function OtpScreen() {
     }
     setEmail(nextEmail.trim().toLowerCase());
     localStorage.setItem("lotzi:pending-signup-email", nextEmail.trim().toLowerCase());
+    if (pendingCooldown) {
+      const parsedCooldown = new Date(pendingCooldown).getTime();
+      setCooldownUntil(Number.isFinite(parsedCooldown) && parsedCooldown > Date.now() ? parsedCooldown : null);
+    }
     router.prefetch("/");
     // Do not prefetch protected post-auth routes before cookies are issued.
     router.prefetch("/auth/signup");
@@ -177,6 +182,7 @@ export function OtpScreen() {
       const session = await verifySignup({ email, otp: otp.join("") }, { signal: controller.signal });
       setSession(session);
       localStorage.removeItem("lotzi:pending-signup-email");
+      localStorage.removeItem("lotzi:signup-otp-cooldown-until");
       setStatus("success");
       toastSuccess(t("otp.success"));
       navigated = true;
@@ -194,7 +200,7 @@ export function OtpScreen() {
         abortRef.current = null;
       }
     }
-  }, [email, otp, redirectValidation.path, router, setSession, t, toastError, toastSuccess, translateApiError]);
+  }, [email, otp, redirectValidation.path, setSession, t, toastError, toastSuccess, translateApiError]);
 
   const handleResend = async () => {
     if (resending || cooldownSeconds > 0 || !email) {
@@ -207,6 +213,7 @@ export function OtpScreen() {
       const result = await resendSignupOtp({ email }, { signal: controller.signal });
       if (result.cooldownUntil) {
         setCooldownUntil(new Date(result.cooldownUntil).getTime());
+        localStorage.setItem("lotzi:signup-otp-cooldown-until", result.cooldownUntil);
       }
       toastSuccess(t("otp.resendSuccess"));
     } catch (apiError) {

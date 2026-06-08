@@ -14,6 +14,10 @@ interface MailMessage {
   idempotencyKey?: string;
 }
 
+interface MailSendOptions {
+  requireDelivery?: boolean;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -37,7 +41,7 @@ export class MailService {
       idempotencyKey,
       payload: { purpose: "EMAIL_SIGNUP" },
       html: `<p>Your Lotzi verification code is <strong>${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
-    });
+    }, { requireDelivery: true });
   }
 
   async sendPasswordReset(email: string, resetUrl: string, idempotencyKey: string): Promise<void> {
@@ -83,7 +87,10 @@ export class MailService {
     });
   }
 
-  private async enqueueAndTrySend(message: MailMessage): Promise<void> {
+  private async enqueueAndTrySend(
+    message: MailMessage,
+    options: MailSendOptions = {}
+  ): Promise<void> {
     let outbox;
     try {
       outbox = await this.prisma.emailOutbox.upsert({
@@ -104,8 +111,26 @@ export class MailService {
       throw new ServiceUnavailableException("Email delivery is temporarily unavailable.");
     }
 
+    if (outbox.status === OutboxStatus.SENT) {
+      return;
+    }
+
     if (!this.resend || !this.fromEmail) {
-      this.logger.warn(`Resend is not configured. Email ${outbox.id} remains queued.`);
+      const messageText = "Resend is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.";
+      this.logger.warn(`${messageText} Email ${outbox.id} remains queued.`);
+      await this.markPending(outbox.id, messageText);
+      if (options.requireDelivery) {
+        throw this.emailDeliveryUnavailable();
+      }
+      return;
+    }
+
+    if (options.requireDelivery) {
+      try {
+        await this.trySend(outbox.id, message);
+      } catch {
+        throw this.emailDeliveryUnavailable();
+      }
       return;
     }
 
@@ -152,6 +177,26 @@ export class MailService {
           lastError: messageText
         }
       });
+      throw error;
     }
+  }
+
+  private async markPending(outboxId: string, messageText: string): Promise<void> {
+    await this.prisma.emailOutbox.update({
+      where: { id: outboxId },
+      data: {
+        status: OutboxStatus.PENDING,
+        nextAttemptAt: new Date(Date.now() + 5 * 60 * 1000),
+        lastError: messageText
+      }
+    });
+  }
+
+  private emailDeliveryUnavailable() {
+    return new ServiceUnavailableException({
+      code: "EMAIL_OTP_PROVIDER_UNAVAILABLE",
+      message: "We could not send the verification email. Try again shortly.",
+      retryable: true
+    });
   }
 }

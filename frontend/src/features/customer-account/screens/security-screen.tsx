@@ -2,8 +2,10 @@
 
 import { KeyRound, LogOut, Mail, Monitor, ShieldCheck, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { PasswordStrengthMeter } from "@/components/auth/password-strength-meter";
 import { useToast } from "@/components/toast/toast-context";
+import { passwordStrength } from "@/lib/auth-schemas";
 import {
   type AccountActivity,
   changeCustomerPassword,
@@ -30,6 +32,10 @@ export function SecurityScreen() {
   const [passwordDraft, setPasswordDraft] = useState({ currentPassword: "", newPassword: "" });
   const [emailDraft, setEmailDraft] = useState({ currentPassword: "", newEmail: "", otp: "", requested: false });
   const [deleteDraft, setDeleteDraft] = useState({ currentPassword: "", otp: "", requested: false });
+  const newPasswordStrength = useMemo(
+    () => passwordStrength(passwordDraft.newPassword),
+    [passwordDraft.newPassword]
+  );
 
   const revokeMutation = useMutation({
     mutationFn: revokeCustomerSession,
@@ -191,6 +197,7 @@ export function SecurityScreen() {
               type="password"
               value={passwordDraft.newPassword}
             />
+            {passwordDraft.newPassword && <PasswordStrengthMeter strength={newPasswordStrength} />}
             <Button
               disabled={passwordMutation.isPending}
               icon={KeyRound}

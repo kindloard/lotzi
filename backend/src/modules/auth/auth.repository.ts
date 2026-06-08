@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { OtpPurpose, Prisma, StoreMemberStatus } from "@prisma/client";
+import { OtpPurpose, OutboxStatus, Prisma, StoreMemberStatus } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
 export interface CreateOtpInput {
@@ -63,7 +63,13 @@ export class AuthRepository {
     });
 
     if (latestOtp?.cooldownUntil && latestOtp.cooldownUntil > new Date()) {
-      return { otpId: latestOtp.id, cooldownUntil: latestOtp.cooldownUntil, sent: false };
+      const delivery = await tx.emailOutbox.findUnique({
+        where: { idempotencyKey: `signup-otp:${latestOtp.id}` },
+        select: { status: true }
+      });
+      if (delivery?.status === OutboxStatus.SENT) {
+        return { otpId: latestOtp.id, cooldownUntil: latestOtp.cooldownUntil, sent: false };
+      }
     }
 
     const created = await tx.otpVerification.create({
@@ -78,7 +84,7 @@ export class AuthRepository {
         cooldownUntil: otp.cooldownUntil
       }
     });
-    return { otpId: created.id, sent: true };
+    return { otpId: created.id, cooldownUntil: created.cooldownUntil ?? undefined, sent: true };
   }
 
   async verifySignupOtp(
