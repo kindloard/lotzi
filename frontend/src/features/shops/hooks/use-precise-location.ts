@@ -5,7 +5,7 @@ import type { Coordinates } from "../shops-api";
 import { clearGeoGridCookie, coordinatesDriftedBeyondGrid } from "../lib/geo-cookie";
 
 const GEO_CACHE_KEY = "ns:shops:geo:v2";
-const GEO_CACHE_TTL_MS = 5 * 60 * 1000;
+const GEO_CACHE_TTL_MS = 60 * 1000;
 const LOCATION_REQUEST_TIMEOUT_MS = 15_000;
 const MIN_LOCATION_REQUEST_FEEDBACK_MS = 450;
 const GEOLOCATION_PERMISSION_DENIED_CODE = 1;
@@ -215,8 +215,8 @@ function waitForMinimumFeedback(startedAt: number): Promise<void> {
 function getCurrentPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      maximumAge: 60_000,
+      enableHighAccuracy: true,
+      maximumAge: 0,
       timeout: LOCATION_REQUEST_TIMEOUT_MS
     });
   });

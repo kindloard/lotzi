@@ -1,7 +1,7 @@
 import type { Coordinates, NearbyShopsResponse, Shop } from "../shops-api";
 
 export const GEO_GRID_PRECISION = 3;
-export const DEFAULT_NEARBY_RADIUS_KM = 5;
+export const DEFAULT_NEARBY_RADIUS_KM = 3;
 
 export interface GeoGrid {
   latGrid: string;
@@ -15,15 +15,19 @@ export function gridForCoordinates(coordinates: Coordinates): GeoGrid {
   };
 }
 
-export function nearbyCacheKey(grid: GeoGrid, radiusKm: number, limit: number, cursor: string | null) {
-  return `ns:shops:nearby:v2:${grid.latGrid}:${grid.lngGrid}:${radiusKm}:${limit}:${cursor ?? "first"}`;
+export function coordinatesCacheKey(coordinates: Coordinates) {
+  return `${coordinates.latitude.toFixed(5)}:${coordinates.longitude.toFixed(5)}`;
+}
+
+export function nearbyCacheKey(coordinates: Coordinates, radiusKm: number, limit: number, cursor: string | null) {
+  return `ns:shops:nearby:v3:${coordinatesCacheKey(coordinates)}:${radiusKm}:${limit}:${cursor ?? "first"}`;
 }
 
 export function rankNearbyResponse(response: NearbyShopsResponse, coordinates: Coordinates): NearbyShopsResponse {
   const radiusMeters = response.radiusKm * 1000;
   const items = response.items
     .map((shop) => withExactDistance(shop, coordinates))
-    .filter((shop) => shop.distanceMeters == null || shop.distanceMeters <= radiusMeters)
+    .filter((shop) => shop.distanceMeters != null && shop.distanceMeters <= radiusMeters)
     .sort((left, right) => (left.distanceMeters ?? Number.POSITIVE_INFINITY) - (right.distanceMeters ?? Number.POSITIVE_INFINITY));
 
   return {

@@ -8,7 +8,7 @@ export const GEO_GRID_DRIFT_METERS = 1_000;
 
 const COOKIE_VERSION = "v1";
 const COOKIE_SIGNING_CONTEXT = "lotzi-home-geo-grid-v1";
-const SUPPORTED_RADIUS_KM = new Set([2, 5, 10, 25, 50]);
+const SUPPORTED_RADIUS_KM = new Set([3, 5, 10, 15]);
 
 export interface ParsedGeoGridCookie {
   coordinates: Coordinates;

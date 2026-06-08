@@ -13,8 +13,10 @@ export type NearbyShopsDisplayState = "locationRequired" | "expandingRadius" | "
 interface NearbyShopsGridProps {
   displayState: NearbyShopsDisplayState;
   effectiveRadiusKm: number;
+  expansionOptions: number[];
   isLoading: boolean;
   locationStatus: LocationStatus;
+  onExpandRadius: (radiusKm: number) => void;
   requestLocation: (options?: { ignoreCache?: boolean }) => void;
   selectedCategory: string;
   shops: Shop[];
@@ -23,8 +25,10 @@ interface NearbyShopsGridProps {
 export const NearbyShopsGrid = memo(function NearbyShopsGrid({
   displayState,
   effectiveRadiusKm,
+  expansionOptions,
   isLoading,
   locationStatus,
+  onExpandRadius,
   requestLocation,
   selectedCategory,
   shops,
@@ -92,27 +96,32 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
 
   return (
     <div id="shops-section" className="space-y-6">
-      {!(shouldRenderShopResults && visibleShops.length === 0 && !isInitialLoading) ? (
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-black sm:text-3xl">
-              {t("title")}
-            </h2>
-            <p className="hidden text-sm font-medium text-slate-500 md:block">
-              {locationSubtitle}
-            </p>
-          </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-2">
           {!locationNeedsAction ? (
-            <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
-              {isInitialLoading || displayState === "expandingRadius"
-                ? t("statusLoading")
-                : visibleShops.length === 0
-                  ? t("statusEmpty")
-                  : t("statusCount", { count: visibleShops.length })}
-            </span>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-black">
+              <MapPin size={15} aria-hidden="true" className="text-black" />
+              <span>{t("deliveringTo")}</span>
+              <span className="text-black">{t("currentLocation")}</span>
+            </div>
           ) : null}
+          <h2 className="text-2xl font-bold text-black sm:text-3xl">
+            {t("title")}
+          </h2>
+          <p className="hidden text-sm font-medium text-black md:block">
+            {locationSubtitle}
+          </p>
         </div>
-      ) : null}
+        {!locationNeedsAction ? (
+          <span className="hidden shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white md:inline-flex">
+            {isInitialLoading || displayState === "expandingRadius"
+              ? t("statusLoading")
+              : visibleShops.length === 0
+                ? t("statusEmpty")
+                : t("statusCount", { count: visibleShops.length })}
+          </span>
+        ) : null}
+      </div>
 
       {locationNeedsAction ? (
         <>
@@ -120,17 +129,17 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
           <div className="flex flex-col items-center justify-center py-10 px-4 text-center md:hidden min-h-[50vh]">
             <div className="relative mb-10 mt-4">
               <div className="relative z-10 flex items-center justify-center">
-                <MapPin size={64} className="text-slate-900" strokeWidth={1.5} />
+                <MapPin size={64} className="text-black" strokeWidth={1.5} />
               </div>
               <Cloud className="absolute -left-12 -top-4 z-0 text-slate-200" size={56} strokeWidth={2} />
               <Cloud className="absolute -right-10 top-2 z-0 text-slate-200" size={48} strokeWidth={2} />
               <Cloud className="absolute -left-4 -bottom-6 z-0 text-slate-100" size={40} strokeWidth={2} />
             </div>
             
-            <h2 className="mb-3 text-2xl font-black tracking-tight text-slate-950">
+            <h2 className="mb-3 text-2xl font-black tracking-tight text-black">
               {locationNoticeTitle}
             </h2>
-            <p className="mb-8 max-w-[280px] text-sm font-medium leading-relaxed text-slate-500">
+            <p className="mb-8 max-w-[280px] text-sm font-medium leading-relaxed text-black">
               {locationNoticeDescription}
             </p>
             
@@ -140,7 +149,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                   type="button"
                   disabled={locationStatus === "loading"}
                   onClick={() => requestLocation({ ignoreCache: true })}
-                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-brand px-8 text-[15px] font-black tracking-wide text-black transition-transform active:scale-[0.98] disabled:opacity-50 shadow-[0_8px_20px_rgba(158,240,26,0.25)]"
                 >
                   {locationStatus === "loading"
                     ? t("locationLoadingAction")
@@ -150,7 +159,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-11 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-slate-400 transition-colors active:bg-slate-50"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full px-8 text-[15px] font-bold text-black transition-colors active:bg-slate-50"
                   onClick={() => {
                     // Visual only, or scrolls to search
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -166,11 +175,11 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
           <div className="hidden md:flex flex-col gap-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-4">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand/20">
-                <MapPin size={20} aria-hidden="true" className="text-slate-900" />
+                <MapPin size={20} aria-hidden="true" className="text-black" />
               </div>
               <div className="space-y-1.5 pt-0.5">
-                <p className="text-base font-black tracking-tight text-slate-950">{locationNoticeTitle}</p>
-                <p className="text-sm font-medium leading-relaxed text-slate-500">
+                <p className="text-base font-black tracking-tight text-black">{locationNoticeTitle}</p>
+                <p className="text-sm font-medium leading-relaxed text-black">
                   {locationNoticeDescription}
                 </p>
               </div>
@@ -180,7 +189,7 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
                 type="button"
                 disabled={locationStatus === "loading"}
                 onClick={() => requestLocation({ ignoreCache: true })}
-                className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-brand px-6 text-sm font-bold uppercase tracking-wide text-slate-900 transition-transform active:scale-[0.98] disabled:opacity-50 sm:h-11 sm:w-auto"
+                className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-brand px-6 text-sm font-bold uppercase tracking-wide text-black transition-transform active:scale-[0.98] disabled:opacity-50 sm:h-11 sm:w-auto"
               >
                 {locationStatus === "loading"
                   ? t("locationLoadingAction")
@@ -210,12 +219,29 @@ export const NearbyShopsGrid = memo(function NearbyShopsGrid({
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-black">
-                  {t("noShopsTitle")}
+                  {t("noShopsWithinRadiusTitle", { radius: effectiveRadiusKm })}
                 </h3>
-                <p className="mx-auto max-w-xs text-xs text-slate-500">
-                  {t("noShopsDescription")}
+                <p className="mx-auto max-w-xs text-xs text-black">
+                  {t("noShopsWithinRadiusDescription", { radius: effectiveRadiusKm })}
                 </p>
               </div>
+              {expansionOptions.length > 0 ? (
+                <div className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2 pt-2">
+                  <p className="basis-full text-xs font-bold uppercase tracking-wide text-black">
+                    {t("expandSearchRadius")}
+                  </p>
+                  {expansionOptions.map((radiusKm) => (
+                    <button
+                      key={radiusKm}
+                      type="button"
+                      onClick={() => onExpandRadius(radiusKm)}
+                      className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-black transition-colors hover:border-slate-900 hover:bg-slate-50"
+                    >
+                      {t("radiusOption", { radius: radiusKm })}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             visibleShops.map((shop, index) => (

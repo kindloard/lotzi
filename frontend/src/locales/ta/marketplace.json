@@ -17,6 +17,8 @@
     "subtitleLoaded": "உங்கள் அருகில் உள்ள சிறந்த கடைகளை கண்டறிந்து ஆதரிக்கவும்",
     "subtitleDenied": "அருகிலுள்ள கடைகளை காண இருப்பிடத்தை இயக்கவும்.",
     "subtitleUnavailable": "இப்போது இருப்பிடம் முடக்கப்பட்டுள்ளது.",
+    "deliveringTo": "Delivering to:",
+    "currentLocation": "Current Location",
     "statusLoading": "...",
     "statusEmpty": "கடைகள் இல்லை",
     "statusCount": "{count} {count, plural, one {கடை} other {கடைகள்}} உள்ளன",
@@ -36,7 +38,11 @@
     "locationNotNowAction": "இப்போது வேண்டாம்",
     "enableLocation": "இருப்பிடத்தை இயக்கு",
     "noShopsTitle": "கடைகள் காணப்படவில்லை",
-    "noShopsDescription": "அருகில் எந்தக் கடைகளையும் எங்களால் கண்டுபிடிக்க முடியவில்லை."
+    "noShopsDescription": "அருகில் எந்தக் கடைகளையும் எங்களால் கண்டுபிடிக்க முடியவில்லை.",
+    "noShopsWithinRadiusTitle": "No stores within {radius}km",
+    "noShopsWithinRadiusDescription": "Try a wider radius.",
+    "expandSearchRadius": "Expand radius",
+    "radiusOption": "{radius}km"
   },
   "filters": {
     "all": "அனைத்தும்",

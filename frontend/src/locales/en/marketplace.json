@@ -12,11 +12,13 @@
     "emptyDescription": "Try another search or category."
   },
   "nearbyShops": {
-    "title": "Nearby Shops",
+    "title": "Nearby Stores",
     "subtitleLoading": "Getting your precise location for accurate shop distance",
     "subtitleLoaded": "Discover and support top-rated stores in your neighborhood",
     "subtitleDenied": "Turn on location to find nearby shops.",
     "subtitleUnavailable": "Location is off right now.",
+    "deliveringTo": "Delivering to:",
+    "currentLocation": "Current Location",
     "statusLoading": "...",
     "statusEmpty": "No Stores",
     "statusCount": "{count} {count, plural, one {Store} other {Stores}} Available",
@@ -36,7 +38,11 @@
     "locationNotNowAction": "Not now",
     "enableLocation": "Enable location",
     "noShopsTitle": "No Shops Found",
-    "noShopsDescription": "We couldn't find any nearby shops."
+    "noShopsDescription": "We couldn't find any nearby shops.",
+    "noShopsWithinRadiusTitle": "No stores within {radius}km",
+    "noShopsWithinRadiusDescription": "Try a wider radius.",
+    "expandSearchRadius": "Expand radius",
+    "radiusOption": "{radius}km"
   },
   "filters": {
     "all": "All",

@@ -11,6 +11,7 @@ import type {
   ShopProductSort
 } from "../shops-api";
 import { parseGeoGridCookie, type InitialNearbyPayload } from "../lib/geo-cookie";
+import { DEFAULT_NEARBY_RADIUS_KM } from "../lib/geo-grid";
 
 const REQUIRED_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_FETCH_TIMEOUT_MS", 10_000);
 const OPTIONAL_SERVER_FETCH_TIMEOUT_MS = positiveIntegerFromEnv("SHOP_API_OPTIONAL_FETCH_TIMEOUT_MS", 4_000);
@@ -69,7 +70,7 @@ export async function getNearbyShopsForLandingGeoCookie(
     latGrid: parsed.grid.latGrid,
     lngGrid: parsed.grid.lngGrid,
     limit: String(DEFAULT_NEARBY_LIMIT),
-    radiusKm: String(parsed.radiusKm)
+    radiusKm: String(DEFAULT_NEARBY_RADIUS_KM)
   });
   const fetchedAt = Date.now();
   const data = await serverFetchJson<NearbyShopsResponse | null>(
@@ -90,7 +91,7 @@ export async function getNearbyShopsForLandingGeoCookie(
     data,
     fetchedAt,
     grid: parsed.grid,
-    radiusKm: parsed.radiusKm
+    radiusKm: DEFAULT_NEARBY_RADIUS_KM
   };
 }
 

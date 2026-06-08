@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchNearbyShops, type Coordinates, type NearbyShopsResponse } from "../shops-api";
 import { shopQueryKeys } from "../query-keys";
 import {
   DEFAULT_NEARBY_RADIUS_KM,
+  coordinatesCacheKey,
   gridForCoordinates,
   nearbyCacheKey,
   rankNearbyResponse
@@ -15,10 +16,10 @@ import { writeGeoGridCookie } from "../lib/geo-cookie";
 const NEARBY_LIMIT = 24;
 const NEARBY_STALE_MS = 120 * 1000;
 const NEARBY_GC_MS = 30 * 60 * 1000;
-const NEARBY_SESSION_TTL_MS = 5 * 60 * 1000;
+const NEARBY_SESSION_TTL_MS = 60 * 1000;
 const EMPTY_RESULT_MEMORY_TTL_MS = 15 * 1000;
-const PROGRESSIVE_RADIUS_KM = [5, 10, 25, 50] as const;
-const SUPPORTED_INITIAL_RADIUS_KM = new Set([2, 5, 10, 25, 50]);
+const EXPANDABLE_RADIUS_KM = [5, 10, 15] as const;
+const SUPPORTED_RADIUS_KM = new Set([3, 5, 10, 15]);
 
 interface UseNearbyShopsOptions {
   initialData?: NearbyShopsResponse | null;
@@ -33,19 +34,11 @@ export function useNearbyShops(
 ) {
   const grid = useMemo(() => coordinates ? gridForCoordinates(coordinates) : null, [coordinates]);
   const requestedInitialRadiusKm = normalizeInitialRadiusKm(options.initialRadiusKm);
-  const radiusSequence = useMemo(
-    () => radiusSequenceFor(requestedInitialRadiusKm),
-    [requestedInitialRadiusKm]
-  );
-  const radiusSequenceKey = radiusSequence.join(":");
-  const initialRadiusIndex = Math.max(
-    0,
-    requestedInitialRadiusKm ? radiusSequence.indexOf(requestedInitialRadiusKm) : 0
-  );
   const gridKey = grid ? `${grid.latGrid}:${grid.lngGrid}` : null;
-  const [radiusIndex, setRadiusIndex] = useState(initialRadiusIndex);
-  const effectiveRadiusKm = radiusSequence[Math.min(radiusIndex, radiusSequence.length - 1)] ?? DEFAULT_NEARBY_RADIUS_KM;
-  const storageKey = grid ? nearbyCacheKey(grid, effectiveRadiusKm, NEARBY_LIMIT, cursor) : null;
+  const coordinateKey = coordinates ? coordinatesCacheKey(coordinates) : null;
+  const initialRadiusKm = requestedInitialRadiusKm ?? DEFAULT_NEARBY_RADIUS_KM;
+  const [effectiveRadiusKm, setEffectiveRadiusKm] = useState(initialRadiusKm);
+  const storageKey = coordinates ? nearbyCacheKey(coordinates, effectiveRadiusKm, NEARBY_LIMIT, cursor) : null;
   const cached = useMemo(
     () => storageKey && coordinates ? readNearbyCache(storageKey, coordinates) : null,
     [coordinates, storageKey]
@@ -78,12 +71,12 @@ export function useNearbyShops(
     ]
   );
   const seeded = initialNearby ?? cached;
-  const hasFreshInitialNearby = Boolean(
-    initialNearby && Date.now() - initialNearby.cachedAt <= NEARBY_STALE_MS
+  const hasFreshSeededNearby = Boolean(
+    seeded && Date.now() - seeded.cachedAt <= NEARBY_STALE_MS
   );
   const query = useQuery({
-    queryKey: grid
-      ? shopQueryKeys.nearby(grid.latGrid, grid.lngGrid, effectiveRadiusKm, NEARBY_LIMIT, cursor)
+    queryKey: coordinates
+      ? shopQueryKeys.nearby(coordinates.latitude.toFixed(5), coordinates.longitude.toFixed(5), effectiveRadiusKm, NEARBY_LIMIT, cursor)
       : shopQueryKeys.nearby(null, null, effectiveRadiusKm, NEARBY_LIMIT, cursor),
     queryFn: ({ signal }) => {
       if (!coordinates) {
@@ -100,29 +93,15 @@ export function useNearbyShops(
     initialDataUpdatedAt: seeded?.cachedAt,
     staleTime: nearbyStaleTime,
     gcTime: NEARBY_GC_MS,
-    refetchOnMount: hasFreshInitialNearby ? false : true,
+    refetchOnMount: initialNearby ? true : !hasFreshSeededNearby,
     refetchOnReconnect: true,
     refetchOnWindowFocus: false,
     retry: 1
   });
 
   useEffect(() => {
-    setRadiusIndex(initialRadiusIndex);
-  }, [cursor, gridKey, initialRadiusIndex, radiusSequenceKey]);
-
-  useEffect(() => {
-    const itemCount = query.data?.items.length ?? 0;
-    if (
-      !coordinates ||
-      !progressiveRadiusEnabled() ||
-      !query.isSuccess ||
-      itemCount > 0 ||
-      radiusIndex >= radiusSequence.length - 1
-    ) {
-      return;
-    }
-    setRadiusIndex((current) => Math.min(current + 1, radiusSequence.length - 1));
-  }, [coordinates, query.data?.items.length, query.isSuccess, radiusIndex, radiusSequence.length]);
+    setEffectiveRadiusKm(initialRadiusKm);
+  }, [coordinateKey, cursor, gridKey, initialRadiusKm]);
 
   useEffect(() => {
     if (storageKey && query.data) {
@@ -132,32 +111,33 @@ export function useNearbyShops(
 
   useEffect(() => {
     if (grid && query.isSuccess && query.data) {
-      writeGeoGridCookie(grid, effectiveRadiusKm);
+      writeGeoGridCookie(grid, DEFAULT_NEARBY_RADIUS_KM);
     }
-  }, [effectiveRadiusKm, grid, query.data, query.isSuccess]);
+  }, [grid, query.data, query.isSuccess]);
 
   const itemCount = query.data?.items.length ?? 0;
-  const isExpandingRadius = Boolean(
-    coordinates &&
-    progressiveRadiusEnabled() &&
-    (
-      (query.isFetching && radiusIndex > 0) ||
-      (query.isSuccess && itemCount === 0 && radiusIndex < radiusSequence.length - 1)
-    )
-  );
+  const isExpandingRadius = Boolean(coordinates && query.isFetching && effectiveRadiusKm > DEFAULT_NEARBY_RADIUS_KM);
   const exhaustedRadiusSearch = Boolean(
     coordinates &&
     query.isSuccess &&
-    itemCount === 0 &&
-    radiusIndex >= radiusSequence.length - 1
+    itemCount === 0
   );
+  const expansionOptions = EXPANDABLE_RADIUS_KM.filter((radiusKm) => radiusKm > effectiveRadiusKm);
+  const expandRadius = useCallback((radiusKm: number) => {
+    if (!SUPPORTED_RADIUS_KM.has(radiusKm) || radiusKm <= effectiveRadiusKm) {
+      return;
+    }
+    setEffectiveRadiusKm(radiusKm);
+  }, [effectiveRadiusKm]);
 
   return {
     ...query,
     effectiveRadiusKm,
     exhaustedRadiusSearch,
+    expansionOptions,
+    expandRadius,
     isExpandingRadius,
-    radiusSequence
+    canExpandRadius: exhaustedRadiusSearch && expansionOptions.length > 0
   };
 }
 
@@ -209,26 +189,12 @@ function writeNearbyCache(key: string, data: NearbyShopsResponse) {
   }
 }
 
-function progressiveRadiusEnabled() {
-  return booleanValue(process.env.NEXT_PUBLIC_HOME_PROGRESSIVE_RADIUS_ENABLED, false);
-}
-
 function geoEmptyCacheEnabled() {
   return booleanValue(process.env.NEXT_PUBLIC_HOME_GEO_EMPTY_CACHE_ENABLED, false);
 }
 
-function radiusSequenceFor(initialRadiusKm: number | null): number[] {
-  const base = progressiveRadiusEnabled()
-    ? Array.from(PROGRESSIVE_RADIUS_KM)
-    : [initialRadiusKm ?? DEFAULT_NEARBY_RADIUS_KM];
-  if (initialRadiusKm !== null && !base.includes(initialRadiusKm)) {
-    return [initialRadiusKm, ...base.filter((radiusKm) => radiusKm > initialRadiusKm)];
-  }
-  return base;
-}
-
 function normalizeInitialRadiusKm(value: number | undefined) {
-  return typeof value === "number" && SUPPORTED_INITIAL_RADIUS_KM.has(value)
+  return typeof value === "number" && value === DEFAULT_NEARBY_RADIUS_KM
     ? value
     : null;
 }

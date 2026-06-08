@@ -1,0 +1,170 @@
+{
+  "title": "Geo Discovery Engine",
+  "uid": "geo-discovery-engine",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["geo", "homepage", "shops"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Geo Query Latency p95",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum(rate(lotzi_geo_query_latency_seconds_bucket[5m])) by (le, source))",
+          "legendFormat": "p95 {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Full Search Latency p95",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum(rate(lotzi_geo_search_latency_seconds_bucket[5m])) by (le, source))",
+          "legendFormat": "p95 {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "Search Radius Used",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase(lotzi_geo_search_radius_used_total[30m])) by (radius_km)",
+          "legendFormat": "{{radius_km}}km"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Empty Result Rate",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_empty_shop_results_total{source=\"nearby\"}[15m])) / clamp_min(sum(rate(lotzi_geo_search_radius_used_total[15m])), 1)",
+          "legendFormat": "empty rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Expansion Rate",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_geo_radius_expansions_total[5m])) by (from_radius_km, to_radius_km)",
+          "legendFormat": "{{from_radius_km}}km to {{to_radius_km}}km"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Stores Returned",
+      "gridPos": { "x": 0, "y": 15, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_shops_returned{source=\"nearby\"}[5m]))",
+          "legendFormat": "nearby stores"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "heatmap",
+      "title": "Distance Distribution",
+      "gridPos": { "x": 8, "y": 15, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_geo_result_distance_km_bucket[5m])) by (le, radius_km)",
+          "legendFormat": "{{radius_km}}km"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "km" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Cache Hit Mix",
+      "gridPos": { "x": 16, "y": 15, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_geo_cache_l1_hits_total[5m]))",
+          "legendFormat": "l1"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_geo_cache_l2_hits_total[5m]))",
+          "legendFormat": "l2"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(lotzi_geo_cache_misses_total[5m]))",
+          "legendFormat": "miss"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { DEFAULT_NEARBY_RADIUS_KM, gridForCoordinates } from "./lib/geo-grid";
+import { DEFAULT_NEARBY_RADIUS_KM } from "./lib/geo-grid";
 
 export interface Shop {
   id: string;
@@ -268,10 +268,9 @@ export function fetchNearbyShops(
   options: { cursor?: string | null; limit?: number; radiusKm?: number } = {},
   init?: RequestInit
 ) {
-  const grid = gridForCoordinates(coordinates);
   const params = new URLSearchParams({
-    latGrid: grid.latGrid,
-    lngGrid: grid.lngGrid,
+    latitude: String(coordinates.latitude),
+    longitude: String(coordinates.longitude),
     radiusKm: String(options.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM)
   });
   if (options.limit) {
@@ -280,9 +279,9 @@ export function fetchNearbyShops(
   if (options.cursor) {
     params.set("cursor", options.cursor);
   }
-  return apiFetch<NearbyShopsResponse>(`/v1/shops/nearby/cell?${params.toString()}`, {
+  return apiFetch<NearbyShopsResponse>(`/v1/shops/nearby?${params.toString()}`, {
     ...init,
-    cache: init?.cache ?? "default",
+    cache: init?.cache ?? "no-store",
     credentials: init?.credentials ?? "omit"
   });
 }

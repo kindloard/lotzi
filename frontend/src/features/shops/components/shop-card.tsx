@@ -134,14 +134,14 @@ export const ShopCard = memo(function ShopCard({
           </div>
 
           <div className="min-w-0 flex-1 pt-2">
-            <h4 className="truncate text-lg font-bold tracking-tight text-neutral-900">
+            <h4 className="truncate text-lg font-bold tracking-tight text-black">
               {shop.name}
             </h4>
           </div>
         </div>
 
         <div>
-          <p className="line-clamp-2 text-sm font-medium leading-relaxed text-neutral-500">
+          <p className="line-clamp-2 text-sm font-medium leading-relaxed text-black">
             {shopDescription}
           </p>
         </div>

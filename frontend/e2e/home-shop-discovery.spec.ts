@@ -66,8 +66,8 @@ test("keeps returning-user nearby SSR behind geo cookie and dehydration flags", 
   expect(serverSource).toContain("serverFetchJson<NearbyShopsResponse | null>");
   expect(serverSource).toContain("/v1/shops/nearby/cell?");
   expect(browserSource).toContain("initialNearby?.coordinates");
-  expect(nearbyHookSource).toContain("refetchOnMount: hasFreshInitialNearby ? false : true");
-  expect(nearbyHookSource).toContain("writeGeoGridCookie(grid, effectiveRadiusKm)");
+  expect(nearbyHookSource).toContain("refetchOnMount: initialNearby ? true : !hasFreshSeededNearby");
+  expect(nearbyHookSource).toContain("writeGeoGridCookie(grid, DEFAULT_NEARBY_RADIUS_KM)");
 });
 
 test("does not show shop cards before browser location is enabled", async ({ context, page }) => {
@@ -82,30 +82,42 @@ test("does not show shop cards before browser location is enabled", async ({ con
   await expect(page.locator("[data-display-state]")).toHaveCount(0);
 });
 
-test("expands the nearby radius before showing the empty shop state", async ({ page }) => {
+test("keeps the 3km empty state until the user expands radius", async ({ page }) => {
   const radii: string[] = [];
   await mockNearbyShops(page, ({ radiusKm }) => {
     radii.push(radiusKm);
-    return radiusKm === "5" ? [] : [shopFixture({ distanceMeters: 1200 })];
+    return radiusKm === "3" ? [] : [shopFixture({ distanceMeters: 1200 })];
   });
 
   await page.goto("/en");
 
+  await expect(page.getByText("No stores within 3km")).toBeVisible();
+  await expect(page.getByText("Try a wider radius.")).toBeVisible();
+  await expect(page.getByText("No shops found within 3km.")).toHaveCount(0);
+  await expect(page.getByText("Auxi store")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "5km", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "10km", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "15km", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "25km", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "50km", exact: true })).toHaveCount(0);
+  expect(radii).toContain("3");
+  expect(radii).not.toContain("5");
+
+  await page.getByRole("button", { name: "5km", exact: true }).click();
+
   await expect(page.getByText("Auxi store")).toBeVisible();
-  await expect(page.getByText("No Shops Found")).not.toBeVisible();
   expect(radii).toContain("5");
-  expect(radii).toContain("10");
 });
 
 test("ignores stale empty session cache entries when empty caching is disabled", async ({ page }) => {
   await page.addInitScript(() => {
     sessionStorage.setItem(
-      "ns:shops:nearby:v2:8.713:77.422:5:24:first",
+      "ns:shops:nearby:v3:8.71277:77.42180:3:24:first",
       JSON.stringify({
         cachedAt: Date.now(),
         data: {
           apiVersion: "v1",
-          radiusKm: 5,
+          radiusKm: 3,
           items: [],
           pageInfo: { limit: 24, hasNextPage: false, nextCursor: null }
         }
@@ -118,7 +130,7 @@ test("ignores stale empty session cache entries when empty caching is disabled",
 
   await expect(page.getByText("Auxi store")).toBeVisible();
   const cachedItemCount = await page.evaluate(() => {
-    const raw = sessionStorage.getItem("ns:shops:nearby:v2:8.713:77.422:5:24:first");
+    const raw = sessionStorage.getItem("ns:shops:nearby:v3:8.71277:77.42180:3:24:first");
     if (!raw) {
       return 0;
     }
@@ -132,12 +144,14 @@ async function mockNearbyShops(
   itemsForRequest: (input: { radiusKm: string }) => Array<Record<string, unknown>>
 ) {
   await page.context().route("**/*", async (route) => {
-    if (!route.request().url().includes("nearby/cell")) {
+    if (!route.request().url().includes("/nearby")) {
       await route.continue();
       return;
     }
     const url = new URL(route.request().url());
-    const radiusKm = url.searchParams.get("radiusKm") ?? "5";
+    const radiusKm = url.searchParams.get("radiusKm") ?? "3";
+    const latitude = Number(url.searchParams.get("latitude") ?? agasthyarpatti.latitude);
+    const longitude = Number(url.searchParams.get("longitude") ?? agasthyarpatti.longitude);
     await route.fulfill({
       contentType: "application/json",
       status: 200,
@@ -149,14 +163,18 @@ async function mockNearbyShops(
         cache: {
           ageMs: 0,
           grid: {
-            latGrid: url.searchParams.get("latGrid") ?? "8.713",
-            lngGrid: url.searchParams.get("lngGrid") ?? "77.422"
+            latGrid: url.searchParams.get("latGrid") ?? gridValue(latitude),
+            lngGrid: url.searchParams.get("lngGrid") ?? gridValue(longitude)
           },
           source: "miss"
         }
       })
     });
   });
+}
+
+function gridValue(value: number) {
+  return (Math.round(value * 1000) / 1000).toFixed(3);
 }
 
 function shopFixture(overrides: Partial<Record<string, unknown>> = {}) {

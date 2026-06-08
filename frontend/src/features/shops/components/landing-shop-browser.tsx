@@ -61,8 +61,10 @@ export function LandingShopBrowser({ initialNearby = null }: LandingShopBrowserP
       <NearbyShopsGrid
         displayState={displayState}
         effectiveRadiusKm={nearbyQuery.effectiveRadiusKm}
-        isLoading={nearbyQuery.isLoading}
+        expansionOptions={nearbyQuery.expansionOptions}
+        isLoading={nearbyQuery.isLoading || nearbyQuery.isExpandingRadius}
         locationStatus={locationStatus}
+        onExpandRadius={nearbyQuery.expandRadius}
         requestLocation={requestLocation}
         selectedCategory={selectedCategory}
         shops={shops}
