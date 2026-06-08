@@ -275,7 +275,11 @@ function serverApiBaseUrl() {
 
 function productionSafeApiBase(value: string) {
   const base = ensureApiBase(value);
-  if (process.env.NODE_ENV === "production" && isLoopbackUrl(base)) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    isLoopbackUrl(base) &&
+    isHostedProductionBuild()
+  ) {
     throw new Error(
       "Shop API URL cannot point to localhost in production. Set INTERNAL_API_URL, API_PROXY_URL, BACKEND_URL, or NEXT_PUBLIC_API_URL to the deployed backend URL."
     );
@@ -391,6 +395,23 @@ function isLoopbackUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function isHostedProductionBuild() {
+  return [
+    process.env.CI,
+    process.env.VERCEL,
+    process.env.NETLIFY,
+    process.env.RENDER,
+    process.env.RAILWAY_ENVIRONMENT,
+    process.env.FLY_APP_NAME,
+    process.env.AMPLIFY_APP_ID
+  ].some(isTruthyEnv);
+}
+
+function isTruthyEnv(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return Boolean(normalized && !["0", "false", "no", "off"].includes(normalized));
 }
 
 export function normalizeProductFilters(filters: Partial<ShopProductsFilters> = {}): ShopProductsFilters {

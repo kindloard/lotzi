@@ -22,7 +22,6 @@ interface RequestLocationOptions {
 
 let memoryCoordinates: Coordinates | null = null;
 let memoryStatus: LocationStatus | null = null;
-let isHydrated = false;
 
 export function usePreciseLocation(initialCoordinates: Coordinates | null = null) {
   const [coordinates, setInternalCoordinates] = useState<Coordinates | null>(() => {

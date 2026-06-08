@@ -75,7 +75,11 @@ function productionSafeApiProxyOrigin(value: string) {
     throw new Error("API proxy URL must be an absolute http(s) URL.");
   }
 
-  if (process.env.NODE_ENV === "production" && isLoopbackUrl(origin)) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    isLoopbackUrl(origin) &&
+    isHostedProductionBuild()
+  ) {
     throw new Error(
       "Production API proxy cannot point to localhost. Set API_PROXY_URL, BACKEND_URL, INTERNAL_API_URL, or NEXT_PUBLIC_API_URL to the deployed backend URL."
     );
@@ -112,6 +116,23 @@ function isLoopbackUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function isHostedProductionBuild() {
+  return [
+    process.env.CI,
+    process.env.VERCEL,
+    process.env.NETLIFY,
+    process.env.RENDER,
+    process.env.RAILWAY_ENVIRONMENT,
+    process.env.FLY_APP_NAME,
+    process.env.AMPLIFY_APP_ID
+  ].some(isTruthyEnv);
+}
+
+function isTruthyEnv(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return Boolean(normalized && !["0", "false", "no", "off"].includes(normalized));
 }
 
 function localNetworkHosts() {
